@@ -1,0 +1,80 @@
+{
+  "person": {
+    "name": {
+      "given-names": {
+        "value": "Vibha"
+      },
+      "family-name": {
+        "value": "Patil"
+      }
+    },
+    "keywords": {
+      "keyword": [
+        {
+          "content": "graph neural networks"
+        },
+        {
+          "content": "fraud detection"
+        }
+      ]
+    }
+  },
+  "activities-summary": {
+    "employments": {
+      "employment-summary": [
+        {
+          "organization": {
+            "name": "College of Engineering Pune",
+            "address": {
+              "city": "Pune",
+              "country": "IN"
+            }
+          },
+          "department-name": "Department of Computer Engineering"
+        }
+      ]
+    },
+    "works": {
+      "group": [
+        {
+          "work-summary": [
+            {
+              "title": {
+                "title": {
+                  "value": "Graph Neural Networks for Financial Fraud"
+                }
+              },
+              "journal-title": {
+                "value": "IEEE Transactions on Neural Networks"
+              },
+              "publication-date": {
+                "year": {
+                  "value": "2018"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "work-summary": [
+            {
+              "title": {
+                "title": {
+                  "value": "Deep Anomaly Detection in Transaction Graphs"
+                }
+              },
+              "journal-title": {
+                "value": "ACM KDD Conference"
+              },
+              "publication-date": {
+                "year": {
+                  "value": "2021"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

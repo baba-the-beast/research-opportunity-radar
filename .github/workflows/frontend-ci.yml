@@ -1,0 +1,36 @@
+name: frontend-ci
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: Lint with ruff
+        run: ruff check .
+      - name: Smoke import check
+        run: python -c "import radar; from radar.orchestrator.pipeline import OpportunityPipeline; from radar.scoring.component_scorer import ComponentScorer; print('Smoke import OK')"
+      - name: Run Pytest Suite
+        env:
+          ALLOW_IN_MEMORY_DB: '1'
+          OPENALEX_API_KEY: 'ci-runner@example.org'
+        run: pytest
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: cd web && npm install
+      - run: cd web && npm test
+      - run: cd web && npm run build

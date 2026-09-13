@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.github
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.env.local
+.env
+tests
+scratch
+brain

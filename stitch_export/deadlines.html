@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Text:ital,wght@0,400;0,700;1,400&amp;family=Public+Sans:ital,wght@0,300..800;1,300..800&amp;family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+          "on-error": "#690005",
+          "on-secondary-fixed-variant": "#1d4f41",
+          "on-primary-container": "#412800",
+          "outline": "#9d8e7f",
+          "on-tertiary-fixed": "#3d0600",
+          "on-tertiary-container": "#5d0e00",
+          "primary-fixed": "#ffddb5",
+          "primary": "#f8bb6a",
+          "surface-container": "#1b2026",
+          "on-primary": "#462b00",
+          "on-secondary": "#00382b",
+          "primary-container": "#c08a3e",
+          "surface-container-highest": "#30353c",
+          "inverse-surface": "#dee3eb",
+          "on-primary-fixed": "#2a1800",
+          "surface-variant": "#30353c",
+          "tertiary": "#ffb4a3",
+          "tertiary-fixed": "#ffdad2",
+          "on-secondary-fixed": "#002118",
+          "primary-fixed-dim": "#f8bb6a",
+          "secondary-fixed": "#b9eeda",
+          "surface-container-low": "#171c22",
+          "inverse-primary": "#825509",
+          "on-background": "#dee3eb",
+          "tertiary-fixed-dim": "#ffb4a3",
+          "on-primary-fixed-variant": "#643f00",
+          "error": "#ffb4ab",
+          "on-surface-variant": "#d4c4b3",
+          "tertiary-container": "#eb7054",
+          "outline-variant": "#504538",
+          "on-surface": "#dee3eb",
+          "surface-container-high": "#252a31",
+          "on-secondary-container": "#90c3b0",
+          "on-tertiary": "#630f00",
+          "surface-tint": "#f8bb6a",
+          "surface": "#0f141a",
+          "surface-bright": "#353a40",
+          "secondary-container": "#205143",
+          "surface-container-lowest": "#0a0f14",
+          "surface-dim": "#0f141a",
+          "error-container": "#93000a",
+          "on-error-container": "#ffdad6",
+          "inverse-on-surface": "#2c3137",
+          "background": "#0f141a",
+          "secondary-fixed-dim": "#9ed1be",
+          "on-tertiary-fixed-variant": "#84250f",
+          "secondary": "#9ed1be"
+        },
+        "borderRadius": {
+          "DEFAULT": "0.25rem",
+          "lg": "0.5rem",
+          "xl": "0.75rem",
+          "full": "9999px"
+        },
+        "spacing": {
+          "space-sm": "0.5rem",
+          "space-2xl": "2rem",
+          "space-2xs": "0.125rem",
+          "margin-screen": "1.5rem",
+          "space-lg": "1rem",
+          "space-md": "0.75rem",
+          "space-xs": "0.25rem",
+          "gutter": "1px",
+          "space-xl": "1.5rem"
+        },
+        "fontFamily": {
+          "headline-md": [
+            "Libre Caslon Text"
+          ],
+          "body-lg": [
+            "Public Sans"
+          ],
+          "body-md": [
+            "Public Sans"
+          ],
+          "headline-xl": [
+            "Libre Caslon Text"
+          ],
+          "headline-lg": [
+            "Libre Caslon Text"
+          ],
+          "data-mono-md": [
+            "Space Mono"
+          ],
+          "headline-sm": [
+            "Libre Caslon Text"
+          ],
+          "data-mono-lg": [
+            "Space Mono"
+          ],
+          "data-mono-sm": [
+            "Space Mono"
+          ],
+          "body-sm": [
+            "Public Sans"
+          ],
+          "label-caps": [
+            "Space Mono"
+          ]
+        },
+        "fontSize": {
+          "headline-md": [
+            "19px",
+            {
+              "lineHeight": "26px",
+              "fontWeight": "400"
+            }
+          ],
+          "body-lg": [
+            "15px",
+            {
+              "lineHeight": "24px",
+              "fontWeight": "400"
+            }
+          ],
+          "body-md": [
+            "13px",
+            {
+              "lineHeight": "20px",
+              "fontWeight": "400"
+            }
+          ],
+          "headline-xl": [
+            "32px",
+            {
+              "lineHeight": "40px",
+              "fontWeight": "400"
+            }
+          ],
+          "headline-lg": [
+            "24px",
+            {
+              "lineHeight": "32px",
+              "fontWeight": "400"
+            }
+          ],
+          "data-mono-md": [
+            "12px",
+            {
+              "lineHeight": "16px",
+              "letterSpacing": "-0.01em",
+              "fontWeight": "400"
+            }
+          ],
+          "headline-sm": [
+            "16px",
+            {
+              "lineHeight": "22px",
+              "fontWeight": "700"
+            }
+          ],
+          "data-mono-lg": [
+            "15px",
+            {
+              "lineHeight": "20px",
+              "letterSpacing": "-0.02em",
+              "fontWeight": "700"
+            }
+          ],
+          "data-mono-sm": [
+            "10px",
+            {
+              "lineHeight": "14px",
+              "letterSpacing": "0.04em",
+              "fontWeight": "400"
+            }
+          ],
+          "body-sm": [
+            "12px",
+            {
+              "lineHeight": "18px",
+              "fontWeight": "400"
+            }
+          ],
+          "label-caps": [
+            "10px",
+            {
+              "lineHeight": "12px",
+              "letterSpacing": "0.08em",
+              "fontWeight": "700"
+            }
+          ]
+        }
+      },
+    },
+  }</script></head><body class="bg-background font-body-md text-on-surface antialiased selection:bg-primary-container selection:text-on-primary-container"><header class="fixed top-0 left-0 right-0 z-50 h-14 bg-surface-container-lowest/90 backdrop-blur-md border-b border-surface-container"><div class="h-14 w-full px-space-xl flex items-center justify-between"><div class="flex items-center gap-space-lg"><div class="flex items-center gap-space-md"><img alt="Brand logo. - Primary color: #c08a3e
+- Font: libreCaslonText
+- Mode: dark
+- Roundness: rounded-lg
+" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1UvTt30cH-zQAU1bTN2W-MO7XBP11oy7qGDh99DhltD4BzuT1Kjfb9XQWG3_Qswnwqg9PwF2_88fcJ-h0gEvpnNQnRuNfdpUFarDBKC20i5Cw-LxDKXsu-3Gpc-pitIL_CsF6y9ao9ipv21TvOwCTPWsmjO-DUQ7nuv-krAuMQy1HTVym9QKnrjNjQ55IlR6Jxu7dEOUvAJuizJof6N_4_lLZGEmV0igj6yLDP7RsfpQe1IgpH9hUN0GIg"/><span class="font-headline-sm text-headline-sm text-on-surface tracking-tight">Research Opportunity Radar</span></div><div class="h-4 w-px bg-outline-variant"></div><div class="flex items-center gap-space-xs font-data-mono-sm text-data-mono-sm text-on-surface-variant"><span class="w-1.5 h-1.5 rounded-full bg-primary-container inline-block"></span><span>last scanned: 2 days ago</span></div></div><div class="flex items-center gap-space-lg"><div class="flex items-center gap-space-sm font-data-mono-sm text-data-mono-sm text-on-surface-variant"><span class="material-symbols-outlined text-[16px] text-secondary">sensors</span><span class="tracking-wider uppercase">Telemetry Active</span></div><div class="h-4 w-px bg-outline-variant"></div><div class="flex items-center gap-space-md"><span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">FACULTY REF: #9104-ASTRO</span><img alt="Profile" class="w-8 h-8 rounded-full object-cover ring-1 ring-outline-variant" src="https://lh3.googleusercontent.com/aida/AEtjO1WZHKY8AlwYqefuG_TuEgZgUX_yHRIBEFMK6JJXLNzp_vxA20gcL3Le-XT99uM94jvdftyLvpLgtyd_MCZLf__gt9XCPWIyXJlykeiWgkezqTmoLSI1-EewbpyIqp3tz7E12r4UN4BIhERMCkohOW07oW1Fe1IzHC1ia_i4-mavfJ1aCTea62PghftdsYh4DDz2hNNNDWqPOQX7XjDMD9AXbAgHw4e1m0cP6VO2uw-QaVp4Ma1-C9Uqp1A"/></div></div></div></header><aside class="fixed left-0 top-14 h-[calc(100vh-3.5rem)] w-64 bg-surface-container-lowest border-r border-surface-container z-40 flex flex-col justify-between py-space-md"><div class="flex flex-col gap-space-xs"><div class="px-space-lg py-space-xs"><span class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">Observatory Instruments</span></div><nav class="flex flex-col" data-active-classes="bg-surface-container text-primary font-bold border-l-2 border-primary-container"><a class="flex items-center gap-space-md px-space-lg py-space-sm font-body-md text-body-md text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-colors" data-path="radar-feed" href="#"><span class="material-symbols-outlined text-[18px]">radar</span>Radar Feed</a><a class="flex items-center gap-space-md px-space-lg py-space-sm font-body-md text-body-md text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-colors" data-path="opportunity-detail" href="#"><span class="material-symbols-outlined text-[18px]">biotech</span>Opportunity Detail</a><a aria-current="page" class="flex items-center gap-space-md px-space-lg py-space-sm transition-colors bg-surface-container text-primary font-bold border-l-2 border-primary-container" data-path="deadlines" href="#"><span class="material-symbols-outlined text-[18px]">calendar_clock</span>Deadlines</a><a class="flex items-center gap-space-md px-space-lg py-space-sm font-body-md text-body-md text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-colors" data-path="profile" href="#"><span class="material-symbols-outlined text-[18px]">person_search</span>Profile</a><a class="flex items-center gap-space-md px-space-lg py-space-sm font-body-md text-body-md text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-colors" data-path="digests" href="#"><span class="material-symbols-outlined text-[18px]">auto_stories</span>Digests</a><a class="flex items-center gap-space-md px-space-lg py-space-sm font-body-md text-body-md text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-colors" data-path="activity" href="#"><span class="material-symbols-outlined text-[18px]">monitoring</span>Activity</a></nav></div><div class="px-space-lg py-space-sm border-t border-surface-container"><div class="flex items-center justify-between font-data-mono-sm text-data-mono-sm text-on-surface-variant"><span>RADAR INDEX</span><span class="text-secondary font-bold">98.4%</span></div><div class="w-full bg-surface-container-low h-1 mt-space-xs"><div class="bg-secondary h-1 w-[98.4%]"></div></div></div></aside><div class="pl-64"><main class="relative pt-14 min-h-screen bg-background"><div class="flex flex-col w-full">
+<div class="w-full bg-surface-container-lowest py-space-sm px-space-xl flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[15px] text-primary">calendar_month</span>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+        Feed Synchronizer:
+        <a class="text-primary underline hover:text-primary-fixed decoration-primary/40 underline-offset-2 transition-colors" href="webcal://radar.faculty.edu/feed.ics">
+          Subscribe to this calendar (webcal://radar.faculty.edu/feed.ics)
+        </a>
+</span>
+</div>
+<div class="flex items-center gap-space-lg">
+<div class="flex items-center gap-space-xs font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+<span class="w-2 h-2 bg-secondary inline-block"></span>
+<span>VERIFIED (4)</span>
+</div>
+<div class="flex items-center gap-space-xs font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+<span class="w-2 h-2 bg-outline-variant inline-block"></span>
+<span>PROBABLE (2)</span>
+</div>
+<div class="flex items-center gap-space-xs font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+<span class="w-2 h-2 bg-error inline-block"></span>
+<span>CRITICAL &lt;7D</span>
+</div>
+</div>
+</div>
+<div class="w-full px-space-xl py-space-xl">
+<div class="flex flex-col lg:flex-row gap-space-2xl items-start">
+<div class="flex-1 w-full max-w-4xl">
+<div class="flex items-baseline justify-between mb-space-xl">
+<div>
+<span class="font-label-caps text-label-caps text-on-surface-variant tracking-widest block uppercase">Temporal Ledger // Sequence Vector</span>
+<h1 class="font-headline-lg text-headline-lg text-on-surface tracking-tight mt-space-2xs">Target Submission Horizons</h1>
+</div>
+<div class="font-data-mono-sm text-data-mono-sm text-on-surface-variant text-right">
+<span>HORIZON WINDOW: OCT 2025 – JAN 2026</span>
+<span class="block text-primary">CYCLE 24-B ACTIVE</span>
+</div>
+</div>
+<div class="relative pl-6 lg:pl-10">
+<div class="absolute left-2.5 top-2 bottom-6 w-px bg-surface-container"></div>
+<div class="relative mb-space-2xl">
+<div class="flex items-center gap-space-md mb-space-lg">
+<div class="absolute -left-[18px] lg:-left-[34px] flex items-center justify-center w-6 h-6 bg-surface">
+<span class="w-2 h-2 bg-primary"></span>
+</div>
+<h2 class="font-headline-md text-headline-md uppercase tracking-wider text-primary">
+                October 2025
+              </h2>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">// Q4 OBSERVATION INSET</span>
+</div>
+<div class="space-y-space-md">
+<div class="relative group bg-surface-container-low hover:bg-surface-container p-space-md transition-colors">
+<div class="absolute -left-6 lg:-left-10 top-5 w-2 h-2 bg-error"></div>
+<div class="flex flex-col md:flex-row md:items-baseline justify-between gap-space-sm mb-space-xs">
+<div class="flex flex-wrap items-center gap-space-sm">
+<span class="font-data-mono-md text-data-mono-md text-on-surface font-bold">OCT 12, 2025</span>
+<span class="px-space-xs py-space-2xs bg-error-container/30 text-error font-data-mono-sm text-data-mono-sm tracking-wider uppercase font-bold">
+                      5 DAYS LEFT
+                    </span>
+<span class="px-space-xs py-space-2xs bg-secondary-container/20 text-secondary font-data-mono-sm text-data-mono-sm tracking-wider uppercase">
+                      [confirmed]
+                    </span>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">
+                      Kind: Funding
+                    </span>
+</div>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">REQ: FULL PROPOSAL</span>
+</div>
+<div class="flex items-baseline justify-between gap-space-md">
+<a class="font-body-lg text-body-lg text-on-surface font-semibold hover:text-primary transition-colors flex items-center gap-space-xs" href="#">
+                    NSF Cyber-Physical Systems (CPS) Frontier Research Grant
+                    <span class="material-symbols-outlined text-[16px] opacity-0 group-hover:opacity-100 text-primary transition-opacity">arrow_outward</span>
+</a>
+<span class="font-data-mono-md text-data-mono-md text-secondary font-bold shrink-0">$7,000,000</span>
+</div>
+<div class="mt-space-xs pt-space-xs flex items-center justify-between text-on-surface-variant font-data-mono-sm text-data-mono-sm">
+<span>REF: NSF-25-502 // PI: DR. A. CHEN, ET AL.</span>
+<span class="text-error uppercase">INTERNAL ROUTING: OSP APPROVED (STAGE 3)</span>
+</div>
+</div>
+<div class="relative group bg-surface-container-low hover:bg-surface-container p-space-md transition-colors">
+<div class="absolute -left-6 lg:-left-10 top-5 w-2 h-2 bg-primary"></div>
+<div class="flex flex-col md:flex-row md:items-baseline justify-between gap-space-sm mb-space-xs">
+<div class="flex flex-wrap items-center gap-space-sm">
+<span class="font-data-mono-md text-data-mono-md text-on-surface font-bold">OCT 24, 2025</span>
+<span class="px-space-xs py-space-2xs bg-primary-container/20 text-primary font-data-mono-sm text-data-mono-sm tracking-wider uppercase font-bold">
+                      17 DAYS LEFT
+                    </span>
+<span class="px-space-xs py-space-2xs bg-secondary-container/20 text-secondary font-data-mono-sm text-data-mono-sm tracking-wider uppercase">
+                      [confirmed]
+                    </span>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">
+                      Kind: Conference
+                    </span>
+</div>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">ACCEPTED FORMAT: ACM SIG</span>
+</div>
+<div class="flex items-baseline justify-between gap-space-md">
+<a class="font-body-lg text-body-lg text-on-surface font-semibold hover:text-primary transition-colors flex items-center gap-space-xs" href="#">
+                    ACM/IEEE ICCPS 2025: Technical Papers Submission
+                    <span class="material-symbols-outlined text-[16px] opacity-0 group-hover:opacity-100 text-primary transition-opacity">arrow_outward</span>
+</a>
+<span class="font-data-mono-md text-data-mono-md text-on-surface-variant shrink-0">TIER-1 ARCHIVAL</span>
+</div>
+<div class="mt-space-xs pt-space-xs flex items-center justify-between text-on-surface-variant font-data-mono-sm text-data-mono-sm">
+<span>LOCATION: IRVINE, CA // CPS-IOT WEEK</span>
+<span class="text-primary-fixed-dim">COLLABORATIVE AUTHORING ACTIVE (OVERLEAF: #409)</span>
+</div>
+</div>
+</div>
+</div>
+<div class="relative mb-space-2xl">
+<div class="flex items-center gap-space-md mb-space-lg">
+<div class="absolute -left-[18px] lg:-left-[34px] flex items-center justify-center w-6 h-6 bg-surface">
+<span class="w-2 h-2 bg-surface-container-highest"></span>
+</div>
+<h2 class="font-headline-md text-headline-md uppercase tracking-wider text-on-surface">
+                November 2025
+              </h2>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">// AUTUMN SOLSTICE CYCLE</span>
+</div>
+<div class="space-y-space-md">
+<div class="relative group bg-surface-container-low hover:bg-surface-container p-space-md transition-colors">
+<div class="absolute -left-6 lg:-left-10 top-5 w-2 h-2 bg-primary"></div>
+<div class="flex flex-col md:flex-row md:items-baseline justify-between gap-space-sm mb-space-xs">
+<div class="flex flex-wrap items-center gap-space-sm">
+<span class="font-data-mono-md text-data-mono-md text-on-surface font-bold">NOV 05, 2025</span>
+<span class="px-space-xs py-space-2xs bg-primary-container/20 text-primary font-data-mono-sm text-data-mono-sm tracking-wider uppercase font-bold">
+                      29 DAYS LEFT
+                    </span>
+<span class="px-space-xs py-space-2xs bg-surface-container-high text-on-surface-variant font-data-mono-sm text-data-mono-sm tracking-wider uppercase border-b border-dotted border-on-surface-variant">
+                      [probable]
+                    </span>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">
+                      Kind: Funding
+                    </span>
+</div>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">FULL PROPOSAL (BY INVITATION)</span>
+</div>
+<div class="flex items-baseline justify-between gap-space-md">
+<a class="font-body-lg text-body-lg text-on-surface font-semibold hover:text-primary transition-colors flex items-center gap-space-xs" href="#">
+                    DARPA Sensor Networks YFA Full Proposal
+                    <span class="material-symbols-outlined text-[16px] opacity-0 group-hover:opacity-100 text-primary transition-opacity">arrow_outward</span>
+</a>
+<span class="font-data-mono-md text-data-mono-md text-secondary font-bold shrink-0">$1,000,000</span>
+</div>
+<div class="mt-space-xs pt-space-xs flex items-center justify-between text-on-surface-variant font-data-mono-sm text-data-mono-sm">
+<span>DISC: DEFENSE ADVANCED RESEARCH PROJECTS // BAA-25-YFA</span>
+<span class="text-on-surface-variant">CONCEPT EXECUTIVE SUMMARY SUBMITTED</span>
+</div>
+</div>
+<div class="relative group bg-surface-container-low hover:bg-surface-container p-space-md transition-colors">
+<div class="absolute -left-6 lg:-left-10 top-5 w-2 h-2 bg-outline-variant"></div>
+<div class="flex flex-col md:flex-row md:items-baseline justify-between gap-space-sm mb-space-xs">
+<div class="flex flex-wrap items-center gap-space-sm">
+<span class="font-data-mono-md text-data-mono-md text-on-surface font-bold">NOV 28, 2025</span>
+<span class="px-space-xs py-space-2xs bg-surface-container text-on-surface-variant font-data-mono-sm text-data-mono-sm tracking-wider uppercase">
+                      52 DAYS LEFT
+                    </span>
+<span class="px-space-xs py-space-2xs bg-secondary-container/20 text-secondary font-data-mono-sm text-data-mono-sm tracking-wider uppercase">
+                      [confirmed]
+                    </span>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">
+                      Kind: Journal
+                    </span>
+</div>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">FULL PAPER SUBMISSION</span>
+</div>
+<div class="flex items-baseline justify-between gap-space-md">
+<a class="font-body-lg text-body-lg text-on-surface font-semibold hover:text-primary transition-colors flex items-center gap-space-xs" href="#">
+                    IEEE TCPS Special Issue on Resilient Real-Time Edge Intelligence
+                    <span class="material-symbols-outlined text-[16px] opacity-0 group-hover:opacity-100 text-primary transition-opacity">arrow_outward</span>
+</a>
+<span class="font-data-mono-md text-data-mono-md text-on-surface-variant shrink-0">IEEE TRANSACTIONS</span>
+</div>
+<div class="mt-space-xs pt-space-xs flex items-center justify-between text-on-surface-variant font-data-mono-sm text-data-mono-sm">
+<span>GUEST EDITORS: PROF. H. KAUFMAN, PROF. S. LIN</span>
+<span class="text-on-surface-variant">DRAFT READINESS: 45%</span>
+</div>
+</div>
+</div>
+</div>
+<div class="relative mb-space-2xl">
+<div class="flex items-center gap-space-md mb-space-lg">
+<div class="absolute -left-[18px] lg:-left-[34px] flex items-center justify-center w-6 h-6 bg-surface">
+<span class="w-2 h-2 bg-surface-container-highest"></span>
+</div>
+<h2 class="font-headline-md text-headline-md uppercase tracking-wider text-on-surface">
+                December 2025
+              </h2>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">// END CYCLE ARCHIVE</span>
+</div>
+<div class="space-y-space-md">
+<div class="relative group bg-surface-container-low hover:bg-surface-container p-space-md transition-colors">
+<div class="absolute -left-6 lg:-left-10 top-5 w-2 h-2 bg-outline-variant"></div>
+<div class="flex flex-col md:flex-row md:items-baseline justify-between gap-space-sm mb-space-xs">
+<div class="flex flex-wrap items-center gap-space-sm">
+<span class="font-data-mono-md text-data-mono-md text-on-surface font-bold">DEC 15, 2025</span>
+<span class="px-space-xs py-space-2xs bg-surface-container text-on-surface-variant font-data-mono-sm text-data-mono-sm tracking-wider uppercase">
+                      69 DAYS LEFT
+                    </span>
+<span class="px-space-xs py-space-2xs bg-secondary-container/20 text-secondary font-data-mono-sm text-data-mono-sm tracking-wider uppercase">
+                      [confirmed]
+                    </span>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">
+                      Kind: Conference
+                    </span>
+</div>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">WORKSHOP PROPOSAL</span>
+</div>
+<div class="flex items-baseline justify-between gap-space-md">
+<a class="font-body-lg text-body-lg text-on-surface font-semibold hover:text-primary transition-colors flex items-center gap-space-xs" href="#">
+                    Robotics: Science and Systems (RSS 2026) Workshop Proposals
+                    <span class="material-symbols-outlined text-[16px] opacity-0 group-hover:opacity-100 text-primary transition-opacity">arrow_outward</span>
+</a>
+<span class="font-data-mono-md text-data-mono-md text-on-surface-variant shrink-0">ANNUAL SYMPOSIUM</span>
+</div>
+<div class="mt-space-xs pt-space-xs flex items-center justify-between text-on-surface-variant font-data-mono-sm text-data-mono-sm">
+<span>CALL: AUTONOMOUS AERIAL INTERACTION LAB</span>
+<span class="text-on-surface-variant">COLLABORATOR RSVP: 3/5 SECURED</span>
+</div>
+</div>
+</div>
+</div>
+<div class="relative mb-space-2xl">
+<div class="flex items-center gap-space-md mb-space-lg">
+<div class="absolute -left-[18px] lg:-left-[34px] flex items-center justify-center w-6 h-6 bg-surface">
+<span class="w-2 h-2 bg-surface-container-highest"></span>
+</div>
+<h2 class="font-headline-md text-headline-md uppercase tracking-wider text-on-surface">
+                January 2026
+              </h2>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">// FISCAL YEAR 2026 LAUNCH</span>
+</div>
+<div class="space-y-space-md">
+<div class="relative group bg-surface-container-low hover:bg-surface-container p-space-md transition-colors">
+<div class="absolute -left-6 lg:-left-10 top-5 w-2 h-2 bg-outline-variant"></div>
+<div class="flex flex-col md:flex-row md:items-baseline justify-between gap-space-sm mb-space-xs">
+<div class="flex flex-wrap items-center gap-space-sm">
+<span class="font-data-mono-md text-data-mono-md text-on-surface font-bold">JAN 20, 2026</span>
+<span class="px-space-xs py-space-2xs bg-surface-container text-on-surface-variant font-data-mono-sm text-data-mono-sm tracking-wider uppercase">
+                      105 DAYS LEFT
+                    </span>
+<span class="px-space-xs py-space-2xs bg-surface-container-high text-on-surface-variant font-data-mono-sm text-data-mono-sm tracking-wider uppercase">
+                      [probable]
+                    </span>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">
+                      Kind: Funding
+                    </span>
+</div>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">INTERNATIONAL ADVANCED</span>
+</div>
+<div class="flex items-baseline justify-between gap-space-md">
+<a class="font-body-lg text-body-lg text-on-surface font-semibold hover:text-primary transition-colors flex items-center gap-space-xs" href="#">
+                    European Research Council (ERC) Consolidator Grant
+                    <span class="material-symbols-outlined text-[16px] opacity-0 group-hover:opacity-100 text-primary transition-opacity">arrow_outward</span>
+</a>
+<span class="font-data-mono-md text-data-mono-md text-secondary font-bold shrink-0">€2,000,000</span>
+</div>
+<div class="mt-space-xs pt-space-xs flex items-center justify-between text-on-surface-variant font-data-mono-sm text-data-mono-sm">
+<span>DISC: HORIZON EUROPE // COG-2026</span>
+<span class="text-on-surface-variant">ELIGIBILITY CHECK PASSED (HOST INST: VALIDATED)</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="w-full lg:w-80 flex flex-col gap-space-lg shrink-0">
+<div class="bg-surface-container-low p-space-md">
+<div class="flex items-center justify-between mb-space-sm">
+<span class="font-label-caps text-label-caps text-on-surface-variant tracking-wider uppercase">Chronometer Calibration</span>
+<span class="font-data-mono-sm text-data-mono-sm text-primary">UTC-07:00</span>
+</div>
+<div class="p-space-sm bg-surface-container mb-space-md">
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant block uppercase">Next Critical Milestones</span>
+<span class="font-data-mono-lg text-data-mono-lg text-error block mt-space-2xs">04d : 18h : 32m : 08s</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant block mt-space-2xs">NSF Cyber-Physical Systems Frontier</span>
+</div>
+<div class="space-y-space-xs font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+<div class="flex justify-between py-space-2xs">
+<span>Total Open Pipelines</span>
+<span class="text-on-surface font-bold">6 Target Records</span>
+</div>
+<div class="flex justify-between py-space-2xs">
+<span>Aggregated Funding Pool</span>
+<span class="text-secondary font-bold">$10.2M Equiv.</span>
+</div>
+<div class="flex justify-between py-space-2xs">
+<span>OSP Sign-off Pending</span>
+<span class="text-primary font-bold">1 File (NSF-CPS)</span>
+</div>
+<div class="flex justify-between py-space-2xs">
+<span>Calendar Feed Telemetry</span>
+<span class="text-secondary font-bold">Synced (03m ago)</span>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-low p-space-md">
+<span class="font-label-caps text-label-caps text-on-surface-variant tracking-wider uppercase block mb-space-sm">Submission Distribution</span>
+<div class="w-full h-32 flex items-center justify-center">
+<svg class="w-full h-full" fill="none" viewbox="0 0 240 100">
+<line class="text-surface-container-highest" stroke="currentColor" stroke-dasharray="2 2" x1="10" x2="230" y1="80" y2="80"></line>
+<line class="text-surface-container-highest" stroke="currentColor" stroke-dasharray="2 2" x1="10" x2="230" y1="45" y2="45"></line>
+<line class="text-surface-container-highest" stroke="currentColor" stroke-dasharray="2 2" x1="10" x2="230" y1="10" y2="10"></line>
+<rect class="fill-error" height="50" width="22" x="30" y="30"></rect>
+<rect class="fill-primary" height="35" width="22" x="75" y="45"></rect>
+<rect class="fill-primary" height="35" width="22" x="120" y="45"></rect>
+<rect class="fill-outline-variant" height="15" width="22" x="165" y="65"></rect>
+<rect class="fill-outline-variant" height="15" width="22" x="200" y="65"></rect>
+<text class="fill-on-surface-variant text-[8px] font-mono" text-anchor="middle" x="41" y="93">OCT</text>
+<text class="fill-on-surface-variant text-[8px] font-mono" text-anchor="middle" x="86" y="93">OCT</text>
+<text class="fill-on-surface-variant text-[8px] font-mono" text-anchor="middle" x="131" y="93">NOV</text>
+<text class="fill-on-surface-variant text-[8px] font-mono" text-anchor="middle" x="176" y="93">DEC</text>
+<text class="fill-on-surface-variant text-[8px] font-mono" text-anchor="middle" x="211" y="93">JAN</text>
+</svg>
+</div>
+<div class="mt-space-xs flex justify-between font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+<span>High Intensity Zone</span>
+<span class="text-primary font-bold">Oct 12 – Nov 05</span>
+</div>
+</div>
+<div class="bg-surface-container-low p-space-md">
+<span class="font-label-caps text-label-caps text-on-surface-variant tracking-wider uppercase block mb-space-xs">Export Protocols</span>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-space-sm">
+            Export all targets to standardized scholarly bibtex dossiers, NSF biographical sketch manifests, or .ICS calendars.
+          </p>
+<div class="flex flex-col gap-space-xs">
+<button class="w-full py-space-xs px-space-sm bg-surface-container hover:bg-surface-container-high text-on-surface text-left font-data-mono-sm text-data-mono-sm flex items-center justify-between transition-colors">
+<span>EXPORT TO ENDNOTE / BIBTEX</span>
+<span class="material-symbols-outlined text-[14px]">file_download</span>
+</button>
+<button class="w-full py-space-xs px-space-sm bg-surface-container hover:bg-surface-container-high text-on-surface text-left font-data-mono-sm text-data-mono-sm flex items-center justify-between transition-colors">
+<span>SYNC ORCID SCHEDULER</span>
+<span class="material-symbols-outlined text-[14px]">sync</span>
+</button>
+<button class="w-full py-space-xs px-space-sm bg-surface-container hover:bg-surface-container-high text-on-surface text-left font-data-mono-sm text-data-mono-sm flex items-center justify-between transition-colors">
+<span>OSP COMPLIANCE PACK (.ZIP)</span>
+<span class="material-symbols-outlined text-[14px]">archive</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div></main></div></body></html>

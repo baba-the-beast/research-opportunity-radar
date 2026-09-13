@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Text:ital,wght@0,400;0,700;1,400&amp;family=Public+Sans:ital,wght@0,300..800;1,300..800&amp;family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+          "on-error": "#690005",
+          "on-secondary-fixed-variant": "#1d4f41",
+          "on-primary-container": "#412800",
+          "outline": "#9d8e7f",
+          "on-tertiary-fixed": "#3d0600",
+          "on-tertiary-container": "#5d0e00",
+          "primary-fixed": "#ffddb5",
+          "primary": "#f8bb6a",
+          "surface-container": "#1b2026",
+          "on-primary": "#462b00",
+          "on-secondary": "#00382b",
+          "primary-container": "#c08a3e",
+          "surface-container-highest": "#30353c",
+          "inverse-surface": "#dee3eb",
+          "on-primary-fixed": "#2a1800",
+          "surface-variant": "#30353c",
+          "tertiary": "#ffb4a3",
+          "tertiary-fixed": "#ffdad2",
+          "on-secondary-fixed": "#002118",
+          "primary-fixed-dim": "#f8bb6a",
+          "secondary-fixed": "#b9eeda",
+          "surface-container-low": "#171c22",
+          "inverse-primary": "#825509",
+          "on-background": "#dee3eb",
+          "tertiary-fixed-dim": "#ffb4a3",
+          "on-primary-fixed-variant": "#643f00",
+          "error": "#ffb4ab",
+          "on-surface-variant": "#d4c4b3",
+          "tertiary-container": "#eb7054",
+          "outline-variant": "#504538",
+          "on-surface": "#dee3eb",
+          "surface-container-high": "#252a31",
+          "on-secondary-container": "#90c3b0",
+          "on-tertiary": "#630f00",
+          "surface-tint": "#f8bb6a",
+          "surface": "#0f141a",
+          "surface-bright": "#353a40",
+          "secondary-container": "#205143",
+          "surface-container-lowest": "#0a0f14",
+          "surface-dim": "#0f141a",
+          "error-container": "#93000a",
+          "on-error-container": "#ffdad6",
+          "inverse-on-surface": "#2c3137",
+          "background": "#0f141a",
+          "secondary-fixed-dim": "#9ed1be",
+          "on-tertiary-fixed-variant": "#84250f",
+          "secondary": "#9ed1be"
+        },
+        "borderRadius": {
+          "DEFAULT": "0.25rem",
+          "lg": "0.5rem",
+          "xl": "0.75rem",
+          "full": "9999px"
+        },
+        "spacing": {
+          "space-sm": "0.5rem",
+          "space-2xl": "2rem",
+          "space-2xs": "0.125rem",
+          "margin-screen": "1.5rem",
+          "space-lg": "1rem",
+          "space-md": "0.75rem",
+          "space-xs": "0.25rem",
+          "gutter": "1px",
+          "space-xl": "1.5rem"
+        },
+        "fontFamily": {
+          "headline-md": [
+            "Libre Caslon Text"
+          ],
+          "body-lg": [
+            "Public Sans"
+          ],
+          "body-md": [
+            "Public Sans"
+          ],
+          "headline-xl": [
+            "Libre Caslon Text"
+          ],
+          "headline-lg": [
+            "Libre Caslon Text"
+          ],
+          "data-mono-md": [
+            "Space Mono"
+          ],
+          "headline-sm": [
+            "Libre Caslon Text"
+          ],
+          "data-mono-lg": [
+            "Space Mono"
+          ],
+          "data-mono-sm": [
+            "Space Mono"
+          ],
+          "body-sm": [
+            "Public Sans"
+          ],
+          "label-caps": [
+            "Space Mono"
+          ]
+        },
+        "fontSize": {
+          "headline-md": [
+            "19px",
+            {
+              "lineHeight": "26px",
+              "fontWeight": "400"
+            }
+          ],
+          "body-lg": [
+            "15px",
+            {
+              "lineHeight": "24px",
+              "fontWeight": "400"
+            }
+          ],
+          "body-md": [
+            "13px",
+            {
+              "lineHeight": "20px",
+              "fontWeight": "400"
+            }
+          ],
+          "headline-xl": [
+            "32px",
+            {
+              "lineHeight": "40px",
+              "fontWeight": "400"
+            }
+          ],
+          "headline-lg": [
+            "24px",
+            {
+              "lineHeight": "32px",
+              "fontWeight": "400"
+            }
+          ],
+          "data-mono-md": [
+            "12px",
+            {
+              "lineHeight": "16px",
+              "letterSpacing": "-0.01em",
+              "fontWeight": "400"
+            }
+          ],
+          "headline-sm": [
+            "16px",
+            {
+              "lineHeight": "22px",
+              "fontWeight": "700"
+            }
+          ],
+          "data-mono-lg": [
+            "15px",
+            {
+              "lineHeight": "20px",
+              "letterSpacing": "-0.02em",
+              "fontWeight": "700"
+            }
+          ],
+          "data-mono-sm": [
+            "10px",
+            {
+              "lineHeight": "14px",
+              "letterSpacing": "0.04em",
+              "fontWeight": "400"
+            }
+          ],
+          "body-sm": [
+            "12px",
+            {
+              "lineHeight": "18px",
+              "fontWeight": "400"
+            }
+          ],
+          "label-caps": [
+            "10px",
+            {
+              "lineHeight": "12px",
+              "letterSpacing": "0.08em",
+              "fontWeight": "700"
+            }
+          ]
+        }
+      },
+    },
+  }</script></head><body class="bg-background font-body-md text-on-surface antialiased selection:bg-primary-container selection:text-on-primary-container"><header class="fixed top-0 left-0 right-0 z-50 h-14 bg-surface-container-lowest/90 backdrop-blur-md border-b border-surface-container"><div class="h-14 w-full px-space-xl flex items-center justify-between"><div class="flex items-center gap-space-lg"><div class="flex items-center gap-space-md"><img alt="Brand logo. - Primary color: #c08a3e
+- Font: libreCaslonText
+- Mode: dark
+- Roundness: rounded-lg
+" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1UvTt30cH-zQAU1bTN2W-MO7XBP11oy7qGDh99DhltD4BzuT1Kjfb9XQWG3_Qswnwqg9PwF2_88fcJ-h0gEvpnNQnRuNfdpUFarDBKC20i5Cw-LxDKXsu-3Gpc-pitIL_CsF6y9ao9ipv21TvOwCTPWsmjO-DUQ7nuv-krAuMQy1HTVym9QKnrjNjQ55IlR6Jxu7dEOUvAJuizJof6N_4_lLZGEmV0igj6yLDP7RsfpQe1IgpH9hUN0GIg"/><span class="font-headline-sm text-headline-sm text-on-surface tracking-tight">Research Opportunity Radar</span></div><div class="h-4 w-px bg-outline-variant"></div><div class="flex items-center gap-space-xs font-data-mono-sm text-data-mono-sm text-on-surface-variant"><span class="w-1.5 h-1.5 rounded-full bg-primary-container inline-block"></span><span>last scanned: 2 days ago</span></div></div><div class="flex items-center gap-space-lg"><div class="flex items-center gap-space-sm font-data-mono-sm text-data-mono-sm text-on-surface-variant"><span class="material-symbols-outlined text-[16px] text-secondary">sensors</span><span class="tracking-wider uppercase">Telemetry Active</span></div><div class="h-4 w-px bg-outline-variant"></div><div class="flex items-center gap-space-md"><span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">FACULTY REF: #9104-ASTRO</span><img alt="Profile" class="w-8 h-8 rounded-full object-cover ring-1 ring-outline-variant" src="https://lh3.googleusercontent.com/aida/AEtjO1WZHKY8AlwYqefuG_TuEgZgUX_yHRIBEFMK6JJXLNzp_vxA20gcL3Le-XT99uM94jvdftyLvpLgtyd_MCZLf__gt9XCPWIyXJlykeiWgkezqTmoLSI1-EewbpyIqp3tz7E12r4UN4BIhERMCkohOW07oW1Fe1IzHC1ia_i4-mavfJ1aCTea62PghftdsYh4DDz2hNNNDWqPOQX7XjDMD9AXbAgHw4e1m0cP6VO2uw-QaVp4Ma1-C9Uqp1A"/></div></div></div></header><aside class="fixed left-0 top-14 h-[calc(100vh-3.5rem)] w-64 bg-surface-container-lowest border-r border-surface-container z-40 flex flex-col justify-between py-space-md"><div class="flex flex-col gap-space-xs"><div class="px-space-lg py-space-xs"><span class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">Observatory Instruments</span></div><nav class="flex flex-col" data-active-classes="bg-surface-container text-primary font-bold border-l-2 border-primary-container"><a class="flex items-center gap-space-md px-space-lg py-space-sm font-body-md text-body-md text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-colors" data-path="radar-feed" href="#"><span class="material-symbols-outlined text-[18px]">radar</span>Radar Feed</a><a aria-current="page" class="flex items-center gap-space-md px-space-lg py-space-sm transition-colors bg-surface-container text-primary font-bold border-l-2 border-primary-container" data-path="opportunity-detail" href="#"><span class="material-symbols-outlined text-[18px]">biotech</span>Opportunity Detail</a><a class="flex items-center gap-space-md px-space-lg py-space-sm font-body-md text-body-md text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-colors" data-path="deadlines" href="#"><span class="material-symbols-outlined text-[18px]">calendar_clock</span>Deadlines</a><a class="flex items-center gap-space-md px-space-lg py-space-sm font-body-md text-body-md text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-colors" data-path="profile" href="#"><span class="material-symbols-outlined text-[18px]">person_search</span>Profile</a><a class="flex items-center gap-space-md px-space-lg py-space-sm font-body-md text-body-md text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-colors" data-path="digests" href="#"><span class="material-symbols-outlined text-[18px]">auto_stories</span>Digests</a><a class="flex items-center gap-space-md px-space-lg py-space-sm font-body-md text-body-md text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface transition-colors" data-path="activity" href="#"><span class="material-symbols-outlined text-[18px]">monitoring</span>Activity</a></nav></div><div class="px-space-lg py-space-sm border-t border-surface-container"><div class="flex items-center justify-between font-data-mono-sm text-data-mono-sm text-on-surface-variant"><span>RADAR INDEX</span><span class="text-secondary font-bold">98.4%</span></div><div class="w-full bg-surface-container-low h-1 mt-space-xs"><div class="bg-secondary h-1 w-[98.4%]"></div></div></div></aside><div class="pl-64"><main class="relative pt-14 min-h-screen bg-background"><div class="flex flex-col w-full">
+<div class="w-full bg-surface-container-lowest border-b border-surface-container">
+<div class="px-space-xl py-space-sm flex flex-wrap items-center justify-between gap-space-md text-data-mono-sm font-data-mono-sm text-on-surface-variant">
+<div class="flex items-center gap-space-sm">
+<a class="hover:text-primary transition-colors flex items-center gap-space-2xs text-on-surface-variant" href="#">
+<span class="material-symbols-outlined text-[14px]">arrow_back</span>
+<span>RADAR STREAM</span>
+</a>
+<span class="text-outline-variant">/</span>
+<span class="text-on-surface">RECORD #TCPS-2025-0881</span>
+</div>
+<div class="flex items-center gap-space-lg">
+<span class="flex items-center gap-space-2xs">
+<span class="w-1.5 h-1.5 bg-secondary"></span>
+<span>INGESTION STATUS: VERIFIED</span>
+</span>
+<span class="text-outline-variant">|</span>
+<span>INDEX ARCHIVE: IEEE-CPS-V9</span>
+</div>
+</div>
+</div>
+<div class="w-full px-space-xl py-space-xl bg-background">
+<div class="max-w-5xl mx-auto flex flex-col gap-space-2xl">
+<div class="bg-surface-container-low p-space-xl">
+<div class="flex flex-col md:flex-row md:items-start justify-between gap-space-xl">
+<div class="flex-1 flex flex-col gap-space-md">
+<div class="flex flex-wrap items-center gap-space-sm">
+<span class="inline-flex items-center px-space-sm py-space-2xs bg-surface-container-highest text-on-surface font-body-sm text-body-sm uppercase tracking-wider font-semibold">
+                JOURNAL SPECIAL ISSUE
+              </span>
+<span class="text-data-mono-sm font-data-mono-sm text-on-surface-variant">
+                ISSN 2378-0967 · Impact Factor 5.2
+              </span>
+</div>
+<h1 class="font-headline-xl text-headline-xl text-on-surface leading-tight">
+              IEEE Transactions on Cyber-Physical Systems: Special Issue on Resilient Real-Time Edge Intelligence
+            </h1>
+<div class="flex flex-wrap items-center gap-x-space-lg gap-y-space-xs font-data-mono-sm text-data-mono-sm text-on-surface-variant pt-space-xs">
+<span>TARGET FACULTY: <strong class="text-on-surface font-bold">A. Vance (Dept. Electrical Eng.)</strong></span>
+<span>·</span>
+<span>CLASSIFICATION: <strong class="text-on-surface font-bold">CFP-SPECIAL-ED</strong></span>
+<span>·</span>
+<span>DISCIPLINE: <strong class="text-on-surface font-bold">CPS / Distributed ML</strong></span>
+</div>
+</div>
+<div class="flex md:flex-col items-baseline md:items-end justify-between md:justify-start gap-space-xs bg-surface-container-lowest px-space-lg py-space-md min-w-[160px]">
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">Relevance Score</span>
+<div class="flex items-baseline gap-space-xs">
+<span class="font-data-mono-lg text-headline-xl font-bold text-on-surface tracking-tight">82</span>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">/100</span>
+</div>
+<div class="flex items-center gap-space-2xs px-space-xs py-space-2xs bg-secondary-container/20">
+<span class="w-1.5 h-1.5 bg-secondary inline-block"></span>
+<span class="font-data-mono-sm text-data-mono-sm font-bold text-secondary tracking-widest uppercase">BAND: HIGH</span>
+</div>
+</div>
+</div>
+</div>
+<section class="flex flex-col gap-space-md">
+<div class="flex items-center justify-between pb-space-xs border-b border-surface-container-high">
+<div class="flex items-center gap-space-sm">
+<span class="font-data-mono-sm text-data-mono-sm text-primary font-bold">01</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface tracking-wide uppercase">Why This Matched (Score Explanation)</h2>
+</div>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">CONFIDENCE CALIBRATION: α = 0.05</span>
+</div>
+<div class="bg-surface-container-low p-space-lg flex flex-col gap-space-md">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-x-space-2xl gap-y-space-md">
+<div class="flex flex-col gap-space-2xs">
+<div class="flex justify-between items-center font-data-mono-sm text-data-mono-sm">
+<span class="text-on-surface-variant">Topic similarity</span>
+<span class="text-secondary font-bold">0.89</span>
+</div>
+<div class="w-full bg-surface-container-lowest h-1.5">
+<div class="bg-secondary h-1.5 w-[89%]"></div>
+</div>
+</div>
+<div class="flex flex-col gap-space-2xs">
+<div class="flex justify-between items-center font-data-mono-sm text-data-mono-sm">
+<span class="text-on-surface-variant">Exact term match</span>
+<span class="text-secondary font-bold">0.94</span>
+</div>
+<div class="w-full bg-surface-container-lowest h-1.5">
+<div class="bg-secondary h-1.5 w-[94%]"></div>
+</div>
+</div>
+<div class="flex flex-col gap-space-2xs">
+<div class="flex justify-between items-center font-data-mono-sm text-data-mono-sm">
+<span class="text-on-surface-variant">Method match</span>
+<span class="text-secondary font-bold">0.81</span>
+</div>
+<div class="w-full bg-surface-container-lowest h-1.5">
+<div class="bg-secondary h-1.5 w-[81%]"></div>
+</div>
+</div>
+<div class="flex flex-col gap-space-2xs">
+<div class="flex justify-between items-center font-data-mono-sm text-data-mono-sm">
+<span class="text-on-surface-variant">Application match</span>
+<span class="text-primary font-bold">0.76</span>
+</div>
+<div class="w-full bg-surface-container-lowest h-1.5">
+<div class="bg-primary-container h-1.5 w-[76%]"></div>
+</div>
+</div>
+<div class="flex flex-col gap-space-2xs">
+<div class="flex justify-between items-center font-data-mono-sm text-data-mono-sm">
+<span class="text-on-surface-variant">Venue/funder fit</span>
+<span class="text-secondary font-bold">0.88</span>
+</div>
+<div class="w-full bg-surface-container-lowest h-1.5">
+<div class="bg-secondary h-1.5 w-[88%]"></div>
+</div>
+</div>
+<div class="flex flex-col gap-space-2xs">
+<div class="flex justify-between items-center font-data-mono-sm text-data-mono-sm">
+<span class="text-on-surface-variant">Recency</span>
+<span class="text-primary font-bold">0.70</span>
+</div>
+<div class="w-full bg-surface-container-lowest h-1.5">
+<div class="bg-primary-container h-1.5 w-[70%]"></div>
+</div>
+</div>
+<div class="flex flex-col gap-space-2xs md:col-span-2">
+<div class="flex justify-between items-center font-data-mono-sm text-data-mono-sm">
+<span class="text-on-surface-variant">Deadline actionability</span>
+<span class="text-primary font-bold">0.75</span>
+</div>
+<div class="w-full bg-surface-container-lowest h-1.5">
+<div class="bg-primary-container h-1.5 w-[75%]"></div>
+</div>
+</div>
+</div>
+<div class="pt-space-md border-t border-surface-container flex flex-col gap-space-xs">
+<span class="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Semantic Term Intersections</span>
+<div class="flex flex-wrap items-center gap-space-xs pt-space-2xs">
+<span class="inline-flex items-center px-space-sm py-space-2xs bg-primary-container/15 text-primary font-data-mono-sm text-data-mono-sm">
+                edge AI
+              </span>
+<span class="inline-flex items-center px-space-sm py-space-2xs bg-primary-container/15 text-primary font-data-mono-sm text-data-mono-sm">
+                sensor fusion
+              </span>
+<span class="inline-flex items-center px-space-sm py-space-2xs bg-primary-container/15 text-primary font-data-mono-sm text-data-mono-sm">
+                embedded ML
+              </span>
+<span class="inline-flex items-center px-space-sm py-space-2xs bg-primary-container/15 text-primary font-data-mono-sm text-data-mono-sm">
+                cyber-physical systems
+              </span>
+<span class="inline-flex items-center px-space-sm py-space-2xs bg-error-container/20 text-error font-data-mono-sm text-data-mono-sm">
+                cloud infrastructure (unmatched)
+              </span>
+</div>
+</div>
+</div>
+</section>
+<section class="flex flex-col gap-space-md">
+<div class="flex items-center justify-between pb-space-xs border-b border-surface-container-high">
+<div class="flex items-center gap-space-sm">
+<span class="font-data-mono-sm text-data-mono-sm text-primary font-bold">02</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface tracking-wide uppercase">Deadlines &amp; Milestones</h2>
+</div>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">TIMEZONE: AOE (ANYWHERE ON EARTH)</span>
+</div>
+<div class="bg-surface-container-low overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b border-surface-container bg-surface-container-lowest font-label-caps text-label-caps text-on-surface-variant">
+<th class="py-space-sm px-space-lg font-normal uppercase tracking-wider">Milestone Event</th>
+<th class="py-space-sm px-space-lg font-normal uppercase tracking-wider">Scheduled Date</th>
+<th class="py-space-sm px-space-lg font-normal uppercase tracking-wider">Verification Status</th>
+<th class="py-space-sm px-space-lg font-normal text-right uppercase tracking-wider">Delta</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-container font-body-md text-body-md">
+<tr class="hover:bg-surface-container transition-colors">
+<td class="py-space-md px-space-lg text-on-surface font-medium">Letter of Intent / Abstract</td>
+<td class="py-space-md px-space-lg font-data-mono-md text-data-mono-md text-on-surface">Oct 14, 2025</td>
+<td class="py-space-md px-space-lg">
+<span class="inline-flex items-center gap-space-2xs px-space-xs py-space-2xs bg-secondary-container/20 text-secondary font-data-mono-sm text-data-mono-sm uppercase font-bold">
+<span class="w-1 h-1 bg-secondary"></span> confirmed
+                  </span>
+</td>
+<td class="py-space-md px-space-lg font-data-mono-sm text-data-mono-sm text-right text-on-surface-variant">T-52 days</td>
+</tr>
+<tr class="hover:bg-surface-container transition-colors">
+<td class="py-space-md px-space-lg text-on-surface font-medium">Full Manuscript Submission</td>
+<td class="py-space-md px-space-lg font-data-mono-md text-data-mono-md text-on-surface">Nov 28, 2025</td>
+<td class="py-space-md px-space-lg">
+<span class="inline-flex items-center gap-space-2xs px-space-xs py-space-2xs bg-surface-container-highest text-primary font-data-mono-sm text-data-mono-sm border-b border-dotted border-primary uppercase cursor-help" title="Inferred from historical CFP schedules of IEEE TCPS">
+<span class="material-symbols-outlined text-[13px]">info</span> probable
+                  </span>
+</td>
+<td class="py-space-md px-space-lg font-data-mono-sm text-data-mono-sm text-right text-on-surface-variant">T-97 days</td>
+</tr>
+<tr class="hover:bg-surface-container transition-colors">
+<td class="py-space-md px-space-lg text-on-surface font-medium">Revised Submission</td>
+<td class="py-space-md px-space-lg font-data-mono-md text-data-mono-md text-on-surface">Feb 15, 2026</td>
+<td class="py-space-md px-space-lg">
+<span class="inline-flex items-center gap-space-2xs px-space-xs py-space-2xs bg-surface-container-highest/60 text-on-surface-variant font-data-mono-sm text-data-mono-sm uppercase">
+                    unknown / rolling
+                  </span>
+</td>
+<td class="py-space-md px-space-lg font-data-mono-sm text-data-mono-sm text-right text-on-surface-variant">T-176 days</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section class="flex flex-col gap-space-md">
+<div class="flex items-center justify-between pb-space-xs border-b border-surface-container-high">
+<div class="flex items-center gap-space-sm">
+<span class="font-data-mono-sm text-data-mono-sm text-primary font-bold">03</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface tracking-wide uppercase">Sources &amp; Provenance</h2>
+</div>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">INSPECTION LEVEL: 2 CRAWLERS</span>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-md">
+<div class="bg-surface-container-low p-space-md flex flex-col justify-between gap-space-md">
+<div class="flex flex-col gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-headline-sm text-headline-sm text-on-surface">IEEE Xplore CFP Archive</span>
+<a class="inline-flex items-center gap-space-2xs font-data-mono-sm text-data-mono-sm text-primary hover:underline uppercase" href="#">
+<span>View original</span>
+<span class="material-symbols-outlined text-[12px]">north_east</span>
+</a>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+                Direct harvest from IEEE Computer Society bulletin index. Canonical hash verified against primary mirror.
+              </p>
+</div>
+<div class="flex items-center justify-between pt-space-xs border-t border-surface-container font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+<span>FIRST SEEN: Aug 12, 2025</span>
+<span>VERIFIED: 2 days ago</span>
+</div>
+</div>
+<div class="bg-surface-container-low p-space-md flex flex-col justify-between gap-space-md">
+<div class="flex flex-col gap-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-headline-sm text-headline-sm text-on-surface">WikiCFP</span>
+<a class="inline-flex items-center gap-space-2xs font-data-mono-sm text-data-mono-sm text-primary hover:underline uppercase" href="#">
+<span>View original</span>
+<span class="material-symbols-outlined text-[12px]">north_east</span>
+</a>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+                Secondary academic aggregator tracker entry #94210. Community monitored tracking table.
+              </p>
+</div>
+<div class="flex items-center justify-between pt-space-xs border-t border-surface-container font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+<span>FIRST SEEN: Aug 14, 2025</span>
+<span>STATUS: Active mirror</span>
+</div>
+</div>
+</div>
+</section>
+<section class="flex flex-col gap-space-md">
+<div class="flex items-center justify-between pb-space-xs border-b border-surface-container-high">
+<div class="flex items-center gap-space-sm">
+<span class="font-data-mono-sm text-data-mono-sm text-primary font-bold">04</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface tracking-wide uppercase">Call Summary &amp; Scope</h2>
+</div>
+<span class="font-data-mono-sm text-data-mono-sm text-on-surface-variant">FULL TEXT HARVEST</span>
+</div>
+<div class="bg-surface-container-low p-space-xl flex flex-col gap-space-lg text-on-surface font-body-lg text-body-lg leading-relaxed">
+<p>
+            The convergence of edge computing and autonomous cyber-physical systems mandates a foundational rethinking of machine learning deployment. Real-time control loops in industrial automation, robotic swarms, and decentralized power distribution can no longer tolerate high-latency roundtrips to centralized hyperscalers, nor can they withstand unmitigated network partitions.
+          </p>
+<p>
+            This special issue aims to solicit original research covering principles, architectures, and experimental validations of resilient real-time edge intelligence. Particular focus is directed at resource-constrained platforms requiring bounded inference delays, multi-sensor calibration under adversarial perturbations, and distributed fault-tolerant model consensus.
+          </p>
+<div class="bg-surface-container p-space-md mt-space-xs">
+<span class="font-label-caps text-label-caps text-primary uppercase tracking-widest block mb-space-xs">Topics of Explicit Interest</span>
+<ul class="grid grid-cols-1 md:grid-cols-2 gap-space-xs font-body-md text-body-md text-on-surface-variant list-inside list-disc">
+<li>Low-power deterministic inference engines</li>
+<li>Sensor degradation resilience and dynamic re-calibration</li>
+<li>Distributed consensus in intermittently connected edge fleets</li>
+<li>Formal verification for edge neural controllers</li>
+<li>Memory-bounded continual learning under domain drift</li>
+<li>Hardware-software co-design for zero-trust industrial telemetry</li>
+</ul>
+</div>
+</div>
+</section>
+<div class="bg-surface-container-low p-space-lg flex flex-wrap items-center justify-between gap-space-md">
+<div class="flex items-center gap-space-md">
+<button class="px-space-lg py-space-sm bg-transparent text-secondary border border-secondary hover:bg-secondary/10 transition-colors font-data-mono-sm text-data-mono-sm uppercase tracking-wider font-bold inline-flex items-center gap-space-xs" id="btn-pursue" onclick="togglePursue()">
+<span class="material-symbols-outlined text-[16px]">bookmark_add</span>
+<span id="pursue-text">Mark as pursuing</span>
+</button>
+<button class="px-space-lg py-space-sm bg-transparent text-error border border-error/50 hover:bg-error/10 transition-colors font-data-mono-sm text-data-mono-sm uppercase tracking-wider font-bold inline-flex items-center gap-space-xs" id="btn-dismiss" onclick="dismissRecord()">
+<span class="material-symbols-outlined text-[16px]">visibility_off</span>
+<span>Dismiss opportunity</span>
+</button>
+</div>
+<div class="flex items-center gap-space-sm font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+<button class="px-space-md py-space-xs bg-surface-container hover:text-on-surface transition-colors flex items-center gap-space-2xs">
+<span class="material-symbols-outlined text-[14px]">file_download</span>
+<span>EXPORT BIBTEX</span>
+</button>
+<button class="px-space-md py-space-xs bg-surface-container hover:text-on-surface transition-colors flex items-center gap-space-2xs">
+<span class="material-symbols-outlined text-[14px]">share</span>
+<span>SHARE TO LAB</span>
+</button>
+</div>
+</div>
+<section class="flex flex-col gap-space-md pb-space-2xl">
+<div class="flex items-center justify-between pb-space-xs border-b border-surface-container-high">
+<div class="flex items-center gap-space-sm">
+<span class="font-data-mono-sm text-data-mono-sm text-primary font-bold">05</span>
+<h2 class="font-headline-sm text-headline-sm text-on-surface tracking-wide uppercase">Scoring History &amp; Audit Trail</h2>
+</div>
+<button class="font-data-mono-sm text-data-mono-sm text-primary hover:underline flex items-center gap-space-2xs uppercase" onclick="toggleHistory()">
+<span id="history-toggle-label">Collapse log</span>
+<span class="material-symbols-outlined text-[14px]" id="history-toggle-icon">expand_less</span>
+</button>
+</div>
+<div class="bg-surface-container-low divide-y divide-surface-container transition-all" id="history-container">
+<div class="p-space-md flex flex-wrap items-center justify-between gap-space-md font-data-mono-md text-data-mono-md">
+<div class="flex items-center gap-space-md">
+<span class="text-on-surface-variant">2025-08-20 14:02 UTC</span>
+<span class="text-on-surface font-bold">SCORE: 82</span>
+<span class="text-secondary font-bold">(+3 due to venue impact update)</span>
+</div>
+<span class="text-on-surface-variant font-data-mono-sm text-data-mono-sm">Trigger: Scheduled cron scan (Cluster Alpha)</span>
+</div>
+<div class="p-space-md flex flex-wrap items-center justify-between gap-space-md font-data-mono-md text-data-mono-md">
+<div class="flex items-center gap-space-md">
+<span class="text-on-surface-variant">2025-08-12 09:18 UTC</span>
+<span class="text-on-surface font-bold">SCORE: 79</span>
+<span class="text-on-surface-variant">(initial scan)</span>
+</div>
+<span class="text-on-surface-variant font-data-mono-sm text-data-mono-sm">Trigger: Fresh ingestion IEEE Xplore feed</span>
+</div>
+</div>
+</section>
+</div>
+</div>
+<script>
+    let isPursuing = false;
+    function togglePursue() {
+      isPursuing = !isPursuing;
+      const btn = document.getElementById('btn-pursue');
+      const text = document.getElementById('pursue-text');
+      if (isPursuing) {
+        btn.classList.remove('bg-transparent', 'border-secondary', 'text-secondary');
+        btn.classList.add('bg-secondary', 'text-on-secondary', 'border-transparent');
+        text.innerText = 'Pursuing (Tracked in Lab Ledger)';
+      } else {
+        btn.classList.remove('bg-secondary', 'text-on-secondary', 'border-transparent');
+        btn.classList.add('bg-transparent', 'border-secondary', 'text-secondary');
+        text.innerText = 'Mark as pursuing';
+      }
+    }
+
+    function dismissRecord() {
+      if (confirm('Dismiss this record from high-priority telemetry view?')) {
+        const btn = document.getElementById('btn-dismiss');
+        btn.innerText = 'DISMISSED';
+        btn.classList.add('opacity-50', 'pointer-events-none');
+      }
+    }
+
+    let historyOpen = true;
+    function toggleHistory() {
+      historyOpen = !historyOpen;
+      const container = document.getElementById('history-container');
+      const label = document.getElementById('history-toggle-label');
+      const icon = document.getElementById('history-toggle-icon');
+      if (historyOpen) {
+        container.style.display = 'block';
+        label.innerText = 'Collapse log';
+        icon.innerText = 'expand_less';
+      } else {
+        container.style.display = 'none';
+        label.innerText = 'Expand log';
+        icon.innerText = 'expand_more';
+      }
+    }
+  </script>
+</div></main></div></body></html>

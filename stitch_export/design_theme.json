@@ -1,0 +1,150 @@
+{
+  "colorMode": "DARK",
+  "font": "LIBRE_CASLON_TEXT",
+  "customColor": "#c08a3e",
+  "headlineFont": "LIBRE_CASLON_TEXT",
+  "bodyFont": "PUBLIC_SANS",
+  "labelFont": "SPACE_MONO",
+  "namedColors": {
+    "on_error_container": "#ffdad6",
+    "on_primary": "#462b00",
+    "background": "#0f141a",
+    "error_container": "#93000a",
+    "on_tertiary": "#630f00",
+    "on_primary_container": "#412800",
+    "tertiary_fixed_dim": "#ffb4a3",
+    "surface_container_highest": "#30353c",
+    "secondary_fixed": "#b9eeda",
+    "surface": "#0f141a",
+    "on_primary_fixed": "#2a1800",
+    "tertiary_container": "#eb7054",
+    "inverse_on_surface": "#2c3137",
+    "primary_container": "#c08a3e",
+    "surface_bright": "#353a40",
+    "on_secondary": "#00382b",
+    "surface_container_high": "#252a31",
+    "surface_variant": "#30353c",
+    "surface_container_lowest": "#0a0f14",
+    "on_error": "#690005",
+    "on_tertiary_fixed_variant": "#84250f",
+    "on_secondary_fixed": "#002118",
+    "primary_fixed_dim": "#f8bb6a",
+    "on_tertiary_fixed": "#3d0600",
+    "tertiary": "#ffb4a3",
+    "outline_variant": "#504538",
+    "secondary_fixed_dim": "#9ed1be",
+    "surface_container": "#1b2026",
+    "surface_dim": "#0f141a",
+    "inverse_primary": "#825509",
+    "on_primary_fixed_variant": "#643f00",
+    "outline": "#9d8e7f",
+    "secondary_container": "#205143",
+    "primary": "#f8bb6a",
+    "on_tertiary_container": "#5d0e00",
+    "secondary": "#9ed1be",
+    "primary_fixed": "#ffddb5",
+    "surface_tint": "#f8bb6a",
+    "inverse_surface": "#dee3eb",
+    "on_surface_variant": "#d4c4b3",
+    "on_secondary_fixed_variant": "#1d4f41",
+    "on_background": "#dee3eb",
+    "on_surface": "#dee3eb",
+    "on_secondary_container": "#90c3b0",
+    "surface_container_low": "#171c22",
+    "error": "#ffb4ab",
+    "tertiary_fixed": "#ffdad2"
+  },
+  "designMd": "---\nname: Research Opportunity Radar\ncolors:\n  surface: '#0f141a'\n  surface-dim: '#0f141a'\n  surface-bright: '#353a40'\n  surface-container-lowest: '#0a0f14'\n  surface-container-low: '#171c22'\n  surface-container: '#1b2026'\n  surface-container-high: '#252a31'\n  surface-container-highest: '#30353c'\n  on-surface: '#dee3eb'\n  on-surface-variant: '#d4c4b3'\n  inverse-surface: '#dee3eb'\n  inverse-on-surface: '#2c3137'\n  outline: '#9d8e7f'\n  outline-variant: '#504538'\n  surface-tint: '#f8bb6a'\n  primary: '#f8bb6a'\n  on-primary: '#462b00'\n  primary-container: '#c08a3e'\n  on-primary-container: '#412800'\n  inverse-primary: '#825509'\n  secondary: '#9ed1be'\n  on-secondary: '#00382b'\n  secondary-container: '#205143'\n  on-secondary-container: '#90c3b0'\n  tertiary: '#ffb4a3'\n  on-tertiary: '#630f00'\n  tertiary-container: '#eb7054'\n  on-tertiary-container: '#5d0e00'\n  error: '#ffb4ab'\n  on-error: '#690005'\n  error-container: '#93000a'\n  on-error-container: '#ffdad6'\n  primary-fixed: '#ffddb5'\n  primary-fixed-dim: '#f8bb6a'\n  on-primary-fixed: '#2a1800'\n  on-primary-fixed-variant: '#643f00'\n  secondary-fixed: '#b9eeda'\n  secondary-fixed-dim: '#9ed1be'\n  on-secondary-fixed: '#002118'\n  on-secondary-fixed-variant: '#1d4f41'\n  tertiary-fixed: '#ffdad2'\n  tertiary-fixed-dim: '#ffb4a3'\n  on-tertiary-fixed: '#3d0600'\n  on-tertiary-fixed-variant: '#84250f'\n  background: '#0f141a'\n  on-background: '#dee3eb'\n  surface-variant: '#30353c'\ntypography:\n  headline-xl:\n    fontFamily: Libre Caslon Text\n    fontSize: 32px\n    fontWeight: '400'\n    lineHeight: 40px\n  headline-lg:\n    fontFamily: Libre Caslon Text\n    fontSize: 24px\n    fontWeight: '400'\n    lineHeight: 32px\n  headline-md:\n    fontFamily: Libre Caslon Text\n    fontSize: 19px\n    fontWeight: '400'\n    lineHeight: 26px\n  headline-sm:\n    fontFamily: Libre Caslon Text\n    fontSize: 16px\n    fontWeight: '700'\n    lineHeight: 22px\n  body-lg:\n    fontFamily: Public Sans\n    fontSize: 15px\n    fontWeight: '400'\n    lineHeight: 24px\n  body-md:\n    fontFamily: Public Sans\n    fontSize: 13px\n    fontWeight: '400'\n    lineHeight: 20px\n  body-sm:\n    fontFamily: Public Sans\n    fontSize: 12px\n    fontWeight: '400'\n    lineHeight: 18px\n  data-mono-lg:\n    fontFamily: Space Mono\n    fontSize: 15px\n    fontWeight: '700'\n    lineHeight: 20px\n    letterSpacing: -0.02em\n  data-mono-md:\n    fontFamily: Space Mono\n    fontSize: 12px\n    fontWeight: '400'\n    lineHeight: 16px\n    letterSpacing: -0.01em\n  data-mono-sm:\n    fontFamily: Space Mono\n    fontSize: 10px\n    fontWeight: '400'\n    lineHeight: 14px\n    letterSpacing: 0.04em\n  label-caps:\n    fontFamily: Space Mono\n    fontSize: 10px\n    fontWeight: '700'\n    lineHeight: 12px\n    letterSpacing: 0.08em\nspacing:\n  space-2xs: 0.125rem\n  space-xs: 0.25rem\n  space-sm: 0.5rem\n  space-md: 0.75rem\n  space-lg: 1rem\n  space-xl: 1.5rem\n  space-2xl: 2rem\n  gutter: 1px\n  margin-screen: 1.5rem\n---\n\n## Brand & Style\n\nThis design system is tailored for an academic research-intelligence instrument built for university faculty, principal investigators, and provost offices. It rejects generic modern SaaS patterns\u2014prohibiting consumer-facing gradient washes, floating rounded cards, inflated empty margins, and decorative marketing heroes. \n\nThe aesthetic is that of a scholarly observatory instrument: austere, authoritative, optically precise, and engineered for sustained, high-density analytical work. It evokes physical astronomical instruments, library ledger archives, and specialized research consoles. Every interface surface serves to convey data clarity, structural hierarchy, and intellectual focus.\n\n## Colors\n\nThe system uses a strictly dark-themed, low-glare chromatic structure calibrated for long reading sessions and complex visual telemetry:\n\n- **Ink (`#10151B`)**: Canvas foundation and root application background. Deep, blue-tinted void that prevents eye fatigue.\n- **Panel (`#171E27`)**: Structural cell surface, table container, and structural divider. Used to establish 1px architectural grid lines and low-contrast surface strata without floating elevation.\n- **Parchment (`#EDE6D6`)**: Primary typographic color. A warm, non-reflective off-white ensuring exceptional legibility across prolonged academic review.\n- **Brass (`#C08A3E`)**: The primary mechanical accent. Used for active states, link targets, radar crosshairs, telemetry sweep indicators, and high-priority scholarly opportunity highlights.\n- **Verdigris (`#5B8C7B`)**: Semantic positive state indicating strong institutional relevance, favorable funding match confidence, and active pursuit vectors.\n- **Rust (`#B5482F`)**: Critical/urgent semantic status indicating impending submission cutoffs (<7 days), archival exclusions, or dismissed grants.\n- **Muted Ledger (`#7E8B9B`)**: Subdued secondary text used for field labels, metadata tags, and monospaced catalog markers.\n\n## Typography\n\nTypography establishes an intentional academic tension between archival scholarship and scientific telemetry:\n\n- **Display & Headings**: Set in literary, historical serif type (`Libre Caslon Text`). Preserves the gravity of academic grants, discipline titles, and institutional papers without feeling promotional.\n- **Body & Interface**: Neutral, highly legible humanist sans (`Public Sans`) optimized for dense abstracts, eligibility clauses, and administrative parameters.\n- **Numeric & Telemetry Metrics**: Fixed-width tabular monospace (`Space Mono`). Deployed strictly for funding amounts, radar match coefficients, submission countdowns, and grant identification numbers.\n\nAll numeric figures must maintain tabular baseline alignment across comparative tables and matrices.\n\n## Layout & Spacing\n\nThe layout is grounded in a continuous, high-density scientific console grid rather than floating detached cards.\n\n- **Grid Architecture**: Content spans a full-bleed viewport segmented by strict 1px architectural grid lines colored in Panel (`#171E27`) and dark boundaries. Spacing is tight, compact, and structural.\n- **Rhythm**: Standard spacing increments operate on a 4px sub-grid with base unit steps of 4px, 8px, 12px, 16px, and 24px. Large margins exceeding 32px are forbidden inside operational data areas.\n- **Reflow & Responsive Behavior**:\n  - **Desktop (>1280px)**: Three-tier instrument layout\u2014fixed left vertical directory (280px), primary radar matrix/tabular stream (fluid), and right-hand grant intelligence inspection pane (420px).\n  - **Tablet (768px - 1279px)**: Collapsible index drawer, telemetry tabular pane remains continuous, inspection pane shifts to an edge-anchored overlay.\n  - **Mobile (<768px)**: Stacked single-column tabular cells, horizontal scrolling enabled for multi-column metrics, fixed sticky bottom readout for opportunity scores.\n\n## Elevation & Depth\n\nThis design system deliberately excludes drop shadows, ambient blurs, and pseudo-physical elevation. Depth is conveyed strictly through **tonal layering**, **ruled perimeter borders**, and **tactile status insets**:\n\n1. **Substrate (Ink `#10151B`)**: Baseline page canvas, void state, and unselected background.\n2. **Structural Planes (Panel `#171E27`)**: Tonal plateaus for data rows, radar plot viewports, and metadata tables. Boundaries are delineated by crisp 1px borders (`rgba(237, 230, 214, 0.08)` or `#171E27`).\n3. **Selected / Focus Active State**: Surfaces do not raise upward; they receive a 1px solid interior boundary of Brass (`#C08A3E`) or a subtle background tint of Brass at 5% opacity (`rgba(192, 138, 62, 0.05)`).\n4. **Modal Overlays & Popovers**: Pure flat surfaces rendered in `#171E27` bounded by a hard 1px outline in `#5B8C7B` or `#C08A3E` without drop shadows.\n\n## Shapes\n\nThe geometric vocabulary is uncompromisingly sharp (`0px` corner radius). \n\nEvery container, data cell, badge, button, and input element is engineered with right angles. Curves and pills are strictly reserved for circular scientific visualization plots (such as polar radar projections, radial score gauges, and scope Reticles). Rectilinear construction conveys structural reliability, tabular permanence, and laboratory discipline.\n\n## Components\n\n### Buttons & Instrument Triggers\n- **Primary Action**: Flat rectangle. Background: `Brass (#C08A3E)`; Text: `Ink (#10151B)`; Font: `Space Mono`, bold, 11px uppercase. Padding: 6px 14px. Hover: background transitions to `#D8A050`. Border: 0px.\n- **Secondary Action**: Background: transparent; Text: `Parchment (#EDE6D6)`; Border: 1px solid `rgba(237, 230, 214, 0.2)`. Hover: Border color shifts to `Brass (#C08A3E)`.\n- **Destructive/Dismiss Action**: Background: transparent; Text: `Rust (#B5482F)`; Border: 1px solid `rgba(181, 72, 47, 0.4)`. Hover: Background fills `rgba(181, 72, 47, 0.15)`.\n\n### Chips, Status Badges & Match Scores\n- **Geometry**: Sharp 0px rectangles, 20px fixed height, inline-flex alignment.\n- **Format**: Monospace uppercase text (`Space Mono`, 10px).\n- **Match Bands**:\n  - **High Relevance / Pursuing**: Background `rgba(91, 140, 123, 0.12)`, text `Verdigris (#5B8C7B)`, 1px left-edge bar in solid Verdigris.\n  - **Critical Deadline (<7 Days)**: Background `rgba(181, 72, 47, 0.15)`, text `Rust (#B5482F)`, 1px left-edge bar in solid Rust.\n  - **Standard Observation**: Background `#171E27`, text `Muted Ledger (#7E8B9B)`, border 1px solid `rgba(237, 230, 214, 0.1)`.\n\n### Tables & Opportunity Data Rows\n- **Layout**: Dense ledger row formats. 36px default height for compact mode, 48px for expanded mode.\n- **Borders**: 1px horizontal rule between records using `#171E27`.\n- **Hover/Selected State**: Hover evokes an instant surface tint of `#1A232E`. Active/Selected row features a solid 2px left border in `Brass (#C08A3E)`.\n- **Column Alignments**: Scientific values, match scores, funding totals, and deadlines right-aligned in `Space Mono`. Scholarly titles left-aligned in `Libre Caslon Text`.\n\n### Inputs & Filter Elements\n- **Field Base**: Background `Ink (#10151B)`, border 1px solid `rgba(237, 230, 214, 0.15)`. Text: `Parchment (#EDE6D6)`. Font: `Public Sans`, 13px.\n- **Focus**: Border switches to 1px solid `Brass (#C08A3E)`. No glow or outline ring.\n- **Checkboxes & Radios**: Square 12px boxes (`0px` radius). Checked state displays a solid Brass center block.\n\n### Radar Instrument Viewport\n- **Canvas**: Circular polar coordinate grid drawn with 1px concentric rings and cardinal axes in `rgba(237, 230, 214, 0.08)`.\n- **Telemetry Indicators**: Plotted research opportunities rendered as 4px diamond markers colored by match status (Verdigris, Brass, or Rust). Active hover displays precise monospaced Cartesian readouts.",
+  "colorVariant": "FIDELITY",
+  "overridePrimaryColor": "#c08a3e",
+  "overrideSecondaryColor": "#5b8c7b",
+  "overrideTertiaryColor": "#b5482f",
+  "overrideNeutralColor": "#10151b",
+  "spacingScale": 2,
+  "typography": {
+    "headline-xl": {
+      "fontFamily": "Libre Caslon Text",
+      "fontSize": "32px",
+      "fontWeight": "400",
+      "lineHeight": "40px"
+    },
+    "data-mono-lg": {
+      "fontFamily": "Space Mono",
+      "fontSize": "15px",
+      "fontWeight": "700",
+      "lineHeight": "20px",
+      "letterSpacing": "-0.02em"
+    },
+    "body-sm": {
+      "fontFamily": "Public Sans",
+      "fontSize": "12px",
+      "fontWeight": "400",
+      "lineHeight": "18px"
+    },
+    "data-mono-md": {
+      "fontFamily": "Space Mono",
+      "fontSize": "12px",
+      "fontWeight": "400",
+      "lineHeight": "16px",
+      "letterSpacing": "-0.01em"
+    },
+    "label-caps": {
+      "fontFamily": "Space Mono",
+      "fontSize": "10px",
+      "fontWeight": "700",
+      "lineHeight": "12px",
+      "letterSpacing": "0.08em"
+    },
+    "headline-md": {
+      "fontFamily": "Libre Caslon Text",
+      "fontSize": "19px",
+      "fontWeight": "400",
+      "lineHeight": "26px"
+    },
+    "data-mono-sm": {
+      "fontFamily": "Space Mono",
+      "fontSize": "10px",
+      "fontWeight": "400",
+      "lineHeight": "14px",
+      "letterSpacing": "0.04em"
+    },
+    "headline-sm": {
+      "fontFamily": "Libre Caslon Text",
+      "fontSize": "16px",
+      "fontWeight": "700",
+      "lineHeight": "22px"
+    },
+    "body-md": {
+      "fontFamily": "Public Sans",
+      "fontSize": "13px",
+      "fontWeight": "400",
+      "lineHeight": "20px"
+    },
+    "body-lg": {
+      "fontFamily": "Public Sans",
+      "fontSize": "15px",
+      "fontWeight": "400",
+      "lineHeight": "24px"
+    },
+    "headline-lg": {
+      "fontFamily": "Libre Caslon Text",
+      "fontSize": "24px",
+      "fontWeight": "400",
+      "lineHeight": "32px"
+    }
+  },
+  "spacing": {
+    "space-md": "0.75rem",
+    "margin-screen": "1.5rem",
+    "space-lg": "1rem",
+    "gutter": "1px",
+    "space-2xs": "0.125rem",
+    "space-2xl": "2rem",
+    "space-sm": "0.5rem",
+    "space-xs": "0.25rem",
+    "space-xl": "1.5rem"
+  },
+  "headlineFontFamily": "Libre Caslon Text",
+  "bodyFontFamily": "Public Sans",
+  "labelFontFamily": "Space Mono"
+}
