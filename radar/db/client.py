@@ -118,11 +118,11 @@ _in_memory_client = None
 
 def get_client() -> Any:
     global _supabase_client, _in_memory_client
+    if config.ALLOW_IN_MEMORY_DB:
+        if _in_memory_client is None:
+            _in_memory_client = _InMemoryClient()
+        return _in_memory_client
     if not config.SUPABASE_URL or not config.SUPABASE_SERVICE_ROLE_KEY:
-        if config.ALLOW_IN_MEMORY_DB:
-            if _in_memory_client is None:
-                _in_memory_client = _InMemoryClient()
-            return _in_memory_client
         raise config.ConfigurationError(
             "Supabase credentials missing! Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in your environment, "
             "or set ALLOW_IN_MEMORY_DB=1 to explicitly permit ephemeral in-memory storage."

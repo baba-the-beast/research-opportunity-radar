@@ -20,7 +20,10 @@ jobs:
         with:
           path: ~/.cache/torch/sentence_transformers
           key: minilm-l6-v2
-      - run: pip install -r requirements.txt
+      - name: Install dependencies (CPU PyTorch)
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
       - name: Lint with ruff
         run: ruff check .
       - name: Smoke import check

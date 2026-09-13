@@ -559,3 +559,25 @@ pm run build in web/ passed with 0 errors (all 14 static and dynamic routes comp
   - Invalid Token `curl.exe -i -X POST http://localhost:3000/api/pipeline/trigger -H "Authorization: Bearer wrong_secret"`: Returned `HTTP/1.1 401 Unauthorized`.
   - Valid Token `curl.exe -i -X POST http://localhost:3000/api/pipeline/trigger -H "Authorization: Bearer production_super_secret_key_2026"`: Passed auth check into handler (`HTTP/1.1 501 Not Implemented: GITHUB_PAT not configured`).
 * **Live ORCID Ingestion:** Live query against `http://localhost:3000/api/profile/orcid?orcid=0000-0002-1825-0097` successfully fetched real records from `pub.orcid.org` (Josiah Carberry, 7 works, career stage senior, 11 candidate terms).
+
+## Phase 14 — Docker CPU-Only PyTorch Optimization & Test Isolation Hardening
+
+### 14.1 Dockerfile & CI CPU-Only PyTorch Optimization
+* **Files:** [Dockerfile](Dockerfile), [.github/workflows/pipeline.yml](.github/workflows/pipeline.yml), [.github/workflows/compliance-audit.yml](.github/workflows/compliance-audit.yml)
+* **Problem:** Default `pip install -r requirements.txt` resolved CUDA 12.x wheels on Linux (`torch-2.x.manylinux...` 554MB, `nvidia_cudnn` 553MB, cuBLAS, cuFFT, cuSPARSE, NCCL, triton totaling ~3.5GB+ bloat) on CPU-only hosts like Render and GitHub Actions runners.
+* **Fix:** Explicitly pre-installed CPU PyTorch using `--index-url https://download.pytorch.org/whl/cpu` prior to `requirements.txt` installation with `--extra-index-url https://download.pytorch.org/whl/cpu`.
+* **Verification:** Confirmed pip resolver idempotence locally:
+  - `torch.__version__`: `2.13.0+cpu`
+  - `torch.cuda.is_available()`: `False`
+  - Zero CUDA / nvidia dependencies pulled. Dependency audit across all 17 packages in `requirements.txt` confirmed only `sentence-transformers` requires `torch`.
+
+### 14.2 Ephemeral In-Memory Storage Precedence in Test Environments
+* **Files:** [radar/db/client.py](radar/db/client.py)
+* **Problem:** `get_client()` previously checked `if not config.SUPABASE_URL:` before evaluating `config.ALLOW_IN_MEMORY_DB`. Once production credentials were populated in `.env`, test suites (`pytest`) inadvertently targeted the live production Supabase instance instead of ephemeral mock storage.
+* **Fix:** Checked `config.ALLOW_IN_MEMORY_DB` first in `get_client()`. When active (such as during test execution via `tests/conftest.py`), ephemeral `_in_memory_client` is strictly returned regardless of credentials in `.env`.
+
+### 14.3 Resilient Embedding Deserialization for PostgREST Vector Columns
+* **Files:** [radar/memory/faculty_profile_store.py](radar/memory/faculty_profile_store.py), [radar/scoring/component_scorer.py](radar/scoring/component_scorer.py)
+* **Problem:** Supabase pgvector column formats or JSON-encoded strings raised `ValueError: could not convert string to float` when passed into `np.array()` in `embed_cosine()`.
+* **Fix:** Added defensive `isinstance(vec, str)` JSON deserialization in both `faculty_profile_store.py` and `embed_cosine()`.
+

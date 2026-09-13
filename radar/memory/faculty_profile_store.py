@@ -44,6 +44,13 @@ def get_active_profile() -> FacultyProfile:
         citizenship_status=row.get("citizenship_status", "US Citizen or Permanent Resident")
     )
 
+    if isinstance(profile.profile_embedding, str):
+        import json
+        try:
+            profile.profile_embedding = json.loads(profile.profile_embedding)
+        except Exception:
+            profile.profile_embedding = None
+
     if not profile.profile_embedding and profile.profile_text:
         model = component_scorer.get_sentence_transformer()
         profile.profile_embedding = model.encode(profile.profile_text).tolist()

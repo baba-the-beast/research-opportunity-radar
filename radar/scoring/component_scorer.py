@@ -86,9 +86,21 @@ def cosine_to_pct(cosine_sim: float) -> float:
     # Scale cosine [-1, 1] -> [0, 100]
     return max(0.0, min(100.0, float((cosine_sim + 1.0) / 2.0 * 100.0)))
 
-def embed_cosine(vec1: list[float], vec2: list[float]) -> float:
+def embed_cosine(vec1: list[float] | str, vec2: list[float] | str) -> float:
     if not vec1 or not vec2:
         return 0.0
+    if isinstance(vec1, str):
+        import json
+        try:
+            vec1 = json.loads(vec1)
+        except Exception:
+            return 0.0
+    if isinstance(vec2, str):
+        import json
+        try:
+            vec2 = json.loads(vec2)
+        except Exception:
+            return 0.0
     v1 = np.array(vec1, dtype=float)
     v2 = np.array(vec2, dtype=float)
     norm1 = np.linalg.norm(v1)
