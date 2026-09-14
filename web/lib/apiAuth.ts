@@ -16,11 +16,22 @@ function timingSafeMatch(provided: string, expected: string): boolean {
 }
 
 /**
+ * Generates client-side authentication headers using NEXT_PUBLIC_RADAR_API_SECRET if set.
+ */
+export function getClientAuthHeaders(): Record<string, string> {
+  const secret = process.env.NEXT_PUBLIC_RADAR_API_SECRET;
+  if (secret && secret.trim() !== '') {
+    return { 'x-radar-secret': secret.trim() };
+  }
+  return {};
+}
+
+/**
  * Validates request authorization against RADAR_API_SECRET if configured.
  * If RADAR_API_SECRET is not set, requests are permitted (single-user intranet model).
  */
 export function validateApiAuth(req: Request | NextRequest): { authorized: boolean; response?: NextResponse } {
-  const secret = process.env.RADAR_API_SECRET;
+  const secret = process.env.RADAR_API_SECRET || process.env.NEXT_PUBLIC_RADAR_API_SECRET;
   if (!secret || secret.trim() === '') {
     // Single-user / local trusted deployment mode
     return { authorized: true };

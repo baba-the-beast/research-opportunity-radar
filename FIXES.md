@@ -581,3 +581,33 @@ pm run build in web/ passed with 0 errors (all 14 static and dynamic routes comp
 * **Problem:** Supabase pgvector column formats or JSON-encoded strings raised `ValueError: could not convert string to float` when passed into `np.array()` in `embed_cosine()`.
 * **Fix:** Added defensive `isinstance(vec, str)` JSON deserialization in both `faculty_profile_store.py` and `embed_cosine()`.
 
+## Phase 15 — Production Deployment Hardening & Render Remediation
+
+### 15.1 Frontend API Authentication Integration & Secret Forwarding
+* **Files:** [web/lib/apiAuth.ts](web/lib/apiAuth.ts), [web/app/page.tsx](web/app/page.tsx), [web/app/opportunities/[id]/page.tsx](web/app/opportunities/[id]/page.tsx), [web/app/profile/page.tsx](web/app/profile/page.tsx), [.env.example](.env.example)
+* **Problem:** `validateApiAuth` rejected browser-initiated pipeline rescans with 401 Unauthorized because `fetch('/api/pipeline/stream?run=true')` passed no credentials, while `RADAR_API_SECRET` was set in production on Render.
+* **Fix:**
+  - Added `getClientAuthHeaders()` in `web/lib/apiAuth.ts` reading `NEXT_PUBLIC_RADAR_API_SECRET`.
+  - Updated `validateApiAuth` to fall back to `NEXT_PUBLIC_RADAR_API_SECRET` if `RADAR_API_SECRET` is unset.
+  - Wired `getClientAuthHeaders()` into `triggerRescan()` in `page.tsx`, `togglePursue()`/`toggleDismiss()` in `opportunities/[id]/page.tsx`, and `handleSave()` in `profile/page.tsx`.
+
+### 15.2 Elimination of React Hydration Mismatches (Errors #418 & #423)
+* **Files:** [web/app/page.tsx](web/app/page.tsx), [web/app/layout.tsx](web/app/layout.tsx)
+* **Problem:** React threw hydration errors #418 & #423 on initial page load because `INITIAL_LOGS` in `page.tsx` called `new Date().toISOString()` at module evaluation time. The server rendered a build/request timestamp (e.g. `[18:01:49]`) whereas the client browser evaluated its current time (e.g. `[23:38:25]`), creating a text node divergence.
+* **Fix:**
+  - Standardized `INITIAL_LOGS` timestamps to a static, deterministic UTC ISO string (`2026-01-01T00:00:00.000Z`), ensuring both server and client generate identical `[00:00:00]` initial time text nodes.
+  - Added `suppressHydrationWarning` on `<html>` and `<body>` tags in `web/app/layout.tsx` to immunize against browser-extension attribute mutations.
+  - Removed duplicate `<meta charSet>` and `<meta name="viewport">` from `<head>`.
+
+### 15.3 Stale Mock ID Elimination (/api/opportunities/tcps-2025-0881 404)
+* **Files:** [web/app/layout.tsx](web/app/layout.tsx), [web/app/page.tsx](web/app/page.tsx)
+* **Problem:** Browser console logged 404 for `/api/opportunities/tcps-2025-0881` on load. Next.js router prefetched `<Link href="/opportunities/tcps-2025-0881">`, an obsolete hardcoded prototype ID left over from the static Stitch export that never existed in the database (which uses dynamic UUIDs).
+* **Fix:**
+  - Removed static link in `web/app/layout.tsx` sidebar; replaced with conditional active route navigation (`pathname.startsWith('/opportunities') ? pathname : '/deadlines'`).
+  - Replaced hardcoded milestone detail links in `web/app/page.tsx` right rail (`nsf-cps-2025`, `iccps-2025-cfp`, `tcps-2025-0881`) with `/deadlines`.
+
+### 15.4 Missing Favicon Asset
+* **Files:** [web/public/favicon.ico](web/public/favicon.ico), [web/app/favicon.ico](web/app/favicon.ico)
+* **Fix:** Created `web/public/` directory and added `favicon.ico` to both `public/` and `app/` to eliminate 404 favicon requests.
+
+

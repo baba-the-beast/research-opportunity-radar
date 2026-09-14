@@ -13,10 +13,8 @@ export default function RootLayout({
   const pathname = usePathname();
 
   return (
-    <html className="dark" lang="en">
+    <html className="dark" lang="en" suppressHydrationWarning>
       <head>
-        <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <link
           href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Text:ital,wght@0,400;0,700;1,400&family=Public+Sans:ital,wght@0,300..800;1,300..800&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap"
           rel="stylesheet"
@@ -26,7 +24,7 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="bg-background font-body-md text-on-surface antialiased selection:bg-primary-container selection:text-on-primary-container">
+      <body className="bg-background font-body-md text-on-surface antialiased selection:bg-primary-container selection:text-on-primary-container" suppressHydrationWarning>
         {/* Top Header */}
         <header className="fixed top-0 left-0 right-0 z-50 h-14 bg-surface-container-lowest/90 backdrop-blur-md border-b border-surface-container">
           <div className="h-14 w-full px-space-xl flex items-center justify-between">
@@ -88,17 +86,15 @@ export default function RootLayout({
                 <span className="material-symbols-outlined text-[18px]">radar</span>
                 <span>Radar Feed</span>
               </Link>
-              <Link
-                href="/opportunities/tcps-2025-0881"
-                className={`flex items-center gap-space-md px-space-lg py-space-sm font-body-md text-body-md transition-colors ${
-                  pathname.startsWith('/opportunities')
-                    ? 'bg-surface-container text-primary font-bold border-l-2 border-primary-container'
-                    : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'
-                }`}
-              >
-                <span className="material-symbols-outlined text-[18px]">biotech</span>
-                <span>Opportunity Detail</span>
-              </Link>
+              {pathname.startsWith('/opportunities') && (
+                <Link
+                  href={pathname}
+                  className="flex items-center gap-space-md px-space-lg py-space-sm font-body-md text-body-md transition-colors bg-surface-container text-primary font-bold border-l-2 border-primary-container"
+                >
+                  <span className="material-symbols-outlined text-[18px]">biotech</span>
+                  <span>Active Opportunity</span>
+                </Link>
+              )}
               <Link
                 href="/deadlines"
                 className={`flex items-center gap-space-md px-space-lg py-space-sm font-body-md text-body-md transition-colors ${

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { getClientAuthHeaders } from '@/lib/apiAuth';
 
 interface OpportunitySummary {
   id: string;
@@ -33,7 +34,7 @@ interface AgentTelemetryLog {
 
 const INITIAL_LOGS: AgentTelemetryLog[] = [
   {
-    timestamp: new Date().toISOString(),
+    timestamp: '2026-01-01T00:00:00.000Z',
     agent: 'Orchestrator',
     phase: 'SYSTEM',
     level: 'INFO',
@@ -41,7 +42,7 @@ const INITIAL_LOGS: AgentTelemetryLog[] = [
     message: 'Observatory telemetry matrix calibrated. Standing multi-agent watch loop online.'
   },
   {
-    timestamp: new Date().toISOString(),
+    timestamp: '2026-01-01T00:00:00.000Z',
     agent: 'FacultyMemoryStore',
     phase: 'PROFILE',
     level: 'INFO',
@@ -103,7 +104,9 @@ export default function DashboardPage() {
     setActivePhase('INIT');
 
     try {
-      const response = await fetch(`/api/pipeline/stream?run=true&dry_run=${dryRun}`);
+      const response = await fetch(`/api/pipeline/stream?run=true&dry_run=${dryRun}`, {
+        headers: getClientAuthHeaders()
+      });
       if (!response.body) throw new Error('ReadableStream not supported');
 
       const reader = response.body.getReader();
@@ -716,7 +719,7 @@ export default function DashboardPage() {
                     T-8 DAYS
                   </span>
                 </div>
-                <Link href="/opportunities/nsf-cps-2025">
+                <Link href="/deadlines">
                   <h4 className="font-headline-sm text-headline-sm text-on-surface hover:text-primary transition-colors leading-tight">
                     NSF CPS Frontier Research
                   </h4>
@@ -738,7 +741,7 @@ export default function DashboardPage() {
                     T-34 DAYS
                   </span>
                 </div>
-                <Link href="/opportunities/iccps-2025-cfp">
+                <Link href="/deadlines">
                   <h4 className="font-headline-sm text-headline-sm text-on-surface hover:text-primary transition-colors leading-tight">
                     ACM/IEEE ICCPS 2025
                   </h4>
@@ -760,7 +763,7 @@ export default function DashboardPage() {
                     INTERNAL
                   </span>
                 </div>
-                <Link href="/opportunities/tcps-2025-0881">
+                <Link href="/deadlines">
                   <h4 className="font-headline-sm text-headline-sm text-on-surface hover:text-primary transition-colors leading-tight">
                     IEEE TCPS Edge Issue Check
                   </h4>
