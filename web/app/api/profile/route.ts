@@ -1,42 +1,65 @@
-import { NextResponse } from 'next/server';
-import { getSupabaseServerClient } from '@/lib/supabaseServerClient';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { NextRequest } from 'next/server';
+import { getSupabaseUserClient, getSupabaseAdminClient } from '@/lib/supabaseServerClient';
+import { authenticateRequest, authorizeRole } from '@/lib/auth';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { z } from 'zod';
 
-export async function GET() {
+export const dynamic = 'force-dynamic';
+
+export async function GET(req: NextRequest) {
   try {
-    const supabase = getSupabaseServerClient();
-    const { data: prof, error } = await supabase.from('faculty_profile').select('*').single();
+    const auth = await authenticateRequest(req);
+    if (!auth.authenticated) {
+      return auth.errorResponse!;
+    }
+
+    const supabase = auth.user?.isServiceRole
+      ? getSupabaseAdminClient()
+      : getSupabaseUserClient(auth.user?.token);
+
+    let profQuery = supabase.from('faculty_profile').select('*');
+    if (auth.user?.id && auth.user.role === 'faculty') {
+      profQuery = profQuery.eq('user_id', auth.user.id);
+    }
+    const { data: profs, error } = await profQuery.limit(1);
+    const prof = profs?.[0];
+
     if (error || !prof) {
-      return NextResponse.json(
-        { error: error?.message || 'Faculty profile not found in database. Configure Supabase or insert profile.' },
-        { status: 404 }
+      return createErrorResponse(
+        'NOT_FOUND',
+        'Faculty profile not found in database. Configure Supabase or insert profile.',
+        404,
+        req
       );
     }
 
     const { data: terms } = await supabase.from('profile_terms').select('*').eq('profile_id', prof.id);
 
-    return NextResponse.json({
-      id: prof.id,
-      full_name: prof.full_name,
-      institution: prof.institution,
-      department: prof.department,
-      career_stage: prof.career_stage || 'Assistant Professor',
-      phd_year: prof.phd_year || 2021,
-      institution_type: prof.institution_type || 'R1 Doctoral University (IHE)',
-      citizenship_status: prof.citizenship_status || 'US Citizen or Permanent Resident',
-      research_keywords: prof.research_keywords,
-      profile_text: prof.profile_text,
-      min_relevance_band: prof.min_relevance_band,
-      profile_terms: (terms || []).map((t: any) => ({
-        term: t.term,
-        term_type: t.term_type,
-        weight: Number(t.weight),
-        polarity: t.polarity
-      }))
-    });
+    return createSuccessResponse(
+      {
+        id: prof.id,
+        full_name: prof.full_name,
+        institution: prof.institution,
+        department: prof.department,
+        career_stage: prof.career_stage || 'Assistant Professor',
+        phd_year: prof.phd_year || 2021,
+        institution_type: prof.institution_type || 'R1 Doctoral University (IHE)',
+        citizenship_status: prof.citizenship_status || 'US Citizen or Permanent Resident',
+        research_keywords: prof.research_keywords,
+        profile_text: prof.profile_text,
+        min_relevance_band: prof.min_relevance_band,
+        profile_terms: (terms || []).map((t: any) => ({
+          term: t.term,
+          term_type: t.term_type,
+          weight: Number(t.weight),
+          polarity: t.polarity
+        }))
+      },
+      req
+    );
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return createErrorResponse('INTERNAL_SERVER_ERROR', err.message, 500, req);
   }
 }
 
@@ -58,33 +81,48 @@ const updateProfileSchema = z.object({
   })).max(100)
 });
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const ip = req.headers.get('x-forwarded-for') || 'local-client';
+    const auth = await authenticateRequest(req);
+    if (!auth.authenticated) {
+      return auth.errorResponse!;
+    }
+
+    const roleCheck = authorizeRole(auth.user, ['faculty', 'operator', 'admin']);
+    if (!roleCheck.authorized) {
+      return roleCheck.errorResponse!;
+    }
+
+    const ip = getClientIp(req);
     const rateCheck = checkRateLimit(`profile_${ip}`, 10, 60000);
     if (!rateCheck.allowed) {
-      return NextResponse.json(
-        {
-          error: 'Rate limit exceeded: Too many profile update requests.',
-          retryAfterSeconds: rateCheck.retryAfterSeconds
-        },
-        {
-          status: 429,
-          headers: { 'Retry-After': String(rateCheck.retryAfterSeconds) }
-        }
+      return createErrorResponse(
+        'RATE_LIMIT_EXCEEDED',
+        'Rate limit exceeded: Too many profile update requests.',
+        429,
+        req
       );
     }
 
     const body = await req.json();
     const parsed = updateProfileSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid profile payload', details: parsed.error.issues }, { status: 400 });
+      return createErrorResponse('VALIDATION_ERROR', 'Invalid profile payload', 400, req, parsed.error.issues);
     }
 
-    const supabase = getSupabaseServerClient();
-    const { data: prof } = await supabase.from('faculty_profile').select('id').single();
+    const supabase = auth.user?.isServiceRole
+      ? getSupabaseAdminClient()
+      : getSupabaseUserClient(auth.user?.token);
+
+    let profQuery = supabase.from('faculty_profile').select('id');
+    if (auth.user?.id && auth.user.role === 'faculty') {
+      profQuery = profQuery.eq('user_id', auth.user.id);
+    }
+    const { data: profs } = await profQuery.limit(1);
+    const prof = profs?.[0];
+
     if (!prof) {
-      return NextResponse.json({ error: 'Faculty profile not found' }, { status: 404 });
+      return createErrorResponse('NOT_FOUND', 'Faculty profile not found', 404, req);
     }
 
     const updateData: any = {
@@ -114,8 +152,8 @@ export async function POST(req: Request) {
       });
     }
 
-    return NextResponse.json({ success: true });
+    return createSuccessResponse({ success: true }, req);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return createErrorResponse('INTERNAL_SERVER_ERROR', err.message, 500, req);
   }
 }

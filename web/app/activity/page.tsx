@@ -38,8 +38,9 @@ export default function ActivityPage() {
     fetch('/api/activity')
       .then((res) => res.json())
       .then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
-          const mapped: PipelineRun[] = data.map((d: any) => ({
+        const items = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+        if (items.length > 0) {
+          const mapped: PipelineRun[] = items.map((d: any) => ({
             run_id: d.run_id,
             started_at: d.started_at,
             finished_at: d.finished_at,

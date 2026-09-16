@@ -82,11 +82,8 @@ export default function DashboardPage() {
     fetch('/api/opportunities')
       .then((res) => res.json())
       .then((data) => {
-        if (Array.isArray(data)) {
-          setOpportunities(data);
-        } else {
-          setOpportunities([]);
-        }
+        const items = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+        setOpportunities(items);
         setLoading(false);
       })
       .catch(() => {
@@ -131,8 +128,9 @@ export default function DashboardPage() {
                 fetch('/api/opportunities')
                   .then((res) => res.json())
                   .then((fresh) => {
-                    if (Array.isArray(fresh)) {
-                      setOpportunities(fresh);
+                    const freshItems = Array.isArray(fresh) ? fresh : (Array.isArray(fresh?.data) ? fresh.data : []);
+                    if (freshItems.length > 0) {
+                      setOpportunities(freshItems);
                     }
                   })
                   .catch(() => {});

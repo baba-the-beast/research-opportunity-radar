@@ -27,6 +27,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Set ML model cache directory
+ENV HF_HOME=/app/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/app/.cache/huggingface
+
 # Install Python ML and pipeline dependencies
 # Explicitly install CPU-only PyTorch first to prevent downloading 3-4GB of CUDA/GPU wheels
 COPY requirements.txt .
@@ -44,6 +48,13 @@ COPY mcp_server.py ./
 # Copy built frontend application
 COPY --from=frontend-builder /app/web /app/web
 
+# Create non-root system user and transfer file ownership
+RUN groupadd -g 1001 appgroup && \
+    useradd -u 1001 -g appgroup -s /bin/bash -m appuser && \
+    chown -R appuser:appgroup /app
+
+USER appuser
+
 WORKDIR /app/web
 
 # Environment configurations
@@ -53,6 +64,10 @@ ENV NODE_ENV=production
 ENV PORT=3000
 
 EXPOSE 3000
+
+# Container liveness healthcheck
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -f http://localhost:3000/api/health/live || exit 1
 
 # Start Next.js production server
 CMD ["npm", "run", "start"]

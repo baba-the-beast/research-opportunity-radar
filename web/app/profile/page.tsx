@@ -78,13 +78,14 @@ export default function ProfilePage() {
     fetch('/api/profile')
       .then((res) => res.json())
       .then((data) => {
-        if (data && !data.error && data.full_name) {
+        const prof = data?.data || data;
+        if (prof && !prof.error && prof.full_name) {
           setProfile({
             ...DEFAULT_PROFILE,
-            ...data,
-            profile_terms: data.profile_terms && data.profile_terms.length > 0 ? data.profile_terms : DEFAULT_PROFILE.profile_terms
+            ...prof,
+            profile_terms: prof.profile_terms && prof.profile_terms.length > 0 ? prof.profile_terms : DEFAULT_PROFILE.profile_terms
           });
-          if (data.min_relevance_band) setMinBand(data.min_relevance_band);
+          if (prof.min_relevance_band) setMinBand(prof.min_relevance_band);
         }
       })
       .catch(() => {

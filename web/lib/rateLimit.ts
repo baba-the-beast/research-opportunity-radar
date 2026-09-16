@@ -1,17 +1,12 @@
 /**
- * IN-MEMORY RATE LIMITER - ARCHITECTURAL NOTICE:
- * This rate limiter stores request counts in a process-local memory Map (`rateLimitMap`).
+ * IN-MEMORY RATE LIMITER & IP SANITIZATION
  * 
  * Scope & Limitations:
  * - Single-instance deployments (e.g. single Docker container or standalone Node.js server):
  *   Fully effective at throttling abusive request bursts per IP/route.
  * - Multi-instance / Horizontal Scaling / Serverless (e.g. Vercel, AWS Lambda, Kubernetes):
  *   Memory is not shared across processes or lambdas. Each instance maintains its own isolated
- *   state, allowing up to (limit * num_instances) requests.
- * 
- * Production Scaling Recommendation:
- * Before scaling horizontally or moving to serverless deployment, replace `rateLimitMap`
- * with a shared distributed store such as Redis (e.g. @upstash/ratelimit or ioredis).
+ *   state. For horizontal clustering, replace `rateLimitMap` with Redis or Upstash.
  */
 
 interface RateLimitRecord {
@@ -41,6 +36,43 @@ export interface RateLimitResult {
   remaining: number;
   resetTime: number;
   retryAfterSeconds: number;
+}
+
+/**
+ * Safely extracts and sanitizes client IP address to prevent header spoofing and injection.
+ */
+export function getClientIp(req: Request): string {
+  // 1. Cloudflare connecting IP (verified by CF edge)
+  const cfIp = req.headers.get('cf-connecting-ip');
+  if (cfIp && isValidIp(cfIp.trim())) {
+    return cfIp.trim();
+  }
+
+  // 2. Standard single-proxy real IP
+  const realIp = req.headers.get('x-real-ip');
+  if (realIp && isValidIp(realIp.trim())) {
+    return realIp.trim();
+  }
+
+  // 3. X-Forwarded-For (extract leftmost untrusted entry, strictly validated)
+  const forwarded = req.headers.get('x-forwarded-for');
+  if (forwarded) {
+    const parts = forwarded.split(',').map((p) => p.trim());
+    for (const part of parts) {
+      if (isValidIp(part)) {
+        return part;
+      }
+    }
+  }
+
+  return '127.0.0.1';
+}
+
+function isValidIp(ip: string): boolean {
+  // Simple IPv4 and IPv6 format validator
+  const ipv4Pattern = /^(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
+  const ipv6Pattern = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::$|^::1$/;
+  return ipv4Pattern.test(ip) || ipv6Pattern.test(ip);
 }
 
 /**

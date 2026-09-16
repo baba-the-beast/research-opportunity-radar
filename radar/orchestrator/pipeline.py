@@ -36,6 +36,22 @@ def run_pipeline(
     run_id = db.start_run_log()
     summary = RunSummary(run_id=run_id, started_at=datetime.now(UTC))
 
+    lock_id = f"pipeline-{run_id[:8]}"
+    if not db.acquire_pipeline_lock("radar_pipeline_global", locked_by=lock_id, ttl_seconds=900):
+        msg = "Pipeline execution rejected: another pipeline run is currently in progress."
+        logger.warning(msg, run_id=run_id, source_name="orchestrator")
+        db.finish_run_log(run_id, status="failed", errors=[msg])
+        if telemetry_callback:
+            telemetry_callback({
+                "agent": "Orchestrator",
+                "phase": "ABORT",
+                "level": "ERROR",
+                "stepIndex": 1,
+                "message": msg,
+                "timestamp": datetime.now(UTC).isoformat()
+            })
+        raise RuntimeError(msg)
+
     try:
         profile = faculty_profile_store.get_active_profile()
         profile_terms = faculty_profile_store.get_profile_terms(profile.id)
@@ -54,22 +70,33 @@ def run_pipeline(
         found: list[Opportunity] = []
         failed_sources: list[dict[str, str]] = []
 
-        # 1. OpenAlex, Crossref & Semantic Scholar via journal_watch
-        for kw in profile.research_keywords:
+        # 1. OpenAlex, Crossref & Semantic Scholar via journal_watch (parallelized)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _scan_keyword(kw: str):
             src_label = f"journal_watch({kw})"
             sr_id = db.start_source_run(run_id, src_label)
             t0 = datetime.now()
             try:
                 items = journal_watch(kw)
-                found.extend(items)
                 lat = int((datetime.now() - t0).total_seconds() * 1000)
                 db.finish_source_run(sr_id, status="success", request_count=1, inserted_count=len(items), latency_ms=lat)
                 logger.info(f"Retrieved {len(items)} works for '{kw}'", run_id=run_id, source_name=src_label)
+                return items, None
             except Exception as e:
                 lat = int((datetime.now() - t0).total_seconds() * 1000)
                 db.finish_source_run(sr_id, status="failed", error_count=1, error_category="api_error", latency_ms=lat)
-                failed_sources.append({"source": src_label, "error": str(e)})
                 logger.error(f"journal_watch error: {e}", run_id=run_id, source_name=src_label, error_category="api_error")
+                return [], {"source": src_label, "error": str(e)}
+
+        max_workers = min(3, len(profile.research_keywords) or 1)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_kw = {executor.submit(_scan_keyword, kw): kw for kw in profile.research_keywords}
+            for future in as_completed(future_to_kw):
+                items, err = future.result()
+                found.extend(items)
+                if err:
+                    failed_sources.append(err)
 
         # 2. Funding deadline scan
         sr_id = db.start_source_run(run_id, "funding_deadline_scan")
@@ -135,6 +162,10 @@ def run_pipeline(
                 "message": f"Computing multi-factor resonance (embeddings + weighted domain terms + {len(negative_signals)} feedback signals) across {len(to_score)} candidates...",
                 "timestamp": datetime.now(UTC).isoformat()
             })
+
+        # Batch encode candidates for ML inference acceleration
+        component_scorer.encode_opportunities_batch(to_score, batch_size=32)
+
         for opp in to_score:
             opp.score_result = component_scorer.score_opportunity(
                 opp, profile, profile_terms, negative_signals=negative_signals
@@ -271,6 +302,8 @@ def run_pipeline(
         logger.error(f"Pipeline crashed: {e}", run_id=run_id, source_name="orchestrator", error_category="fatal_error")
         db.finish_run_log(run_id, status="failed", errors=[str(e)])
         raise
+    finally:
+        db.release_pipeline_lock("radar_pipeline_global", locked_by=lock_id)
 
 class OpportunityPipeline:
     """Class wrapper providing an object-oriented interface to run_pipeline."""

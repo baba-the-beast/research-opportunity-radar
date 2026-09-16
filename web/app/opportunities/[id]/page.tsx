@@ -72,10 +72,11 @@ export default function OpportunityDetailPage({ params }: { params: { id: string
     fetch(`/api/opportunities/${params.id}`)
       .then((res) => res.json())
       .then((data) => {
-        if (data && !data.error && data.id) {
-          setOpp(data);
-          setIsPursuing(data.status === 'pursuing');
-          setIsDismissed(data.status === 'dismissed');
+        const oppData = data?.data || data;
+        if (oppData && !oppData.error && oppData.id) {
+          setOpp(oppData);
+          setIsPursuing(oppData.status === 'pursuing');
+          setIsDismissed(oppData.status === 'dismissed');
         } else {
           setOpp(null);
         }

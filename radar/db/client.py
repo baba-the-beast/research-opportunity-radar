@@ -61,14 +61,18 @@ class _InMemoryTable:
 
     def eq(self, col: str, val: Any):
         if getattr(self, "_is_delete", False):
+            deleted = [r for r in self._rows if r.get(col) == val]
             self._rows = [r for r in self._rows if r.get(col) != val]
-            self._last_result = []
+            self._last_result = deleted
             self._is_delete = False
         elif hasattr(self, "_update_data"):
+            updated = []
             for r in self._rows:
                 if r.get(col) == val:
                     r.update(self._update_data)
+                    updated.append(r)
             del self._update_data
+            self._last_result = updated
         else:
             self._last_result = [r for r in self._rows if r.get(col) == val]
         return self
@@ -323,16 +327,16 @@ def upsert_opportunities(accepted: list[tuple[Opportunity, str]], provenance_upd
             "last_seen_at": datetime.now(UTC).isoformat()
         }, on_conflict="opportunity_id, source_id").execute()
 
-        # Insert opportunity deadlines
+        # Insert/Upsert opportunity deadlines
         for dl in opp.deadlines:
-            client.table("opportunity_deadlines").insert({
+            client.table("opportunity_deadlines").upsert({
                 "opportunity_id": inserted_id,
                 "deadline_type": dl.deadline_type,
                 "deadline_date": dl.deadline_date.isoformat() if dl.deadline_date else "2099-12-31",
                 "timezone": dl.timezone,
                 "confidence": dl.confidence,
                 "raw_text": dl.raw_text
-            }).execute()
+            }, on_conflict="opportunity_id, deadline_type, deadline_date").execute()
 
         # Write scoring log if scored
         if opp.score_result:
@@ -411,4 +415,71 @@ def archive_stale_opportunities(older_than_days: int = 90) -> int:
             archived_count += 1
 
     return archived_count
+
+
+def acquire_pipeline_lock(
+    lock_key: str = "radar_pipeline_global",
+    locked_by: str = "orchestrator",
+    ttl_seconds: int = 900
+) -> bool:
+    """
+    Acquires a distributed lock using the pipeline_locks table.
+    Returns True if acquired, False if another process holds an unexpired lock.
+    """
+    client = get_client()
+    now_dt = datetime.now(UTC)
+    now_iso = now_dt.isoformat()
+    expires_at = (now_dt + timedelta(seconds=ttl_seconds)).isoformat()
+
+    try:
+        res = client.table("pipeline_locks").select("*").eq("lock_key", lock_key).execute()
+        if res.data:
+            existing_lock = res.data[0]
+            lock_exp = existing_lock.get("expires_at")
+            if lock_exp and lock_exp > now_iso:
+                return False
+            update_res = (
+                client.table("pipeline_locks")
+                .update({
+                    "locked_by": locked_by,
+                    "acquired_at": now_iso,
+                    "expires_at": expires_at
+                })
+                .eq("lock_key", lock_key)
+                .execute()
+            )
+            return bool(update_res.data)
+        else:
+            insert_res = (
+                client.table("pipeline_locks")
+                .insert({
+                    "lock_key": lock_key,
+                    "locked_by": locked_by,
+                    "acquired_at": now_iso,
+                    "expires_at": expires_at
+                })
+                .execute()
+            )
+            return bool(insert_res.data)
+    except Exception:
+        return True
+
+
+def release_pipeline_lock(
+    lock_key: str = "radar_pipeline_global",
+    locked_by: str | None = None
+) -> bool:
+    """
+    Releases the distributed lock for the specified lock_key.
+    """
+    client = get_client()
+    try:
+        query = client.table("pipeline_locks").delete().eq("lock_key", lock_key)
+        if locked_by:
+            query = query.eq("locked_by", locked_by)
+        query.execute()
+        return True
+    except Exception:
+        return False
+
 

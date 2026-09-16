@@ -19,6 +19,7 @@ create table if not exists faculty_profile (
   phd_year int,
   institution_type text not null default 'tier1_research',
   citizenship_status text not null default 'citizen',
+  user_id uuid, -- optional link to auth.users(id) for Supabase RLS
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -85,7 +86,8 @@ create table if not exists opportunity_deadlines (
   confidence text not null default 'unknown' check (confidence in ('confirmed','probable','unknown','closed','changed')),
   raw_text text,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  unique (opportunity_id, deadline_type, deadline_date)
 );
 
 -- Append-only audit trail of every relevance computation.
@@ -151,11 +153,15 @@ create table if not exists source_runs (
 
 create index if not exists idx_opportunities_fingerprint on opportunities (fingerprint);
 create index if not exists idx_opportunities_kind on opportunities (kind);
+create index if not exists idx_opportunities_discovered_at on opportunities (discovered_at desc);
 create index if not exists idx_opportunity_deadlines_date on opportunity_deadlines (deadline_date);
 create index if not exists idx_opportunity_deadlines_opp on opportunity_deadlines (opportunity_id);
+create index if not exists idx_opportunity_deadlines_lookup on opportunity_deadlines (opportunity_id, deadline_date);
 create index if not exists idx_opportunity_sources_opp on opportunity_sources (opportunity_id);
 create index if not exists idx_scoring_log_opp on scoring_log (opportunity_id);
+create index if not exists idx_scoring_log_opp_scored on scoring_log (opportunity_id, scored_at desc);
 create index if not exists idx_source_runs_run on source_runs (run_id);
+create index if not exists idx_faculty_profile_user_id on faculty_profile (user_id);
 
 -- Faculty feedback loop for scoring tuning.
 create table if not exists feedback (
@@ -170,3 +176,11 @@ create table if not exists feedback (
 
 create index if not exists idx_feedback_opp on feedback (opportunity_id);
 create index if not exists idx_feedback_rating on feedback (rating);
+
+-- Distributed single-run pipeline lock table
+create table if not exists pipeline_locks (
+  lock_key text primary key,
+  locked_at timestamptz not null default now(),
+  locked_by text not null,
+  expires_at timestamptz not null
+);

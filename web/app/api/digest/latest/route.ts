@@ -1,15 +1,31 @@
-import { NextResponse } from 'next/server';
-import { getSupabaseServerClient } from '@/lib/supabaseServerClient';
+import { NextRequest } from 'next/server';
+import { getSupabaseUserClient, getSupabaseAdminClient } from '@/lib/supabaseServerClient';
+import { authenticateRequest } from '@/lib/auth';
+import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 
-export async function GET() {
+export const dynamic = 'force-dynamic';
+
+export async function GET(req: NextRequest) {
   try {
-    const supabase = getSupabaseServerClient();
-    const { data: runs } = await supabase
+    const auth = await authenticateRequest(req);
+    if (!auth.authenticated) {
+      return auth.errorResponse!;
+    }
+
+    const supabase = auth.user?.isServiceRole
+      ? getSupabaseAdminClient()
+      : getSupabaseUserClient(auth.user?.token);
+
+    const { data: runs, error } = await supabase
       .from('run_log')
       .select('*')
       .eq('status', 'success')
       .order('started_at', { ascending: false })
       .limit(1);
+
+    if (error) {
+      return createErrorResponse('DATABASE_ERROR', error.message, 500, req);
+    }
 
     const latest = runs?.[0];
 
@@ -22,11 +38,14 @@ Generated: ${latest?.finished_at ? new Date(latest.finished_at).toISOString().sp
 Refer to dashboard for interactive component scoring details and direct citations.
 `;
 
-    return NextResponse.json({
-      generated_at: latest?.finished_at || new Date().toISOString(),
-      markdown
-    });
+    return createSuccessResponse(
+      {
+        generated_at: latest?.finished_at || new Date().toISOString(),
+        markdown
+      },
+      req
+    );
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return createErrorResponse('INTERNAL_SERVER_ERROR', err.message, 500, req);
   }
 }

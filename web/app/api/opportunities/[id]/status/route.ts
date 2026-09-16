@@ -1,6 +1,8 @@
-import { NextResponse } from 'next/server';
-import { getSupabaseServerClient } from '@/lib/supabaseServerClient';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { NextRequest } from 'next/server';
+import { getSupabaseUserClient, getSupabaseAdminClient } from '@/lib/supabaseServerClient';
+import { authenticateRequest, authorizeRole } from '@/lib/auth';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { z } from 'zod';
 
 const statusSchema = z.object({
@@ -9,40 +11,58 @@ const statusSchema = z.object({
   negative_terms: z.array(z.string().trim().min(1).max(100)).max(25).optional()
 });
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const ip = req.headers.get('x-forwarded-for') || 'local-client';
+    // 1. Authentication
+    const auth = await authenticateRequest(req);
+    if (!auth.authenticated) {
+      return auth.errorResponse!;
+    }
+
+    // 2. Authorization
+    const roleCheck = authorizeRole(auth.user, ['faculty', 'operator', 'admin']);
+    if (!roleCheck.authorized) {
+      return roleCheck.errorResponse!;
+    }
+
+    // 3. Sanitized Rate Limiting
+    const ip = getClientIp(req);
     const rateCheck = checkRateLimit(`status_${ip}`, 20, 60000);
     if (!rateCheck.allowed) {
-      return NextResponse.json(
-        {
-          error: 'Rate limit exceeded: Too many status update requests.',
-          retryAfterSeconds: rateCheck.retryAfterSeconds
-        },
-        {
-          status: 429,
-          headers: { 'Retry-After': String(rateCheck.retryAfterSeconds) }
-        }
+      return createErrorResponse(
+        'RATE_LIMIT_EXCEEDED',
+        'Rate limit exceeded: Too many status update requests.',
+        429,
+        req
       );
     }
 
     const id = params?.id?.trim();
     if (!id || !/^[a-zA-Z0-9_\-\.]{1,64}$/.test(id)) {
-      return NextResponse.json({ error: 'Invalid opportunity identifier format' }, { status: 400 });
+      return createErrorResponse('INVALID_IDENTIFIER', 'Invalid opportunity identifier format', 400, req);
     }
 
     const body = await req.json();
     const parsed = statusSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid status', details: parsed.error.issues }, { status: 400 });
+      return createErrorResponse('VALIDATION_ERROR', 'Invalid status payload', 400, req, parsed.error.issues);
     }
 
-    const supabase = getSupabaseServerClient();
-    // Get single faculty profile
-    const { data: prof } = await supabase.from('faculty_profile').select('id').single();
+    // Use admin client if operator or user client if authenticated user
+    const supabase = auth.user?.isServiceRole
+      ? getSupabaseAdminClient()
+      : getSupabaseUserClient(auth.user?.token);
+
+    // Lookup faculty profile associated with user
+    let profQuery = supabase.from('faculty_profile').select('id');
+    if (auth.user?.id && auth.user.role === 'faculty') {
+      profQuery = profQuery.eq('user_id', auth.user.id);
+    }
+    const { data: profs } = await profQuery.limit(1);
+    const prof = profs?.[0];
 
     if (!prof) {
-      return NextResponse.json({ error: 'Faculty profile not found' }, { status: 404 });
+      return createErrorResponse('NOT_FOUND', 'Faculty profile not found for authenticated user', 404, req);
     }
 
     const { error } = await supabase
@@ -52,11 +72,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         faculty_id: prof.id,
         status: parsed.data.status,
         updated_at: new Date().toISOString(),
-        updated_by: 'faculty'
+        updated_by: auth.user?.role || 'faculty'
       }, { onConflict: 'opportunity_id' });
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return createErrorResponse('DATABASE_ERROR', error.message, 500, req);
     }
 
     // Feedback loop: If faculty dismisses the opportunity, record as not_relevant
@@ -85,8 +105,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       });
     }
 
-    return NextResponse.json({ status: parsed.data.status });
+    return createSuccessResponse({ status: parsed.data.status }, req);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return createErrorResponse('INTERNAL_SERVER_ERROR', err.message, 500, req);
   }
 }

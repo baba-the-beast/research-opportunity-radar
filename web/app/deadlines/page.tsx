@@ -25,8 +25,9 @@ export default function DeadlinesPage() {
     fetch('/api/deadlines')
       .then((res) => res.json())
       .then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
-          const mapped: TimelineEvent[] = data.map((d: any) => {
+        const items = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+        if (items.length > 0) {
+          const mapped: TimelineEvent[] = items.map((d: any) => {
             const dateObj = new Date(d.deadline_date);
             const now = new Date();
             const diffDays = Math.max(

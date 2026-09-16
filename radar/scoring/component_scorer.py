@@ -12,6 +12,18 @@ from radar.notify import telegram
 logger = get_logger("component_scorer")
 
 _model = None
+_is_degraded = False
+
+
+def is_model_degraded() -> bool:
+    global _is_degraded
+    return _is_degraded
+
+
+def set_model_degraded(val: bool = True):
+    global _is_degraded
+    _is_degraded = val
+
 
 try:
     from huggingface_hub.errors import HfHubHTTPError
@@ -44,27 +56,28 @@ def get_sentence_transformer():
                         return np.array([0.05] * 384, dtype=float)
                 _model = MockTransformer()
             else:
-                # Production failure - log loudly and trigger alert
+                # Production failure - log loudly, mark degraded, and alert
+                set_model_degraded(True)
                 logger.error(
                     f"CRITICAL: SentenceTransformer model failed to load in production! "
-                    f"Falling back to degraded constant-vector mock. Cause: {exc}",
+                    f"Operating in DEGRADED mode (topic_similarity = 0.0). Cause: {exc}",
                     source_name="component_scorer",
                     error_category="MODEL_LOAD_FAILURE"
                 )
                 try:
                     telegram.send(
                         f"🚨 *CRITICAL SCORING WARNING*: SentenceTransformer model failed to load on host.\n"
-                        f"Degraded constant mock vectors are active.\nError: `{exc}`"
+                        f"Scoring is operating in DEGRADED mode.\nError: `{exc}`"
                     )
                 except Exception:
                     pass
 
-                class MockTransformer:
+                class DegradedTransformer:
                     def encode(self, text, **kwargs):
                         if isinstance(text, list):
-                            return np.array([[0.05] * 384 for _ in text], dtype=float)
-                        return np.array([0.05] * 384, dtype=float)
-                _model = MockTransformer()
+                            return np.zeros((len(text), 384), dtype=float)
+                        return np.zeros(384, dtype=float)
+                _model = DegradedTransformer()
         except Exception:
             if is_test_environment():
                 class MockTransformer:
@@ -74,6 +87,7 @@ def get_sentence_transformer():
                         return np.array([0.05] * 384, dtype=float)
                 _model = MockTransformer()
             else:
+                set_model_degraded(True)
                 logger.error(
                     "FATAL: Unexpected non-network exception during SentenceTransformer initialization.",
                     source_name="component_scorer",
@@ -197,6 +211,31 @@ def score_band(score: float) -> str:
     else:
         return "low"
 
+def encode_opportunities_batch(opportunities: list[Opportunity], batch_size: int = 32) -> None:
+    """
+    Batch encodes text for all opportunities lacking embeddings in a single vectorized pass.
+    Accelerates ML inference and avoids repeated individual PyTorch tensor operations.
+    """
+    if is_model_degraded():
+        return
+    to_encode = [opp for opp in opportunities if not opp.embedding]
+    if not to_encode:
+        return
+    model = get_sentence_transformer()
+    if is_model_degraded():
+        return
+    texts = [f"{opp.title} {opp.summary or ''}" for opp in to_encode]
+    try:
+        embeddings = model.encode(texts, batch_size=batch_size, show_progress_bar=False)
+        for opp, emb in zip(to_encode, embeddings):
+            if hasattr(emb, "tolist"):
+                opp.embedding = emb.tolist()
+            else:
+                opp.embedding = list(emb)
+    except Exception as e:
+        logger.warning(f"Batch embedding failed: {e}. Falling back to per-item embedding.", error_category="BATCH_ENCODE_ERROR")
+
+
 def score_opportunity(
     opportunity: Opportunity,
     profile: FacultyProfile,
@@ -206,15 +245,20 @@ def score_opportunity(
     model = get_sentence_transformer()
 
     # Topic similarity
-    opp_text = opportunity.title + " " + (opportunity.summary or "")
-    if not opportunity.embedding:
-        opportunity.embedding = model.encode(opp_text).tolist()
+    if is_model_degraded():
+        topic_sim_pct = 0.0
+        model_version = "component-v1-degraded"
+    else:
+        opp_text = opportunity.title + " " + (opportunity.summary or "")
+        if not opportunity.embedding:
+            opportunity.embedding = model.encode(opp_text).tolist()
 
-    if not profile.profile_embedding and profile.profile_text:
-        profile.profile_embedding = model.encode(profile.profile_text).tolist()
+        if not profile.profile_embedding and profile.profile_text:
+            profile.profile_embedding = model.encode(profile.profile_text).tolist()
 
-    cos_sim = embed_cosine(opportunity.embedding, profile.profile_embedding or [])
-    topic_sim_pct = cosine_to_pct(cos_sim)
+        cos_sim = embed_cosine(opportunity.embedding, profile.profile_embedding or [])
+        topic_sim_pct = cosine_to_pct(cos_sim)
+        model_version = "component-v1"
 
     exact_match, matched_topics = weighted_term_match(opportunity, profile_terms, "topic")
     method_match, matched_methods = weighted_term_match(opportunity, profile_terms, "method")
@@ -251,7 +295,8 @@ def score_opportunity(
         "venue_or_funder_fit": v_fit,
         "recency": recency,
         "deadline_actionability": deadline_act,
-        "feedback_penalty": feedback_pen
+        "feedback_penalty": feedback_pen,
+        "scoring_degraded": 1.0 if is_model_degraded() else 0.0
     }
 
     return ScoreResult(
@@ -260,7 +305,7 @@ def score_opportunity(
         components=components,
         matched_terms=all_matched,
         negative_matches=all_negatives,
-        model_version="component-v1"
+        model_version=model_version
     )
 
 class ComponentScorer:

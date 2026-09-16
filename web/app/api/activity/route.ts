@@ -1,20 +1,53 @@
-import { NextResponse } from 'next/server';
-import { getSupabaseServerClient } from '@/lib/supabaseServerClient';
+import { NextRequest, NextResponse } from 'next/server';
+import { getSupabaseUserClient, getSupabaseAdminClient } from '@/lib/supabaseServerClient';
+import { authenticateRequest, authorizeRole } from '@/lib/auth';
+import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 
-export async function GET() {
+export const dynamic = 'force-dynamic';
+
+export async function GET(req: NextRequest) {
   try {
-    const supabase = getSupabaseServerClient();
-    const { data: runs, error } = await supabase
+    const auth = await authenticateRequest(req);
+    if (!auth.authenticated) {
+      return auth.errorResponse!;
+    }
+
+    const roleCheck = authorizeRole(auth.user, ['faculty', 'operator', 'admin']);
+    if (!roleCheck.authorized) {
+      return roleCheck.errorResponse!;
+    }
+
+    const searchParams = req.nextUrl.searchParams;
+    const limitParam = parseInt(searchParams.get('limit') || '20', 10);
+    const limit = Math.max(1, Math.min(isNaN(limitParam) ? 20 : limitParam, 50));
+    const cursor = searchParams.get('cursor'); // ISO timestamp for started_at
+
+    const supabase = auth.user?.isServiceRole
+      ? getSupabaseAdminClient()
+      : getSupabaseUserClient(auth.user?.token);
+
+    let query = supabase
       .from('run_log')
       .select('*, source_runs(*, sources(name))')
       .order('started_at', { ascending: false })
-      .limit(20);
+      .limit(limit + 1);
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (cursor) {
+      query = query.lt('started_at', cursor);
     }
 
-    const formatted = (runs || []).map((r: any) => ({
+    const { data: runs, error } = await query;
+
+    if (error) {
+      return createErrorResponse('DATABASE_ERROR', error.message, 500, req);
+    }
+
+    const rows = runs || [];
+    const hasMore = rows.length > limit;
+    const paginatedRows = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = hasMore && paginatedRows.length > 0 ? paginatedRows[paginatedRows.length - 1].started_at : null;
+
+    const formatted = paginatedRows.map((r: any) => ({
       run_id: r.id,
       started_at: r.started_at,
       finished_at: r.finished_at,
@@ -32,8 +65,22 @@ export async function GET() {
       }))
     }));
 
-    return NextResponse.json(formatted);
+    if (searchParams.get('format') === 'array') {
+      return NextResponse.json(formatted);
+    }
+
+    return createSuccessResponse(
+      {
+        data: formatted,
+        pagination: {
+          limit,
+          next_cursor: nextCursor,
+          has_more: hasMore
+        }
+      },
+      req
+    );
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return createErrorResponse('INTERNAL_SERVER_ERROR', err.message, 500, req);
   }
 }

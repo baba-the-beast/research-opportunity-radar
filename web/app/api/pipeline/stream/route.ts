@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { authenticateRequest, authorizeRole } from '@/lib/auth';
+import { acquirePipelineLock, releasePipelineLock } from '@/lib/pipelineLock';
+import { createErrorResponse } from '@/lib/apiResponse';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -15,25 +18,42 @@ export async function GET(req: NextRequest) {
   const suppressAlerts = searchParams.get('suppress_alerts') === 'true' || searchParams.get('suppressAlerts') === '1';
 
   if (triggerRun) {
-    // Rate limit check (max 5 triggered runs per 10 minutes)
-    const ip = req.headers.get('x-forwarded-for') || 'local-client';
+    // 1. Authentication & Authorization
+    const auth = await authenticateRequest(req);
+    if (!auth.authenticated) {
+      return auth.errorResponse!;
+    }
+    const roleCheck = authorizeRole(auth.user, ['operator', 'admin']);
+    if (!roleCheck.authorized) {
+      return roleCheck.errorResponse!;
+    }
+
+    // 2. Sanitized IP Rate limit check (max 5 triggered runs per 10 minutes)
+    const ip = getClientIp(req);
     const rateCheck = checkRateLimit(`stream_${ip}`, 5, 600000);
     if (!rateCheck.allowed) {
-      return NextResponse.json(
-        {
-          error: 'Rate limit exceeded: Too many pipeline execution requests.',
-          retryAfterSeconds: rateCheck.retryAfterSeconds
-        },
-        {
-          status: 429,
-          headers: { 'Retry-After': String(rateCheck.retryAfterSeconds) }
-        }
+      return createErrorResponse(
+        'RATE_LIMIT_EXCEEDED',
+        'Rate limit exceeded: Too many pipeline execution requests.',
+        429,
+        req
+      );
+    }
+
+    // 3. Database-backed concurrency lock
+    const lockResult = await acquirePipelineLock('pipeline_main', 'stream_worker', 900);
+    if (!lockResult.acquired) {
+      return createErrorResponse(
+        'PIPELINE_CONCURRENCY_CONFLICT',
+        `Pipeline execution already active by '${lockResult.currentHolder || 'unknown'}'. Wait for current execution to conclude.`,
+        409,
+        req
       );
     }
   }
 
   const stream = new ReadableStream({
-    start(controller) {
+    async start(controller) {
       const sendEvent = (data: Record<string, any>) => {
         try {
           const text = `data: ${JSON.stringify(data)}\n\n`;
@@ -140,7 +160,14 @@ export async function GET(req: NextRequest) {
         }
       });
 
-      pyProc.on('close', (code) => {
+      const cleanupLock = async () => {
+        if (triggerRun) {
+          await releasePipelineLock('pipeline_main', 'stream_worker');
+        }
+      };
+
+      pyProc.on('close', async (code) => {
+        await cleanupLock();
         if (code === 0) {
           sendEvent({
             phase: 'COMPLETE',
@@ -162,7 +189,8 @@ export async function GET(req: NextRequest) {
         controller.close();
       });
 
-      pyProc.on('error', (err) => {
+      pyProc.on('error', async (err) => {
+        await cleanupLock();
         sendEvent({
           phase: 'ERROR',
           agent: 'Orchestrator',
@@ -173,10 +201,11 @@ export async function GET(req: NextRequest) {
         controller.close();
       });
 
-      req.signal.addEventListener('abort', () => {
+      req.signal.addEventListener('abort', async () => {
         try {
           pyProc.kill();
         } catch {}
+        await cleanupLock();
       });
     }
   });

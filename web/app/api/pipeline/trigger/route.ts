@@ -1,44 +1,61 @@
-import { NextResponse } from 'next/server';
-import { validateApiAuth } from '@/lib/apiAuth';
-import { checkRateLimit } from '@/lib/rateLimit';
+import { NextRequest, NextResponse } from 'next/server';
+import { authenticateRequest, authorizeRole } from '@/lib/auth';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { acquirePipelineLock } from '@/lib/pipelineLock';
+import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    // 1. Authentication check
-    const auth = validateApiAuth(req);
-    if (!auth.authorized && auth.response) {
-      return auth.response;
+    // 1. Authentication & Authorization
+    const auth = await authenticateRequest(req);
+    if (!auth.authenticated) {
+      return auth.errorResponse!;
+    }
+    const roleCheck = authorizeRole(auth.user, ['operator', 'admin']);
+    if (!roleCheck.authorized) {
+      return roleCheck.errorResponse!;
     }
 
-    // 2. Rate limiting check (max 5 triggers per 10 minutes)
-    const ip = req.headers.get('x-forwarded-for') || 'local-client';
+    // 2. Sanitized Rate limiting check (max 5 triggers per 10 minutes)
+    const ip = getClientIp(req);
     const rateCheck = checkRateLimit(`trigger_${ip}`, 5, 600000);
     if (!rateCheck.allowed) {
-      return NextResponse.json(
-        {
-          error: 'Rate limit exceeded: Too many pipeline trigger requests.',
-          retryAfterSeconds: rateCheck.retryAfterSeconds
-        },
-        {
-          status: 429,
-          headers: { 'Retry-After': String(rateCheck.retryAfterSeconds) }
-        }
+      return createErrorResponse(
+        'RATE_LIMIT_EXCEEDED',
+        'Rate limit exceeded: Too many pipeline trigger requests.',
+        429,
+        req
+      );
+    }
+
+    // 3. Concurrency check
+    const lockResult = await acquirePipelineLock('pipeline_main', 'github_actions_dispatcher', 900);
+    if (!lockResult.acquired) {
+      return createErrorResponse(
+        'PIPELINE_CONCURRENCY_CONFLICT',
+        `Pipeline execution already active by '${lockResult.currentHolder || 'unknown'}'. Dispatch rejected.`,
+        409,
+        req
       );
     }
 
     const ghToken = process.env.GITHUB_PAT;
     if (!ghToken) {
-      return NextResponse.json(
-        { error: 'GITHUB_PAT environment variable not configured. A GitHub personal access token with repo/actions permissions is required.' },
-        { status: 501 }
+      return createErrorResponse(
+        'NOT_CONFIGURED',
+        'GITHUB_PAT environment variable not configured. A GitHub personal access token with repo/actions permissions is required.',
+        501,
+        req
       );
     }
 
     const ghRepo = process.env.GITHUB_REPO || (process.env.GITHUB_REPO_OWNER && process.env.GITHUB_REPO_NAME ? `${process.env.GITHUB_REPO_OWNER}/${process.env.GITHUB_REPO_NAME}` : null);
     if (!ghRepo) {
-      return NextResponse.json(
-        { error: 'GITHUB_REPO environment variable not configured. Please set GITHUB_REPO in owner/repo format (e.g. your-org/research-opportunity-radar).' },
-        { status: 501 }
+      return createErrorResponse(
+        'NOT_CONFIGURED',
+        'GITHUB_REPO environment variable not configured. Please set GITHUB_REPO in owner/repo format (e.g. your-org/research-opportunity-radar).',
+        501,
+        req
       );
     }
 
@@ -54,11 +71,15 @@ export async function POST(req: Request) {
 
     if (!res.ok) {
       const errText = await res.text();
-      return NextResponse.json({ error: `GitHub API call failed (${res.status}): ${errText}` }, { status: res.status });
+      return createErrorResponse('GITHUB_API_ERROR', `GitHub API call failed (${res.status}): ${errText}`, res.status, req);
     }
 
-    return NextResponse.json({ message: `Pipeline trigger requested for ${ghRepo}` }, { status: 202 });
+    return createSuccessResponse(
+      { message: `Pipeline trigger successfully dispatched for ${ghRepo}` },
+      req,
+      202
+    );
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return createErrorResponse('INTERNAL_SERVER_ERROR', err.message, 500, req);
   }
 }
