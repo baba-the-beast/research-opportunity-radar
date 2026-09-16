@@ -273,8 +273,13 @@ cd web && npm test && npm run build
 
 All state-modifying Next.js API routes are protected against abuse and unauthorized execution:
 
-- **Sliding-Window Rate Limiting (`web/lib/rateLimit.ts`)**: Limits high-cost operations (e.g., triggering pipeline runs or SSE streams with `?run=true`) to 5 requests per 10 minutes per client IP. Exceeded limits return HTTP `429 Too Many Requests` with a `Retry-After` header. Operates in-memory for single-instance deployments.
-- **Shared Secret Authorization (`web/lib/apiAuth.ts`)**: Optional `RADAR_API_SECRET` enforcement. When set, mutations (`POST /api/pipeline/trigger`, `POST /api/profile`, `POST /api/opportunities/[id]/status`) require `Authorization: Bearer <secret>` or `x-radar-secret: <secret>`. Evaluated using constant-time `crypto.timingSafeEqual` with SHA-256 digests to eliminate side-channel timing attacks.
+- **External Trigger Authorization (`web/lib/apiAuth.ts`)**: Server-side `RADAR_API_SECRET` enforcement protects the external webhook trigger route (`POST /api/pipeline/trigger`). Evaluated using constant-time `crypto.timingSafeEqual` with SHA-256 digests to eliminate side-channel timing attacks. External callers (GitHub Actions, cron workers, CI) must provide `Authorization: Bearer <secret>` or `x-radar-secret: <secret>`.
+- **Sliding-Window Rate Limiting (`web/lib/rateLimit.ts`)**: Protects all mutation and streaming execution routes per client IP:
+  - `GET /api/pipeline/stream?run=true` (5 executions per 10 minutes)
+  - `POST /api/pipeline/trigger` (5 trigger dispatches per 10 minutes)
+  - `POST /api/profile` (10 updates per minute)
+  - `POST /api/opportunities/[id]/status` (20 updates per minute)
+  Exceeded limits return HTTP `429 Too Many Requests` with a `Retry-After` header. Operates in-memory for single-instance deployments.
 - **Input Sanitization & Schema Validation**: Enforces Zod string boundary limits on profile payloads and regex character masks (`/^[a-zA-Z0-9_\-\.]{1,64}$/`) on opportunity IDs to prevent injection.
 
 ---
@@ -304,4 +309,6 @@ This section documents operational realities, heuristic boundaries, and accepted
    - Evaluated based on the faculty profile's institutional classification (e.g., Higher Education Institution vs Small Business) and explicit announcement keywords, rather than automated financial ledger audits.
 5. **SentenceTransformer Cold-Start Offline Handling**:
    - In air-gapped or network-restricted environments, loading `sentence-transformers/all-MiniLM-L6-v2` will fail if HuggingFace Hub is unreachable and weights are not locally cached. The system alerts via Telegram and logs `CRITICAL` errors while operating in degraded mock vector mode.
+6. **Single-Tenant / Semi-Private Dashboard Model**:
+   - Dashboard endpoints (`/api/pipeline/stream`, `/api/profile`, `/api/opportunities/[id]/status`) are called directly by the browser UI and are protected by per-IP rate limiting and strict schema validation. They intentionally do not expose shared secret tokens in client bundles (which would leak secrets to browser visitors). For multi-tenant or untrusted public hosting, full user authentication (e.g. Supabase Auth session tokens) must be layered in before opening access beyond single-user / trusted intranet deployments.
 

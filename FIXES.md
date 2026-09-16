@@ -610,4 +610,21 @@ pm run build in web/ passed with 0 errors (all 14 static and dynamic routes comp
 * **Files:** [web/public/favicon.ico](web/public/favicon.ico), [web/app/favicon.ico](web/app/favicon.ico)
 * **Fix:** Created `web/public/` directory and added `favicon.ico` to both `public/` and `app/` to eliminate 404 favicon requests.
 
+## Phase 16 — Security Incident Remediation: `NEXT_PUBLIC_RADAR_API_SECRET` Purge & Architecture Correction
+
+### 16.1 Elimination of Inlined API Secret (`NEXT_PUBLIC_RADAR_API_SECRET`)
+* **Files:** [web/lib/apiAuth.ts](web/lib/apiAuth.ts), [web/app/page.tsx](web/app/page.tsx), [web/app/opportunities/[id]/page.tsx](web/app/opportunities/[id]/page.tsx), [web/app/profile/page.tsx](web/app/profile/page.tsx), [.env.example](.env.example), [DEPLOY_CHECKLIST.md](DEPLOY_CHECKLIST.md), [README.md](README.md)
+* **Incident / Root Cause:** Phase 15.1 introduced `NEXT_PUBLIC_RADAR_API_SECRET` and `getClientAuthHeaders()` so client-side browser `fetch()` calls could pass authentication to `/api/pipeline/stream`, `/api/profile`, and `/api/opportunities/[id]/status`. In Next.js, any environment variable prefixed with `NEXT_PUBLIC_` is inlined into client JavaScript bundles at build time (`npm run build`). DevTools bundle inspection confirmed `NEXT_PUBLIC_RADAR_API_SECRET` was leaked in production bundles (e.g., `app/page-*.js`), turning what was meant to be a secret into public plaintext and rendering authentication meaningless.
+* **Remediation:**
+  1. **Purged `NEXT_PUBLIC_` secret**: Completely deleted `NEXT_PUBLIC_RADAR_API_SECRET` from `.env`, `web/.env.local`, `.env.example`, and all application files.
+  2. **Rotated `RADAR_API_SECRET`**: Generated a new cryptographically secure 32-byte urlsafe secret locally and instructed secret rotation on Render.
+  3. **Decoupled Browser Endpoints from Shared Secret**:
+     - Removed `validateApiAuth` from `/api/pipeline/stream`, `/api/profile`, and `/api/opportunities/[id]/status`.
+     - Reverted `validateApiAuth` in `web/lib/apiAuth.ts` to strictly check server-side `process.env.RADAR_API_SECRET` via timing-safe SHA-256 comparison. Removed `getClientAuthHeaders()`.
+     - Preserved `validateApiAuth` exclusively on `/api/pipeline/trigger` for server-to-server calls (e.g. GitHub Actions, CI, cron jobs). Removed client fallback fetch to `/api/pipeline/trigger` from `web/app/page.tsx`.
+  4. **Layered Defense for Browser Endpoints**:
+     - Enforced per-IP sliding-window rate limiting (`checkRateLimit`) on `/api/pipeline/stream?run=true` (5/10 min), `/api/profile` (10/min), and `/api/opportunities/[id]/status` (20/min).
+     - Maintained strict Zod schema validation and regex ID sanitization (`/^[a-zA-Z0-9_\-\.]{1,64}$/`) to eliminate injection vectors.
+  5. **Accurate Documentation**: Updated `README.md`, `DEPLOY_CHECKLIST.md`, and test suites to reflect the semi-private dashboard model and the separation between external triggers and browser endpoints.
+
 

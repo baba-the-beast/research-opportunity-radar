@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServerClient';
-import { validateApiAuth } from '@/lib/apiAuth';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { z } from 'zod';
 
 const statusSchema = z.object({
@@ -11,9 +11,19 @@ const statusSchema = z.object({
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
-    const auth = validateApiAuth(req);
-    if (!auth.authorized && auth.response) {
-      return auth.response;
+    const ip = req.headers.get('x-forwarded-for') || 'local-client';
+    const rateCheck = checkRateLimit(`status_${ip}`, 20, 60000);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: 'Rate limit exceeded: Too many status update requests.',
+          retryAfterSeconds: rateCheck.retryAfterSeconds
+        },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(rateCheck.retryAfterSeconds) }
+        }
+      );
     }
 
     const id = params?.id?.trim();

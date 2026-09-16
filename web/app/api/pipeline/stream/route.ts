@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import { validateApiAuth } from '@/lib/apiAuth';
 import { checkRateLimit } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
@@ -16,13 +15,7 @@ export async function GET(req: NextRequest) {
   const suppressAlerts = searchParams.get('suppress_alerts') === 'true' || searchParams.get('suppressAlerts') === '1';
 
   if (triggerRun) {
-    // 1. Auth check
-    const auth = validateApiAuth(req);
-    if (!auth.authorized && auth.response) {
-      return auth.response;
-    }
-
-    // 2. Rate limit check (max 5 triggered runs per 10 minutes)
+    // Rate limit check (max 5 triggered runs per 10 minutes)
     const ip = req.headers.get('x-forwarded-for') || 'local-client';
     const rateCheck = checkRateLimit(`stream_${ip}`, 5, 600000);
     if (!rateCheck.allowed) {

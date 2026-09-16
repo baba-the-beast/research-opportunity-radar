@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabaseServerClient';
-import { validateApiAuth } from '@/lib/apiAuth';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { z } from 'zod';
 
 export async function GET() {
@@ -60,9 +60,19 @@ const updateProfileSchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const auth = validateApiAuth(req);
-    if (!auth.authorized && auth.response) {
-      return auth.response;
+    const ip = req.headers.get('x-forwarded-for') || 'local-client';
+    const rateCheck = checkRateLimit(`profile_${ip}`, 10, 60000);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: 'Rate limit exceeded: Too many profile update requests.',
+          retryAfterSeconds: rateCheck.retryAfterSeconds
+        },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(rateCheck.retryAfterSeconds) }
+        }
+      );
     }
 
     const body = await req.json();

@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getClientAuthHeaders } from '@/lib/apiAuth';
 
 interface ProfileTermItem {
   term: string;
@@ -97,7 +96,7 @@ export default function ProfilePage() {
     setSaving(true);
     await fetch('/api/profile', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...getClientAuthHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         full_name: profile.full_name,
         institution: profile.institution,

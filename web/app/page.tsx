@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { getClientAuthHeaders } from '@/lib/apiAuth';
 
 interface OpportunitySummary {
   id: string;
@@ -104,9 +103,7 @@ export default function DashboardPage() {
     setActivePhase('INIT');
 
     try {
-      const response = await fetch(`/api/pipeline/stream?run=true&dry_run=${dryRun}`, {
-        headers: getClientAuthHeaders()
-      });
+      const response = await fetch(`/api/pipeline/stream?run=true&dry_run=${dryRun}`);
       if (!response.body) throw new Error('ReadableStream not supported');
 
       const reader = response.body.getReader();
@@ -148,7 +145,6 @@ export default function DashboardPage() {
       }
     } catch (err) {
       console.error('Streaming error', err);
-      await fetch('/api/pipeline/trigger', { method: 'POST' }).catch(() => {});
     } finally {
       setIsStreaming(false);
       setRescanTriggered(false);

@@ -25,7 +25,7 @@ Configure these environment variables in your hosting provider's dashboard or co
 | `DEADLINE_ALERT_WINDOW_DAYS` | Recommended | Rolling window in days for urgent deadline detection (default: `30`). |
 | `GITHUB_PAT` | Optional | GitHub Personal Access Token with repo/workflow dispatch scopes for triggering actions. |
 | `GITHUB_REPO` | Optional | Target GitHub repository (`baba-the-beast/research-opportunity-radar`). |
-| `RADAR_API_SECRET` | **YES** | Cryptographically random secret (32+ chars) protecting mutation endpoints with constant-time verification. |
+| `RADAR_API_SECRET` | **YES** | Cryptographically random secret (32+ chars) protecting external webhook triggers (`/api/pipeline/trigger`) with constant-time verification. Never prefix with `NEXT_PUBLIC_`. |
 | `PROJECT_ROOT` | **YES** | Path to application root (`/app` in Docker; host directory if running natively). |
 
 ---
@@ -65,3 +65,5 @@ Configure these environment variables in your hosting provider's dashboard or co
 
 1. Faculty Profile: Enter a real faculty profile (name, institution, research keywords) either in Supabase Table Editor or via the `/profile` page once deployed.
 2. Optional Credentials: If email digests or elevated Semantic Scholar throughput are desired, configure `BREVO_API_KEY` and `SEMANTIC_SCHOLAR_API_KEY` as needed.
+3. Secret Hygiene & Configuration: Set `RADAR_API_SECRET` in your hosting provider's environment settings. Ensure `NEXT_PUBLIC_RADAR_API_SECRET` is DELETED if previously set (env vars prefixed `NEXT_PUBLIC_` are baked into client JavaScript bundles and leaked to browser visitors). Browser dashboard routes (`/api/pipeline/stream`, `/api/profile`, `/api/opportunities/[id]/status`) rely on per-IP rate limiting and strict Zod validation without embedding secrets in client bundles.
+

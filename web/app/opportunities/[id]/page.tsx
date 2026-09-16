@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { getClientAuthHeaders } from '@/lib/apiAuth';
 
 interface ScoreExplanation {
   final_score: number;
@@ -95,7 +94,7 @@ export default function OpportunityDetailPage({ params }: { params: { id: string
     try {
       await fetch(`/api/opportunities/${params.id}/status`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getClientAuthHeaders() },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: nextState ? 'pursuing' : 'new' })
       });
     } catch {
@@ -110,7 +109,7 @@ export default function OpportunityDetailPage({ params }: { params: { id: string
     try {
       await fetch(`/api/opportunities/${params.id}/status`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getClientAuthHeaders() },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: nextState ? 'dismissed' : 'new' })
       });
     } catch {
