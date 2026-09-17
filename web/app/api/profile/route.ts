@@ -23,13 +23,34 @@ export async function GET(req: NextRequest) {
       profQuery = profQuery.eq('user_id', auth.user.id);
     }
     const { data: profs, error } = await profQuery.limit(1);
-    const prof = profs?.[0];
+    let prof = profs?.[0];
 
-    if (error || !prof) {
-      return createErrorResponse(
-        'NOT_FOUND',
-        'Faculty profile not found in database. Configure Supabase or insert profile.',
-        404,
+    // Fallback: If no user-specific profile found but default profiles exist, check for unassigned or create default
+    if (!prof && auth.user?.id) {
+      // Check if unassigned profile exists
+      const { data: unassigned } = await supabase.from('faculty_profile').select('*').is('user_id', null).limit(1);
+      if (unassigned && unassigned.length > 0) {
+        prof = unassigned[0];
+      }
+    }
+
+    if (!prof) {
+      // Return uncalibrated default profile for new user
+      return createSuccessResponse(
+        {
+          id: null,
+          full_name: 'New Investigator',
+          institution: 'Institutional Affiliation',
+          department: 'Academic Department',
+          career_stage: 'mid_career',
+          phd_year: 2021,
+          institution_type: 'tier1_research',
+          citizenship_status: 'citizen',
+          research_keywords: ['Academic Research', 'Discovery'],
+          profile_text: 'Profile not yet calibrated. Add research keywords and summary to train relevance scoring.',
+          min_relevance_band: 'watch',
+          profile_terms: []
+        },
         req
       );
     }
@@ -88,7 +109,7 @@ export async function POST(req: NextRequest) {
       return auth.errorResponse!;
     }
 
-    const roleCheck = authorizeRole(auth.user, ['faculty', 'operator', 'admin']);
+    const roleCheck =  authorizeRole(auth.user, ['faculty', 'operator', 'admin']);
     if (!roleCheck.authorized) {
       return roleCheck.errorResponse!;
     }
@@ -119,40 +140,67 @@ export async function POST(req: NextRequest) {
       profQuery = profQuery.eq('user_id', auth.user.id);
     }
     const { data: profs } = await profQuery.limit(1);
-    const prof = profs?.[0];
+    let prof = profs?.[0];
+    let profileId = prof?.id;
 
     if (!prof) {
-      return createErrorResponse('NOT_FOUND', 'Faculty profile not found', 404, req);
+      // Auto-provision faculty_profile for new user
+      const insertData: any = {
+        user_id: auth.user?.id || null,
+        full_name: parsed.data.full_name || 'Investigator',
+        institution: parsed.data.institution || 'University',
+        department: parsed.data.department || 'Department',
+        career_stage: parsed.data.career_stage || 'mid_career',
+        phd_year: parsed.data.phd_year || 2021,
+        institution_type: parsed.data.institution_type || 'tier1_research',
+        citizenship_status: parsed.data.citizenship_status || 'citizen',
+        research_keywords: parsed.data.research_keywords,
+        profile_text: parsed.data.profile_text,
+        updated_at: new Date().toISOString()
+      };
+
+      const { data: newProf, error: insErr } = await supabase
+        .from('faculty_profile')
+        .insert(insertData)
+        .select('id')
+        .single();
+
+      if (insErr) {
+        return createErrorResponse('DATABASE_ERROR', insErr.message, 500, req);
+      }
+      profileId = newProf.id;
+    } else {
+      const updateData: any = {
+        research_keywords: parsed.data.research_keywords,
+        profile_text: parsed.data.profile_text,
+        updated_at: new Date().toISOString()
+      };
+      if (parsed.data.full_name) updateData.full_name = parsed.data.full_name;
+      if (parsed.data.institution) updateData.institution = parsed.data.institution;
+      if (parsed.data.department) updateData.department = parsed.data.department;
+      if (parsed.data.career_stage) updateData.career_stage = parsed.data.career_stage;
+      if (parsed.data.phd_year !== undefined) updateData.phd_year = parsed.data.phd_year;
+      if (parsed.data.institution_type) updateData.institution_type = parsed.data.institution_type;
+      if (parsed.data.citizenship_status) updateData.citizenship_status = parsed.data.citizenship_status;
+
+      await supabase.from('faculty_profile').update(updateData).eq('id', profileId);
     }
 
-    const updateData: any = {
-      research_keywords: parsed.data.research_keywords,
-      profile_text: parsed.data.profile_text,
-      updated_at: new Date().toISOString()
-    };
-    if (parsed.data.full_name) updateData.full_name = parsed.data.full_name;
-    if (parsed.data.institution) updateData.institution = parsed.data.institution;
-    if (parsed.data.department) updateData.department = parsed.data.department;
-    if (parsed.data.career_stage) updateData.career_stage = parsed.data.career_stage;
-    if (parsed.data.phd_year !== undefined) updateData.phd_year = parsed.data.phd_year;
-    if (parsed.data.institution_type) updateData.institution_type = parsed.data.institution_type;
-    if (parsed.data.citizenship_status) updateData.citizenship_status = parsed.data.citizenship_status;
-
-    await supabase.from('faculty_profile').update(updateData).eq('id', prof.id);
-
-    await supabase.from('profile_terms').delete().eq('profile_id', prof.id);
-    for (const term of parsed.data.profile_terms) {
-      await supabase.from('profile_terms').insert({
-        profile_id: prof.id,
-        term: term.term,
-        term_type: term.term_type,
-        weight: term.weight,
-        polarity: term.polarity,
-        source: 'manual'
-      });
+    if (profileId) {
+      await supabase.from('profile_terms').delete().eq('profile_id', profileId);
+      for (const term of parsed.data.profile_terms) {
+        await supabase.from('profile_terms').insert({
+          profile_id: profileId,
+          term: term.term,
+          term_type: term.term_type,
+          weight: term.weight,
+          polarity: term.polarity,
+          source: 'manual'
+        });
+      }
     }
 
-    return createSuccessResponse({ success: true }, req);
+    return createSuccessResponse({ success: true, profile_id: profileId }, req);
   } catch (err: any) {
     return createErrorResponse('INTERNAL_SERVER_ERROR', err.message, 500, req);
   }

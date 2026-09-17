@@ -16,6 +16,9 @@ export async function GET(req: NextRequest) {
     const limitParam = parseInt(searchParams.get('limit') || '20', 10);
     const limit = Math.max(1, Math.min(isNaN(limitParam) ? 20 : limitParam, 50));
     const cursor = searchParams.get('cursor'); // ISO timestamp for discovered_at pagination
+    const kindFilter = searchParams.get('kind');
+    const savedOnly = searchParams.get('saved') === 'true';
+    const statusFilter = searchParams.get('status');
 
     const supabase = getSupabaseUserClient(auth.user?.token);
     let query = supabase
@@ -34,6 +37,10 @@ export async function GET(req: NextRequest) {
       query = query.lt('discovered_at', cursor);
     }
 
+    if (kindFilter && kindFilter !== 'all') {
+      query = query.eq('kind', kindFilter);
+    }
+
     const { data: opps, error } = await query;
 
     if (error) {
@@ -41,15 +48,41 @@ export async function GET(req: NextRequest) {
     }
 
     const rows = opps || [];
-    const hasMore = rows.length > limit;
-    const paginatedRows = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor = hasMore && paginatedRows.length > 0 ? paginatedRows[paginatedRows.length - 1].discovered_at : null;
+    const oppIds = rows.map((r: any) => r.id);
 
-    const formatted = paginatedRows.map((row: any) => {
+    // Fetch user-scoped opportunity state (saved, notes, personal status)
+    const userStatesMap: Record<string, { saved: boolean; status: string; notes?: string; personal_score?: number }> = {};
+    if (auth.user?.id && oppIds.length > 0) {
+      try {
+        const { data: userStates } = await supabase
+          .from('user_opportunity_state')
+          .select('opportunity_id, status, saved, notes, personal_score')
+          .eq('user_id', auth.user.id)
+          .in('opportunity_id', oppIds);
+
+        if (userStates) {
+          for (const s of userStates) {
+            userStatesMap[s.opportunity_id] = s;
+          }
+        }
+      } catch {
+        // Tolerant if table not yet migrated
+      }
+    }
+
+    // Format and apply user-specific filters (e.g. saved-only)
+    let formatted = rows.map((row: any) => {
       const src = row.opportunity_sources?.[0];
       const scoring = row.scoring_log?.[0] || { final_score: 50, band: 'watch', matched_terms: [] };
       const dls = row.opportunity_deadlines || [];
       const nextDl = dls.length > 0 ? dls[0] : null;
+      const userState = userStatesMap[row.id];
+
+      const saved = Boolean(userState?.saved);
+      const status = userState?.status || row.opportunity_status?.[0]?.status || 'new';
+      const personalScore = userState?.personal_score !== undefined && userState?.personal_score !== null
+        ? Number(userState.personal_score)
+        : Number(scoring.final_score);
 
       return {
         id: row.id,
@@ -61,21 +94,37 @@ export async function GET(req: NextRequest) {
         primary_source_name: src?.sources?.name || row.agency_or_publisher || 'Primary Source',
         primary_source_url: src?.source_url || (row.doi ? `https://doi.org/${row.doi}` : ''),
         next_deadline: nextDl ? { deadline_date: nextDl.deadline_date, confidence: nextDl.confidence } : null,
-        final_score: scoring.final_score,
+        final_score: personalScore,
         band: scoring.band,
         matched_terms: scoring.matched_terms || [],
-        status: row.opportunity_status?.[0]?.status || 'new'
+        status,
+        saved,
+        notes: userState?.notes || ''
       };
     });
 
+    if (savedOnly) {
+      formatted = formatted.filter((item: any) => item.saved);
+    }
+
+    if (statusFilter && statusFilter !== 'all') {
+      formatted = formatted.filter((item: any) => item.status === statusFilter);
+    }
+
+    const hasMore = formatted.length > limit;
+    const paginatedRows = hasMore ? formatted.slice(0, limit) : formatted;
+    const nextCursor = hasMore && paginatedRows.length > 0
+      ? rows[paginatedRows.length - 1]?.discovered_at
+      : null;
+
     // Check if client requested legacy array format
     if (searchParams.get('format') === 'array') {
-      return NextResponse.json(formatted);
+      return NextResponse.json(paginatedRows);
     }
 
     return createSuccessResponse(
       {
-        data: formatted,
+        data: paginatedRows,
         pagination: {
           limit,
           next_cursor: nextCursor,

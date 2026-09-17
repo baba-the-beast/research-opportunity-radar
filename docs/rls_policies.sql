@@ -171,3 +171,41 @@ create policy "pipeline_locks_select_operator"
   on pipeline_locks for select
   to authenticated
   using (auth.jwt() ->> 'role' in ('admin', 'service_role'));
+
+-- 11. Multi-User SaaS Tenant Tables RLS
+alter table if exists user_preferences enable row level security;
+alter table if exists user_opportunity_state enable row level security;
+alter table if exists user_activity enable row level security;
+alter table if exists chat_sessions enable row level security;
+alter table if exists chat_messages enable row level security;
+
+create policy "user_preferences_owner_all"
+  on user_preferences for all
+  to authenticated
+  using (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'))
+  with check (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'));
+
+create policy "user_opportunity_state_owner_all"
+  on user_opportunity_state for all
+  to authenticated
+  using (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'))
+  with check (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'));
+
+create policy "user_activity_owner_all"
+  on user_activity for all
+  to authenticated
+  using (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'))
+  with check (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'));
+
+create policy "chat_sessions_owner_all"
+  on chat_sessions for all
+  to authenticated
+  using (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'))
+  with check (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'));
+
+create policy "chat_messages_owner_all"
+  on chat_messages for all
+  to authenticated
+  using (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'))
+  with check (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'));
+

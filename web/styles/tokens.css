@@ -5,16 +5,71 @@
 @tailwind components;
 @tailwind utilities;
 
+/* --------------------------------------------------------------------------
+   DESIGN SYSTEM TOKENS — LIGHT MODE (DEFAULT / ROOT)
+   -------------------------------------------------------------------------- */
 :root {
+  --color-ink: #10151B;
+  --color-panel: #FFFFFF;
+  --color-parchment: #1A202C;
+  --color-brass: #9E6B23;
+  --color-verdigris: #3D7060;
+  --color-rust: #A33A23;
+  --font-display: 'Fraunces', serif;
+  --font-body: 'Public Sans', sans-serif;
+  --font-numeric: 'Spline Sans Mono', monospace;
+
+  /* Semantic UI tokens for Light Theme */
+  --bg-background: #F9F8F5;
+  --bg-surface: #FFFFFF;
+  --bg-surface-container: #F2EFE8;
+  --bg-surface-container-low: #F6F4EE;
+  --bg-surface-container-high: #E8E4DA;
+  --bg-surface-container-highest: #DCD7CB;
+  --bg-surface-container-lowest: #FFFFFF;
+  --text-on-surface: #141920;
+  --text-on-surface-variant: #59616D;
+  --border-outline: #B6B0A4;
+  --border-outline-variant: #D8D2C4;
+
+  --color-primary: #9E6B23;
+  --color-primary-container: #EADBC0;
+  --color-on-primary: #FFFFFF;
+  --color-on-primary-container: #4E3106;
+  --color-secondary: #3D7060;
+  --color-secondary-container: #CFE4DC;
+}
+
+/* --------------------------------------------------------------------------
+   DESIGN SYSTEM TOKENS — DARK MODE
+   -------------------------------------------------------------------------- */
+html.dark, .dark {
   --color-ink: #10151B;
   --color-panel: #171E27;
   --color-parchment: #EDE6D6;
   --color-brass: #C08A3E;
   --color-verdigris: #5B8C7B;
   --color-rust: #B5482F;
-  --font-display: 'Fraunces', serif;
-  --font-body: 'Public Sans', sans-serif;
-  --font-numeric: 'Spline Sans Mono', monospace;
+
+  /* Semantic UI tokens for Dark Theme */
+  --bg-background: #0f141a;
+  --bg-surface: #0f141a;
+  --bg-surface-container: #1b2026;
+  --bg-surface-container-low: #171c22;
+  --bg-surface-container-high: #252a31;
+  --bg-surface-container-highest: #30353c;
+  --bg-surface-container-lowest: #0a0f14;
+  --text-on-surface: #dee3eb;
+  --text-on-surface-variant: #d4c4b3;
+  --border-outline: #9d8e7f;
+  --border-outline-variant: #504538;
+
+  --color-primary: #f8bb6a;
+  --color-primary-container: #c08a3e;
+  --color-on-primary: #462b00;
+  --color-on-primary-container: #412800;
+  --color-secondary: #9ed1be;
+  --color-secondary-container: #205143;
 }
 
 @layer base {
@@ -22,10 +77,12 @@
     margin: 0;
     padding: 0;
     overscroll-behavior: none;
-    background-color: var(--color-ink, #10151B);
-    color: var(--color-parchment, #EDE6D6);
+    background-color: var(--bg-background);
+    color: var(--text-on-surface);
     font-family: var(--font-body, 'Public Sans', sans-serif);
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
+
   main > :first-child {
     margin-top: 0 !important;
   }
@@ -52,4 +109,3 @@
 ::-webkit-scrollbar {
   display: none;
 }
-

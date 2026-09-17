@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { AiCopilot } from '@/components/AiCopilot';
 
 interface OpportunitySummary {
   id: string;
@@ -17,6 +18,7 @@ interface OpportunitySummary {
   band: string;
   matched_terms: string[];
   status: string;
+  saved?: boolean;
   external_id?: string;
   eligibility_verdict?: string;
 }
@@ -156,6 +158,29 @@ export default function DashboardPage() {
     setShowAddKeyword(false);
   };
 
+  const [savedOnly, setSavedOnly] = useState(false);
+
+  const toggleSave = async (e: React.MouseEvent, oppId: string, currentSaved?: boolean) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const nextSaved = !currentSaved;
+    setOpportunities((prev) =>
+      prev.map((o) => (o.id === oppId ? { ...o, saved: nextSaved } : o))
+    );
+
+    try {
+      await fetch('/api/opportunities/saved', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ opportunity_id: oppId, saved: nextSaved })
+      });
+    } catch {
+      setOpportunities((prev) =>
+        prev.map((o) => (o.id === oppId ? { ...o, saved: currentSaved } : o))
+      );
+    }
+  };
+
   const removeKeyword = (kw: string) => {
     setKeywords(keywords.filter((k) => k !== kw));
   };
@@ -165,6 +190,7 @@ export default function DashboardPage() {
   };
 
   const filteredOpps = opportunities
+    .filter((o) => !savedOnly || Boolean(o.saved))
     .filter((o) => filterBands[o.band] ?? true)
     .filter((o) => filterKind === 'all' || o.kind.toLowerCase().includes(filterKind.toLowerCase()))
     .sort((a, b) => {
@@ -489,6 +515,31 @@ export default function DashboardPage() {
               ))}
             </div>
           </div>
+
+          {/* Saved Bookmarks Filter */}
+          <div className="flex flex-col gap-space-sm pt-2 border-t border-surface-container/60">
+            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">
+              Saved Horizon
+            </span>
+            <button
+              onClick={() => setSavedOnly(!savedOnly)}
+              className={`px-3 py-2 text-center text-body-sm font-bold flex items-center justify-between transition-colors rounded ${
+                savedOnly
+                  ? 'bg-primary text-on-primary'
+                  : 'bg-surface-container border border-outline-variant/40 text-on-surface hover:bg-surface-container-high'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-[18px]">
+                  {savedOnly ? 'bookmark' : 'bookmark_border'}
+                </span>
+                <span>Saved Calls Only</span>
+              </div>
+              <span className="font-data-mono-sm text-data-mono-sm">
+                0{opportunities.filter((o) => o.saved).length}
+              </span>
+            </button>
+          </div>
         </section>
 
         {/* Center Column: The Radar Stream */}
@@ -594,17 +645,31 @@ export default function DashboardPage() {
                       </div>
 
                       <div className="flex flex-col items-end shrink-0 pl-2">
-                        <div className="flex items-baseline gap-space-xs font-mono">
-                          <span
-                            className={`font-data-mono-lg text-data-mono-lg ${
-                              isHighOrStrong ? 'text-secondary' : 'text-on-surface-variant'
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => toggleSave(e, opp.id, opp.saved)}
+                            title={opp.saved ? 'Remove from Saved Horizon' : 'Bookmark to Saved Horizon'}
+                            className={`p-1 rounded hover:bg-surface-container transition-colors ${
+                              opp.saved ? 'text-primary' : 'text-on-surface-variant hover:text-on-surface'
                             }`}
                           >
-                            {Math.round(opp.final_score)}
-                          </span>
-                          <span className="font-label-caps text-label-caps text-outline font-bold">
-                            /100
-                          </span>
+                            <span className="material-symbols-outlined text-[20px]">
+                              {opp.saved ? 'bookmark' : 'bookmark_border'}
+                            </span>
+                          </button>
+                          <div className="flex items-baseline gap-space-xs font-mono">
+                            <span
+                              className={`font-data-mono-lg text-data-mono-lg ${
+                                isHighOrStrong ? 'text-secondary' : 'text-on-surface-variant'
+                              }`}
+                            >
+                              {Math.round(opp.final_score)}
+                            </span>
+                            <span className="font-label-caps text-label-caps text-outline font-bold">
+                              /100
+                            </span>
+                          </div>
                         </div>
                         <span
                           className={`px-space-xs py-space-2xs font-data-mono-sm text-data-mono-sm uppercase font-bold mt-1 ${
@@ -810,6 +875,9 @@ export default function DashboardPage() {
           </div>
         </section>
       </div>
+
+      {/* Interactive AI Research Copilot */}
+      <AiCopilot />
     </div>
   );
 }

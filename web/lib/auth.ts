@@ -48,26 +48,50 @@ export function extractAuthToken(req: Request | NextRequest): { token?: string; 
   // Check cookies for Supabase session token if available
   const cookieHeader = req.headers.get('cookie') || '';
   if (cookieHeader) {
-    const cookies = Object.fromEntries(
+    const rawCookies = Object.fromEntries(
       cookieHeader.split(';').map((c) => {
         const [k, ...v] = c.trim().split('=');
         return [k, decodeURIComponent(v.join('='))];
       })
     );
-    // Look for common Supabase cookie names
-    const sbToken =
-      cookies['sb-access-token'] ||
-      Object.keys(cookies).find((k) => k.startsWith('sb-') && k.endsWith('-auth-token'));
-    if (sbToken) {
-      try {
-        // May be raw token or JSON array [token, refresh]
-        if (sbToken.startsWith('[')) {
-          const parsed = JSON.parse(sbToken);
-          return { token: parsed[0], isSecretHeader: false };
+
+    // 1. Direct or chunked Supabase cookie lookup
+    let cookieVal = rawCookies['sb-access-token'];
+    if (!cookieVal) {
+      const baseKey = Object.keys(rawCookies).find((k) => k.startsWith('sb-') && k.includes('-auth-token'));
+      if (baseKey) {
+        if (baseKey.endsWith('.0')) {
+          // Reassemble chunked cookies (.0, .1, etc.)
+          const root = baseKey.slice(0, -2);
+          const chunks: string[] = [];
+          for (let i = 0; rawCookies[`${root}.${i}`]; i++) {
+            chunks.push(rawCookies[`${root}.${i}`]);
+          }
+          cookieVal = chunks.join('');
+        } else {
+          cookieVal = rawCookies[baseKey];
         }
-        return { token: sbToken, isSecretHeader: false };
+      }
+    }
+
+    if (cookieVal) {
+      try {
+        let str = cookieVal;
+        if (str.startsWith('base64-')) {
+          str = Buffer.from(str.slice(7), 'base64').toString('utf-8');
+        }
+        if (str.startsWith('{') || str.startsWith('[')) {
+          const parsed = JSON.parse(str);
+          if (Array.isArray(parsed) && parsed[0]) {
+            return { token: parsed[0], isSecretHeader: false };
+          }
+          if (parsed.access_token) {
+            return { token: parsed.access_token, isSecretHeader: false };
+          }
+        }
+        return { token: cookieVal, isSecretHeader: false };
       } catch {
-        return { token: sbToken, isSecretHeader: false };
+        return { token: cookieVal, isSecretHeader: false };
       }
     }
   }

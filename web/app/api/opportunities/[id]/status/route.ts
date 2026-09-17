@@ -65,18 +65,46 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return createErrorResponse('NOT_FOUND', 'Faculty profile not found for authenticated user', 404, req);
     }
 
-    const { error } = await supabase
-      .from('opportunity_status')
-      .upsert({
-        opportunity_id: id,
-        faculty_id: prof.id,
-        status: parsed.data.status,
-        updated_at: new Date().toISOString(),
-        updated_by: auth.user?.role || 'faculty'
-      }, { onConflict: 'opportunity_id' });
+    // Upsert into multi-user user_opportunity_state
+    if (auth.user?.id) {
+      try {
+        await supabase
+          .from('user_opportunity_state')
+          .upsert({
+            user_id: auth.user.id,
+            opportunity_id: id,
+            status: parsed.data.status,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'user_id,opportunity_id' });
 
-    if (error) {
-      return createErrorResponse('DATABASE_ERROR', error.message, 500, req);
+        // Record user activity audit event
+        await supabase.from('user_activity').insert({
+          user_id: auth.user.id,
+          event_type: 'status_change',
+          title: `Marked Opportunity as ${parsed.data.status.toUpperCase()}`,
+          description: `Investigator transitioned opportunity ${id} to ${parsed.data.status}.`,
+          metadata: { opportunity_id: id, new_status: parsed.data.status }
+        });
+      } catch {
+        // Tolerant if table not migrated yet
+      }
+    }
+
+    // Maintain legacy opportunity_status table compatibility
+    if (prof) {
+      const { error } = await supabase
+        .from('opportunity_status')
+        .upsert({
+          opportunity_id: id,
+          faculty_id: prof.id,
+          status: parsed.data.status,
+          updated_at: new Date().toISOString(),
+          updated_by: auth.user?.role || 'faculty'
+        }, { onConflict: 'opportunity_id' });
+
+      if (error && !auth.user?.id) {
+        return createErrorResponse('DATABASE_ERROR', error.message, 500, req);
+      }
     }
 
     // Feedback loop: If faculty dismisses the opportunity, record as not_relevant
