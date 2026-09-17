@@ -1,0 +1,84 @@
+name: Render Keep Alive
+
+on:
+  schedule:
+    # Run every 10 minutes to stay comfortably within Render's 15-minute free/starter sleep threshold
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run: validate URL and configuration without sending HTTP traffic'
+        required: false
+        type: boolean
+        default: false
+      verbose:
+        description: 'Verbose logging: output extra diagnostic timings and backoff intervals'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-keepalive-watchdog
+  cancel-in-progress: false
+
+jobs:
+  keepalive-watchdog:
+    name: Autonomous Render Keep-Alive Watchdog
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          # No pip packages required: Watchdog is 100% standard library
+
+      - name: Execute Render Keep-Alive Watchdog
+        id: watchdog
+        env:
+          RENDER_APP_URL: ${{ vars.RENDER_APP_URL || secrets.RENDER_APP_URL }}
+          HEALTH_PATH: '/api/health'
+          REQUEST_TIMEOUT: '35'
+          MAX_RETRIES: '3'
+          RETRY_DELAY: '3.0'
+          KEEPALIVE_ALERT_TELEGRAM_TOKEN: ${{ secrets.KEEPALIVE_ALERT_TELEGRAM_TOKEN || secrets.TELEGRAM_BOT_TOKEN }}
+          KEEPALIVE_ALERT_TELEGRAM_CHAT_ID: ${{ secrets.KEEPALIVE_ALERT_TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          if [ "${{ inputs.verbose }}" = "true" ]; then
+            ARGS="$ARGS --verbose"
+          fi
+
+          # Run watchdog and capture output
+          python scripts/render_keepalive.py $ARGS | tee watchdog.log
+          WATCHDOG_EXIT=${PIPESTATUS[0]}
+
+          # Generate GitHub Actions Job Summary
+          echo "## 🛰️ Render Keep-Alive Watchdog Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ $WATCHDOG_EXIT -eq 0 ]; then
+            echo "✅ **Status:** Service is **HEALTHY / RECOVERED**" >> $GITHUB_STEP_SUMMARY
+          elif [ $WATCHDOG_EXIT -eq 1 ]; then
+            echo "❌ **Status:** Service encountered a **PERSISTENT FAILURE**" >> $GITHUB_STEP_SUMMARY
+          elif [ $WATCHDOG_EXIT -eq 2 ]; then
+            echo "⚠️ **Status:** **CONFIGURATION ERROR** (Check \`RENDER_APP_URL\`)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "🚨 **Status:** **UNEXPECTED ERROR**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          grep -A 20 -- '--- WATCHDOG_STRUCTURED_SUMMARY ---' watchdog.log | head -n 20 >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          exit $WATCHDOG_EXIT

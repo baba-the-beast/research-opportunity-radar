@@ -284,6 +284,20 @@ All state-modifying Next.js API routes are protected against abuse and unauthori
 
 ---
 
+## Autonomous Render Keep-Alive / Reliability Watchdog
+
+To prevent container idling under Render's 15-minute free/starter sleep behavior, an external watchdog agent runs independently inside GitHub Actions:
+
+- **Schedule & Cadence**: Executes every 10 minutes (`*/10 * * * *`) via [`.github/workflows/render-keepalive.yml`](file:///.github/workflows/render-keepalive.yml) and supports on-demand `workflow_dispatch`.
+- **Zero Overhead**: Directly queries lightweight in-memory [`GET /api/health`](file:///web/app/api/health/route.ts) returning `{"status":"ok"}` without triggering database queries, external API calls, or ML pipelines.
+- **Cold-Start Tolerant**: Employs a 35s initial timeout and bounded exponential backoff with jitter to smoothly tolerate waking containers without generating false alerts.
+- **SSRF & Security Protected**: Requires HTTPS, validates target IP addresses against private and cloud-metadata ranges (`169.254.169.254`), and sanitizes tokens and credentials from logs.
+- **Persistent Outage Alerting**: Dispatches Telegram notifications on persistent failures while suppressing transient noise.
+
+For full setup instructions (configuring `RENDER_APP_URL`), operational commands, and reliability guidelines, see [`docs/render-keepalive.md`](file:///docs/render-keepalive.md).
+
+---
+
 ## Governance & Human-in-the-Loop Protocol
 
 1. **Informational Solely**: The system never auto-submits grant proposals, registers manuscripts, or contacts editors autonomously.
