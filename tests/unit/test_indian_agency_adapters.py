@@ -156,3 +156,26 @@ def test_funding_deadline_scan_integration():
     assert len(dbt_opps) == 2
     assert all(o.primary_source_name in ("ICMR", "DBT") for o in opps)
 
+
+
+def test_funding_scan_drops_closed_calls_and_result_notices(monkeypatch):
+    class StubAdapter:
+        agency_name = "STUB"
+
+        def fetch_open_calls(self):
+            return [
+                {"title": "Call for proposals: open", "url": "https://a.gov.in/1", "deadline": "31-12-2099"},
+                {"title": "Call for proposals: closed", "url": "https://a.gov.in/2", "deadline": "30-03-2020"},
+                {"title": "Results: Special Call for proposals", "url": "https://a.gov.in/3", "deadline": None},
+                {"title": "Call with no published date", "url": "https://a.gov.in/4", "deadline": None},
+                {"title": "Call without a link", "url": None, "deadline": "31-12-2099"},
+            ]
+
+    monkeypatch.setitem(AGENCY_REGISTRY, "STUB", StubAdapter)
+    opps = {o.title: o for o in funding_deadline_scan(["STUB"])}
+
+    assert set(opps) == {"Call for proposals: open", "Call with no published date"}
+    assert opps["Call for proposals: open"].status == "open"
+    assert opps["Call for proposals: open"].deadlines[0].confidence == "confirmed"
+    assert opps["Call with no published date"].status == "unknown"
+    assert opps["Call with no published date"].deadlines == []

@@ -1,7 +1,7 @@
 """funding_deadline_scan tool for scanning funding agency calls."""
 import logging
 
-from radar.deadlines.deadline_engine import classify_deadline_confidence
+from radar.deadlines.deadline_engine import lifecycle_status, parse_deadline
 from radar.dedup import fingerprint
 from radar.models import Opportunity, OpportunityDeadline, OpportunitySource
 from radar.sources import grants_gov_client
@@ -33,7 +33,6 @@ def funding_deadline_scan(agency_list: list[str]) -> list[Opportunity]:
                     opp_id = hit.get("id") or hit.get("number")
                     agency_name = hit.get("agency") or "Grants.gov"
                     close_date_str = hit.get("closeDate")
-                    open_date_str = hit.get("openDate")
                     url = f"https://www.grants.gov/search-results-detail/{opp_id}" if opp_id else "https://www.grants.gov"
 
                     metadata_payload = dict(hit)
@@ -60,22 +59,18 @@ def funding_deadline_scan(agency_list: list[str]) -> list[Opportunity]:
                     ))
 
                     if close_date_str:
-                        dl_date, conf = classify_deadline_confidence(close_date_str)
+                        # Grants.gov dates are US month-first (MM/DD/YYYY)
+                        dl_date, conf = parse_deadline(close_date_str, day_first=False)
                         opp.deadlines.append(OpportunityDeadline(
                             deadline_type="full_proposal",
                             deadline_date=dl_date,
                             confidence=conf,
                             raw_text=close_date_str
                         ))
-                    if open_date_str:
-                        dl_date, conf = classify_deadline_confidence(open_date_str)
-                        opp.deadlines.append(OpportunityDeadline(
-                            deadline_type="letter_of_intent",
-                            deadline_date=dl_date,
-                            confidence=conf,
-                            raw_text=open_date_str
-                        ))
+                    # openDate is when applications opened, not a deadline; it stays in metadata
 
+                    if lifecycle_status(title, [d.deadline_date for d in opp.deadlines]) == "closed":
+                        continue
                     opportunities.append(opp)
             except Exception as e:
                 logger.error(f"Grants.gov scan failed: {e}")
@@ -84,18 +79,25 @@ def funding_deadline_scan(agency_list: list[str]) -> list[Opportunity]:
                 adapter_cls = AGENCY_REGISTRY[agency]
                 adapter = adapter_cls()
                 calls = adapter.fetch_open_calls()
+                skipped = 0
                 for call in calls:
-                    title = call.get("title")
-                    if not title:
-                        continue
-                    url = call.get("url") or "https://dst.gov.in"
+                    title = (call.get("title") or "").strip()
+                    url = call.get("url")
+                    if not title or not url:
+                        continue  # a call without a link can't be acted on, and would collide in dedup
                     raw_dl = call.get("deadline")
+                    dl_date, conf = parse_deadline(raw_dl) if raw_dl else (None, "unknown")
+                    status = lifecycle_status(title, [dl_date])
+                    if status in ("result_notice", "closed"):
+                        skipped += 1
+                        continue
                     opp = Opportunity(
                         kind="funding",
                         title=title,
-                        summary=f"Open call from {adapter.agency_name}",
+                        summary=call.get("summary") or f"Open call from {adapter.agency_name}",
                         agency_or_publisher=adapter.agency_name,
-                        status="open",
+                        # "unknown" = no published deadline; shown as such rather than as a confirmed open call
+                        status="open" if status == "open" else "unknown",
                         source_name=adapter.agency_name,
                         source_url=url,
                         metadata=call
@@ -105,7 +107,6 @@ def funding_deadline_scan(agency_list: list[str]) -> list[Opportunity]:
                         source_url=url
                     ))
                     if raw_dl:
-                        dl_date, conf = classify_deadline_confidence(raw_dl)
                         opp.deadlines.append(OpportunityDeadline(
                             deadline_type="full_proposal",
                             deadline_date=dl_date,
@@ -113,6 +114,8 @@ def funding_deadline_scan(agency_list: list[str]) -> list[Opportunity]:
                             raw_text=raw_dl
                         ))
                     opportunities.append(opp)
+                if skipped:
+                    logger.info(f"{adapter.agency_name}: skipped {skipped} closed calls and result notices")
             except Exception as e:
                 logger.error(f"Agency adapter failed for '{agency}': {e}")
         else:

@@ -340,21 +340,37 @@ def upsert_opportunities(accepted: list[tuple[Opportunity, str]], provenance_upd
             "last_seen_at": datetime.now(UTC).isoformat()
         }, on_conflict="opportunity_id, source_id").execute()
 
-        # Insert/Upsert opportunity deadlines
-        for dl in opp.deadlines:
-            client.table("opportunity_deadlines").upsert({
-                "opportunity_id": inserted_id,
-                "deadline_type": dl.deadline_type,
-                "deadline_date": dl.deadline_date.isoformat() if dl.deadline_date else "2099-12-31",
-                "timezone": dl.timezone,
-                "confidence": dl.confidence,
-                "raw_text": dl.raw_text
-            }, on_conflict="opportunity_id, deadline_type, deadline_date").execute()
+        _replace_deadlines(client, inserted_id, opp.deadlines)
 
         # One scoring_log row per faculty profile scored this run
         insert_scores(inserted_id, opp.profile_scores)
 
     return new_count
+
+def _replace_deadlines(client: Any, opportunity_id: str, deadlines: list[OpportunityDeadline]) -> None:
+    """Store the deadlines the source publishes now, dropping ones it no longer lists (e.g. an extended
+    date replaces the original). Deadlines without a parseable date are not stored as rows: the
+    opportunity simply has no deadline, which the UI shows as "not published"."""
+    dated = [dl for dl in deadlines if dl.deadline_date]
+    if not dated:
+        return  # source stopped showing a date this run; keep what we knew
+    current = {(dl.deadline_type, dl.deadline_date.isoformat()) for dl in dated if dl.deadline_date}
+    stored = client.table("opportunity_deadlines").select("id, deadline_type, deadline_date").eq("opportunity_id", opportunity_id).execute()
+    stale_ids = [row["id"] for row in stored.data or [] if (row["deadline_type"], row["deadline_date"]) not in current]
+    if stale_ids:
+        client.table("opportunity_deadlines").delete().in_("id", stale_ids).execute()
+    client.table("opportunity_deadlines").upsert([
+        {
+            "opportunity_id": opportunity_id,
+            "deadline_type": dl.deadline_type,
+            "deadline_date": dl.deadline_date.isoformat() if dl.deadline_date else None,
+            "timezone": dl.timezone,
+            "confidence": dl.confidence,
+            "raw_text": dl.raw_text
+        }
+        for dl in dated
+    ], on_conflict="opportunity_id, deadline_type, deadline_date").execute()
+
 
 def insert_scores(opportunity_id: str, profile_scores: dict[str, ScoreResult]) -> None:
     """Append scoring_log rows. Eligibility lives in components (RLS-scoped per faculty), not in the

@@ -96,6 +96,9 @@ def is_private_or_reserved_ip(ip_str: str) -> bool:
     """Checks if an IP address is private, loopback, link-local, or cloud metadata."""
     try:
         ip = ipaddress.ip_address(ip_str)
+        # NAT64 (64:ff9b::/96) wraps a public IPv4 address on IPv6-only networks; judge the IPv4 inside
+        if ip.version == 6 and ip in ipaddress.ip_network("64:ff9b::/96"):
+            ip = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
         return (
             ip.is_private
             or ip.is_loopback

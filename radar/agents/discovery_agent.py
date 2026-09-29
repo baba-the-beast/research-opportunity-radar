@@ -198,7 +198,7 @@ class DiscoveryAgent:
                         }
                     )
 
-                    parsed_date, confidence = classify_deadline_confidence(raw_desc)
+                    parsed_date, confidence = classify_deadline_confidence(raw_desc, day_first=False)  # NSF: US dates
                     if parsed_date:
                         opp.deadlines.append(OpportunityDeadline(
                             deadline_type="full_proposal",
