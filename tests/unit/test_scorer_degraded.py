@@ -6,7 +6,7 @@ def test_scorer_degraded_mode():
     """
     Verifies that when SentenceTransformer is marked degraded in production,
     topic similarity is set to 0.0, scoring_degraded component is 1.0,
-    and model_version is 'component-v1-degraded'.
+    and model_version is 'component-v2-degraded'.
     Crucially, ensures fake constant mock vectors do NOT produce 100% false similarity.
     """
     prof = FacultyProfile(
@@ -30,7 +30,7 @@ def test_scorer_degraded_mode():
         res = component_scorer.score_opportunity(opp, prof, terms)
         assert res.components["scoring_degraded"] == 1.0
         assert res.components["topic_similarity"] == 0.0
-        assert res.model_version == "component-v1-degraded"
+        assert res.model_version == "component-v2-degraded"
     finally:
         # Reset degraded mode
         component_scorer.set_model_degraded(False)

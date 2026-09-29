@@ -327,40 +327,28 @@ export default function OpportunityDetailPage({ params }: { params: { id: string
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-space-2xl gap-y-space-sm sm:gap-y-space-lg">
                   {[
                     {
-                      label: 'Topic Similarity',
-                      weight: '35%',
+                      label: 'Topic similarity',
+                      weight: '45%',
                       val: componentScore(components.topic_similarity),
-                      desc: 'Dense vector resonance (all-MiniLM-L6-v2) between abstract and faculty profile.'
+                      desc: 'How close the call text is to your research summary (all-MiniLM-L6-v2 embeddings).'
                     },
                     {
-                      label: 'Exact Term Match',
-                      weight: '20%',
-                      val: componentScore(components.exact_term_match),
-                      desc: 'Lexical keyword overlap across positive profile research vocabulary.'
+                      label: 'Your terms in the call',
+                      weight: '30%',
+                      val: componentScore(components.term_match),
+                      desc: 'Your topic, method and application terms found in the call. One match counts ~70%, two ~90%.'
                     },
                     {
-                      label: 'Method Match',
-                      weight: '10%',
-                      val: componentScore(components.method_match),
-                      desc: 'Methodological synergy (experimental, algorithms, hardware platforms).'
-                    },
-                    {
-                      label: 'Application Match',
-                      weight: '10%',
-                      val: componentScore(components.application_match),
-                      desc: 'Application domain alignment with laboratory target areas.'
-                    },
-                    {
-                      label: 'Venue / Funder Fit',
-                      weight: '10%',
+                      label: 'Funder / venue fit',
+                      weight: '5%',
                       val: componentScore(components.venue_or_funder_fit ?? components.venue_funder_fit),
-                      desc: 'Publishing venue reputation or agency funding alignment.'
+                      desc: 'Whether the funder or venue is one you listed as a venue / funding-theme term.'
                     },
                     {
                       label: 'Recency',
                       weight: '5%',
                       val: componentScore(components.recency),
-                      desc: 'Freshness penalty decay ensuring newly announced calls rank higher.'
+                      desc: 'Newly announced calls rank slightly higher.'
                     }
                   ].map(({ label, weight, val, desc }) => (
                     <div key={label} className="flex flex-col gap-space-2xs bg-surface-container-lowest p-space-sm sm:p-space-md border border-surface-container">
@@ -388,7 +376,7 @@ export default function OpportunityDetailPage({ params }: { params: { id: string
                     <div className="flex justify-between items-center font-data-mono-sm text-data-mono-sm">
                       <div className="flex items-center gap-2">
                         <span className="text-on-surface font-semibold">Deadline Actionability</span>
-                        <span className="text-outline text-[11px]">[10% weight]</span>
+                        <span className="text-outline text-[11px]">[15% weight]</span>
                       </div>
                       <span className="text-primary font-bold font-mono">
                         {normalizeScore(components.deadline_actionability)}%

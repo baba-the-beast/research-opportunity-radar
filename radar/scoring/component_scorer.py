@@ -1,3 +1,4 @@
+import math
 import os
 import re
 import sys
@@ -98,11 +99,11 @@ def get_sentence_transformer():
                 raise
     return _model
 
-# all-MiniLM-L6-v2 cosine between an unrelated call and a profile is typically 0.0-0.2; a call on
-# the faculty member's own topic scores 0.5-0.7. Map that useful band onto 0-100 (the old (c+1)/2
-# mapping gave unrelated calls ~55%, inflating every score).
-COSINE_FLOOR = 0.15
-COSINE_CEILING = 0.65
+# all-MiniLM-L6-v2 cosine between a call and a profile summary (measured on live calls, Sep 2026):
+# unrelated ~0.0-0.1, clearly related ~0.4, near-identical topic ~0.8. Map 0.10-0.60 onto 0-100
+# (the old (c+1)/2 mapping gave unrelated calls ~55%, inflating every score).
+COSINE_FLOOR = 0.10
+COSINE_CEILING = 0.60
 
 
 def cosine_to_pct(cosine_sim: float) -> float:
@@ -156,6 +157,19 @@ def weighted_term_match(opportunity: Opportunity, profile_terms: list[ProfileTer
     gained_weight = sum(t.weight for t in relevant_terms if t.term in matched)
     score = (gained_weight / total_weight * 100.0) if total_weight > 0 else 0.0
     return min(100.0, score), matched
+
+
+def combined_term_match(opportunity: Opportunity, profile_terms: list[ProfileTerm]) -> tuple[float | None, list[str]]:
+    """Evidence from the faculty member's own terms (topics, methods, applications) in the call text.
+    Saturating: a call rarely mentions every interest of a researcher, so one strong match already
+    counts for ~70 and two for ~90, instead of scoring the share of *all* terms matched."""
+    text = _opportunity_text(opportunity)
+    relevant = [t for t in profile_terms if t.polarity == "positive" and t.term_type in ("topic", "method", "application")]
+    if not relevant:
+        return None, []
+    matched = [t for t in relevant if term_in_text(t.term, text)]
+    gained = sum(t.weight for t in matched)
+    return 100.0 * (1.0 - math.exp(-TERM_SATURATION * gained)), [t.term for t in matched]
 
 
 def venue_or_funder_fit(opportunity: Opportunity, profile_terms: list[ProfileTerm]) -> float | None:
@@ -221,14 +235,13 @@ def compute_feedback_penalty(opportunity: Opportunity, negative_signals: list[di
     return min(35.0, penalty), list(set(matched_reasons))
 
 COMPONENT_WEIGHTS = {
-    "topic_similarity": 0.35,
-    "exact_term_match": 0.20,
-    "method_match": 0.10,
-    "application_match": 0.10,
-    "venue_or_funder_fit": 0.10,
+    "topic_similarity": 0.45,
+    "term_match": 0.30,
+    "venue_or_funder_fit": 0.05,
     "recency": 0.05,
-    "deadline_actionability": 0.10,
+    "deadline_actionability": 0.15,
 }
+TERM_SATURATION = 1.2  # 1 - exp(-1.2 * matched weight): one full-weight term ~70, two ~91
 NOT_APPLICABLE = -1.0  # stored in scoring_log components when the profile has no terms of that type
 
 
@@ -287,7 +300,7 @@ def score_opportunity(
     # Topic similarity
     if is_model_degraded():
         topic_sim_pct = 0.0
-        model_version = "component-v1-degraded"
+        model_version = "component-v2-degraded"
     else:
         opp_text = opportunity.title + " " + (opportunity.summary or "")
         if not opportunity.embedding:
@@ -298,7 +311,7 @@ def score_opportunity(
 
         cos_sim = embed_cosine(opportunity.embedding, profile.profile_embedding or [])
         topic_sim_pct = cosine_to_pct(cos_sim)
-        model_version = "component-v1"
+        model_version = "component-v2"
 
     exact_match, matched_topics = weighted_term_match(opportunity, profile_terms, "topic")
     method_match, matched_methods = weighted_term_match(opportunity, profile_terms, "method")
@@ -311,13 +324,14 @@ def score_opportunity(
     feedback_pen, fb_matches = compute_feedback_penalty(opportunity, negative_signals)
     total_penalty = penalty + feedback_pen
 
-    # Weighted average over the components that apply: a profile without method terms, or a run
-    # with the embedding model down, is scored on what is known instead of counting it as 0 or 50.
+    term_match, _ = combined_term_match(opportunity, profile_terms)
+
+    # Weighted average over the components that apply: a profile without terms, or a run with the
+    # embedding model down, is scored on what is known instead of counting it as 0 or 50.
+    # (exact/method/application matches are kept in the components for the explanation view.)
     weighted = [
         (COMPONENT_WEIGHTS["topic_similarity"], None if is_model_degraded() else topic_sim_pct),
-        (COMPONENT_WEIGHTS["exact_term_match"], exact_match),
-        (COMPONENT_WEIGHTS["method_match"], method_match),
-        (COMPONENT_WEIGHTS["application_match"], app_match),
+        (COMPONENT_WEIGHTS["term_match"], term_match),
         (COMPONENT_WEIGHTS["venue_or_funder_fit"], v_fit),
         (COMPONENT_WEIGHTS["recency"], recency),
         (COMPONENT_WEIGHTS["deadline_actionability"], deadline_act),
@@ -333,6 +347,7 @@ def score_opportunity(
 
     components = {
         "topic_similarity": topic_sim_pct,
+        "term_match": _or_na(term_match),
         "exact_term_match": _or_na(exact_match),
         "method_match": _or_na(method_match),
         "application_match": _or_na(app_match),

@@ -31,9 +31,9 @@ def test_terms_match_whole_words_only():
 
 
 def test_unrelated_text_scores_near_zero_similarity():
-    assert cs.cosine_to_pct(0.05) == 0.0
-    assert cs.cosine_to_pct(0.65) == 100.0
-    assert 40 < cs.cosine_to_pct(0.40) < 60
+    assert cs.cosine_to_pct(0.05) == 0.0  # unrelated call
+    assert cs.cosine_to_pct(0.60) == 100.0
+    assert 55 < cs.cosine_to_pct(0.40) < 65  # clearly related call
 
 
 def test_missing_term_types_are_left_out_not_counted_as_neutral():
@@ -65,3 +65,11 @@ def test_component_scorer_wrapper_works():
     profile = FacultyProfile(full_name="Dr. A", institution="IIT", profile_text="edge ai")
     result = cs.ComponentScorer.score(_call("Edge AI call"), faculty_profile=profile)
     assert 0 <= result.final_score <= 100
+
+
+def test_one_or_two_term_matches_are_strong_evidence():
+    terms = [_term("graph neural networks"), _term("fraud detection"), _term("edge ai"), _term("sensor fusion")]
+    one, _ = cs.combined_term_match(_call("Workshop on edge AI"), terms)
+    two, matched = cs.combined_term_match(_call("Edge AI and sensor fusion workshop"), terms)
+    assert 65 < one < 75 and two > 88
+    assert set(matched) == {"edge ai", "sensor fusion"}
