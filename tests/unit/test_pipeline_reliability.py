@@ -106,3 +106,19 @@ def test_demo_profile_is_never_seeded_into_a_real_database(monkeypatch):
     monkeypatch.setattr(faculty_profile_store.db_client, "get_client", lambda: db._InMemoryClient())
     assert faculty_profile_store.get_all_profiles() == []
     assert faculty_profile_store.get_profile_terms("someone-real") == []
+
+
+def test_preferred_sources_are_attached_and_mapped():
+    from radar.models import FacultyProfile
+    from radar.orchestrator import pipeline
+
+    db.get_client().table("user_preferences").insert([
+        {"user_id": "u-us", "preferred_sources": ["ANRF", "Grants.gov", "NSF", "Bogus"]},
+    ])
+    us, default = FacultyProfile(full_name="a", institution="x", user_id="u-us"), FacultyProfile(full_name="b", institution="y", user_id="u-new")
+    pipeline._attach_preferred_sources([us, default])
+
+    assert us.preferred_sources == ["ANRF", "Grants.gov", "NSF"]  # unknown names dropped
+    assert default.preferred_sources is None
+    assert pipeline._source_names_for(us) == {"ANRF", "Grants.gov", "NSF Solicitations Feed"}
+    assert "WikiCFP" in pipeline._source_names_for(default) and "Grants.gov" not in pipeline._source_names_for(default)

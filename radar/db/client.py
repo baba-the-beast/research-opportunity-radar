@@ -489,6 +489,16 @@ def close_expired_opportunities(today: date) -> int:
     return closed
 
 
+def load_preferred_sources(user_ids: list[str]) -> dict[str, list[str]]:
+    """user_id -> preferred_sources for users who have saved preferences."""
+    ids = [u for u in dict.fromkeys(user_ids) if u]
+    if not ids:
+        return {}
+    client = get_client()
+    res = client.table("user_preferences").select("user_id, preferred_sources").in_("user_id", ids).execute()
+    return {row["user_id"]: row["preferred_sources"] for row in res.data or [] if row.get("preferred_sources")}
+
+
 def insert_scores(opportunity_id: str, profile_scores: dict[str, ScoreResult]) -> None:
     """Append scoring_log rows. Eligibility lives in components (RLS-scoped per faculty), not in the
     shared opportunities.metadata, so one faculty member's eligibility verdict is never visible to others."""

@@ -210,21 +210,29 @@ class DiscoveryAgent:
                 break
         return results
 
-    def run_discovery_cycle(self, profile: FacultyProfile, terms: list[ProfileTerm] | None = None) -> list[Opportunity]:
-        """CFPs for each research keyword (capped), plus NSF solicitations when US sources are on."""
+    def run_discovery_cycle(
+        self,
+        profile: FacultyProfile,
+        terms: list[ProfileTerm] | None = None,
+        sources: set[str] | None = None,
+    ) -> list[Opportunity]:
+        """CFPs for each research keyword (capped), plus NSF solicitations when US sources are on.
+        `sources` limits which of WikiCFP / NSF run (default: WikiCFP, and NSF if US sources are enabled)."""
+        include_wikicfp = sources is None or "WikiCFP" in sources
+        include_nsf = ("NSF" in sources) if sources is not None else us_sources_enabled()
         keywords = [k for k in (profile.research_keywords or []) if k.strip()][:MAX_CFP_KEYWORDS]
         self._emit("CYCLE_START", f"Searching calls for papers for {len(keywords)} research keywords.",
                    {"keywords_count": len(keywords)})
 
         found: list[Opportunity] = []
         seen_ids: set[str] = set()
-        for kw in keywords:
+        for kw in keywords if include_wikicfp else []:
             for opp in self.search_wikicfp(kw):
                 if opp.external_id not in seen_ids:
                     seen_ids.add(opp.external_id or "")
                     found.append(opp)
 
-        if us_sources_enabled():
+        if include_nsf:
             found.extend(self.search_nsf_solicitations(profile))
 
         self._emit("CYCLE_COMPLETE", f"Found {len(found)} open calls for papers and solicitations.",

@@ -26,7 +26,20 @@ BREVO_RECIPIENT_EMAIL = os.getenv("BREVO_RECIPIENT_EMAIL", "")
 # Tunables
 MIN_RELEVANCE_BAND = os.getenv("MIN_RELEVANCE_BAND", "watch")
 DEADLINE_ALERT_WINDOW_DAYS = int(os.getenv("DEADLINE_ALERT_WINDOW_DAYS", "30"))
-# Indian agencies by default; US sources (Grants.gov) are opt-in per user (see user_preferences)
+# Sources a user can choose in Settings (user_preferences.preferred_sources), mapped to the
+# source_name their opportunities carry. Indian agencies and calls for papers are the default;
+# US sources (Grants.gov, NSF) are opt-in.
+SOURCE_NAMES = {
+    "ANRF": "ANRF",
+    "DST": "DST",
+    "DBT": "DBT",
+    "ICMR": "ICMR",
+    "WikiCFP": "WikiCFP",
+    "Grants.gov": "Grants.gov",
+    "NSF": "NSF Solicitations Feed",
+}
+DEFAULT_SOURCES = ["ANRF", "DST", "DBT", "ICMR", "WikiCFP"]
+# Funding agencies scanned when no user has chosen sources yet
 AGENCY_LIST = ["ANRF", "DST", "DBT", "ICMR"]
 
 

@@ -39,6 +39,19 @@ SCHOLARLY_SEARCH_SOURCE = "Scholarly literature search (OpenAlex / Crossref / Se
 RESCORE_CATALOG_LIMIT = 200
 
 
+def _attach_preferred_sources(profiles: list[FacultyProfile]) -> None:
+    """Fill profile.preferred_sources from user_preferences (None keeps the defaults)."""
+    by_user = db.load_preferred_sources([p.user_id for p in profiles if p.user_id])
+    for profile in profiles:
+        if profile.user_id in by_user:
+            profile.preferred_sources = [s for s in by_user[profile.user_id] if s in config.SOURCE_NAMES]
+
+
+def _source_names_for(profile: FacultyProfile) -> set[str]:
+    """source_name values of the opportunities this faculty member asked to hear about."""
+    return {config.SOURCE_NAMES[s] for s in (profile.preferred_sources or config.DEFAULT_SOURCES) if s in config.SOURCE_NAMES}
+
+
 def _union_keywords(profiles: list[FacultyProfile]) -> list[str]:
     """Research keywords to scan, de-duplicated case-insensitively and capped at MAX_SCAN_KEYWORDS.
 
@@ -148,6 +161,9 @@ def run_pipeline(
             db.finish_run_log(run_id, status="success", errors=["No faculty profiles yet"])
             return summary
         terms_by_profile = {p.id: faculty_profile_store.get_profile_terms(p.id) for p in profiles}
+        _attach_preferred_sources(profiles)
+        run_sources = set().union(*(p.preferred_sources or config.DEFAULT_SOURCES for p in profiles))
+        agencies = [a for a in run_sources if a in config.SOURCE_NAMES and a not in ("WikiCFP", "NSF")]
         scan_keywords = _union_keywords(profiles)
         # One merged profile drives source discovery so each source is queried once per run,
         # not once per user; scoring below is still per profile.
@@ -176,7 +192,7 @@ def run_pipeline(
         t0 = datetime.now()
         try:
             agency_errors: list[dict[str, str]] = []
-            funding_items = funding_deadline_scan(config.AGENCY_LIST, errors=agency_errors)
+            funding_items = funding_deadline_scan(sorted(agencies), errors=agency_errors)
             found.extend(funding_items)
             lat = int((datetime.now() - t0).total_seconds() * 1000)
             failed_sources.extend(agency_errors)
@@ -184,7 +200,7 @@ def run_pipeline(
                 logger.error(f"Agency source failed: {err['error']}", run_id=run_id, source_name=err["source"], error_category="source_error")
                 summary.errors.append(f"{err['source']} unavailable: {err['error']}")
             db.finish_source_run(
-                sr_id, status="partial_failure" if agency_errors else "success", request_count=len(config.AGENCY_LIST),
+                sr_id, status="partial_failure" if agency_errors else "success", request_count=len(agencies),
                 inserted_count=len(funding_items), error_count=len(agency_errors), latency_ms=lat,
             )
             logger.info(f"Retrieved {len(funding_items)} funding opportunities", run_id=run_id, source_name="funding_deadline_scan")
@@ -199,7 +215,7 @@ def run_pipeline(
         t0 = datetime.now()
         try:
             discovery_agent = DiscoveryAgent(telemetry_callback=telemetry_callback)
-            discovered = discovery_agent.run_discovery_cycle(discovery_profile, discovery_terms)
+            discovered = discovery_agent.run_discovery_cycle(discovery_profile, discovery_terms, sources=run_sources)
             found.extend(discovered)
             lat = int((datetime.now() - t0).total_seconds() * 1000)
             # One entry per failing source, not per failed keyword request
@@ -372,9 +388,11 @@ def run_pipeline(
             # digests and deadline alerts for everyone after them.
             try:
                 target = recipients.resolve_target(profile)
+                wanted = _source_names_for(profile)
                 to_alert = [
                     o for o in new_accepted
-                    if should_alert(o.profile_scores.get(profile.id), profile.min_relevance_band)
+                    if (o.primary_source_name or "") in wanted
+                    and should_alert(o.profile_scores.get(profile.id), profile.min_relevance_band)
                     and o.profile_scores[profile.id].final_score >= target.min_score
                 ]
                 if to_alert and should_send_alerts and target.digest_enabled:
