@@ -1,10 +1,12 @@
 import os
+import re
 import sys
 from datetime import UTC, datetime
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
+from radar.deadlines.deadline_engine import today_ist
 from radar.logging_config import get_logger
 from radar.models import FacultyProfile, Opportunity, ProfileTerm, ScoreResult
 from radar.notify import telegram
@@ -96,9 +98,15 @@ def get_sentence_transformer():
                 raise
     return _model
 
+# all-MiniLM-L6-v2 cosine between an unrelated call and a profile is typically 0.0-0.2; a call on
+# the faculty member's own topic scores 0.5-0.7. Map that useful band onto 0-100 (the old (c+1)/2
+# mapping gave unrelated calls ~55%, inflating every score).
+COSINE_FLOOR = 0.15
+COSINE_CEILING = 0.65
+
+
 def cosine_to_pct(cosine_sim: float) -> float:
-    # Scale cosine [-1, 1] -> [0, 100]
-    return max(0.0, min(100.0, float((cosine_sim + 1.0) / 2.0 * 100.0)))
+    return max(0.0, min(100.0, (cosine_sim - COSINE_FLOOR) / (COSINE_CEILING - COSINE_FLOOR) * 100.0))
 
 def embed_cosine(vec1: list[float] | str, vec2: list[float] | str) -> float:
     if not vec1 or not vec2:
@@ -123,36 +131,41 @@ def embed_cosine(vec1: list[float] | str, vec2: list[float] | str) -> float:
         return 0.0
     return float(np.dot(v1, v2) / (norm1 * norm2))
 
-def weighted_term_match(opportunity: Opportunity, profile_terms: list[ProfileTerm], term_type: str) -> tuple[float, list[str]]:
-    text = (opportunity.title + " " + (opportunity.summary or "")).lower()
-    matched = []
-    total_weight = 0.0
-    gained_weight = 0.0
+def _opportunity_text(opportunity: Opportunity) -> str:
+    return (opportunity.title + " " + (opportunity.summary or "")).lower()
 
+
+def term_in_text(term: str, text: str) -> bool:
+    """Whole-word match, so "ai" does not match "chair" and "iot" does not match "idiot"."""
+    term = term.strip().lower()
+    if not term:
+        return False
+    return re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text) is not None
+
+
+def weighted_term_match(opportunity: Opportunity, profile_terms: list[ProfileTerm], term_type: str) -> tuple[float | None, list[str]]:
+    """Weighted share of the profile's positive terms of this type found in the call text.
+    None when the profile has no terms of this type (the component is left out of the score)."""
+    text = _opportunity_text(opportunity)
     relevant_terms = [t for t in profile_terms if t.term_type == term_type and t.polarity == "positive"]
     if not relevant_terms:
-        return 50.0, []
+        return None, []
 
-    for t in relevant_terms:
-        total_weight += t.weight
-        if t.term.lower() in text:
-            gained_weight += t.weight
-            matched.append(t.term)
-
+    total_weight = sum(t.weight for t in relevant_terms)
+    matched = [t.term for t in relevant_terms if term_in_text(t.term, text)]
+    gained_weight = sum(t.weight for t in relevant_terms if t.term in matched)
     score = (gained_weight / total_weight * 100.0) if total_weight > 0 else 0.0
     return min(100.0, score), matched
 
-def venue_or_funder_fit(opportunity: Opportunity, profile_terms: list[ProfileTerm]) -> float:
-    target = ((opportunity.agency_or_publisher or "") + " " + (opportunity.venue_name or "")).lower()
-    if not target.strip():
-        return 50.0
+
+def venue_or_funder_fit(opportunity: Opportunity, profile_terms: list[ProfileTerm]) -> float | None:
+    """100 when the funder/venue is one the faculty member listed, 30 otherwise; None if they listed none."""
     relevant_terms = [t for t in profile_terms if t.term_type in ("venue", "funding_theme") and t.polarity == "positive"]
     if not relevant_terms:
-        return 50.0
-    for t in relevant_terms:
-        if t.term.lower() in target:
-            return 100.0
-    return 30.0
+        return None
+    target = ((opportunity.agency_or_publisher or "") + " " + (opportunity.venue_name or "") + " " + opportunity.title).lower()
+    return 100.0 if any(term_in_text(t.term, target) for t in relevant_terms) else 30.0
+
 
 def recency_score(discovered_at: datetime) -> float:
     if not discovered_at:
@@ -161,26 +174,32 @@ def recency_score(discovered_at: datetime) -> float:
     return max(0.0, (1.0 - days_since / 14.0) * 100.0)
 
 def deadline_actionability_score(opportunity: Opportunity) -> tuple[float, list[str]]:
-    confirmed_dl = [d for d in opportunity.deadlines if d.confidence == "confirmed" and d.deadline_date]
-    if not confirmed_dl:
-        return 0.0, []
-    earliest = min(d.deadline_date for d in confirmed_dl)
-    days_left = (earliest - datetime.now(UTC).date()).days
-    if days_left < 0:
+    """How actionable the deadline is: soon > later > rolling > unknown. A date read from a document
+    ("probable") counts slightly less than one the agency lists in a date column ("confirmed")."""
+    dated = [d for d in opportunity.deadlines if d.deadline_date and d.confidence in ("confirmed", "probable")]
+    if not dated:
+        return (50.0, []) if opportunity.metadata.get("rolling") else (0.0, [])
+    upcoming = [d for d in dated if d.deadline_date >= today_ist()]
+    if not upcoming:
         return 0.0, ["passed_deadline"]
-    elif days_left <= 7:
-        return 100.0, []
+    nearest = min(upcoming, key=lambda d: d.deadline_date)
+    days_left = (nearest.deadline_date - today_ist()).days
+    if days_left <= 7:
+        score = 100.0
     elif days_left <= 30:
-        return 70.0, []
+        score = 80.0
+    elif days_left <= 90:
+        score = 60.0
     else:
-        return 40.0, []
+        score = 40.0
+    return (score if nearest.confidence == "confirmed" else score * 0.8), []
+
 
 def negative_term_penalty(opportunity: Opportunity, profile_terms: list[ProfileTerm]) -> float:
-    text = (opportunity.title + " " + (opportunity.summary or "")).lower()
-    neg_terms = [t for t in profile_terms if t.polarity == "negative"]
+    text = _opportunity_text(opportunity)
     penalty = 0.0
-    for t in neg_terms:
-        if t.term.lower() in text:
+    for t in profile_terms:
+        if t.polarity == "negative" and term_in_text(t.term, text):
             penalty += 10.0 * t.weight
     return min(25.0, penalty)
 
@@ -190,16 +209,32 @@ def compute_feedback_penalty(opportunity: Opportunity, negative_signals: list[di
         return 0.0, []
     penalty = 0.0
     matched_reasons = []
-    text = (opportunity.title + " " + (opportunity.summary or "")).lower()
+    text = _opportunity_text(opportunity)
 
     for sig in negative_signals:
         neg_terms = sig.get("negative_terms") or []
         for term in neg_terms:
-            if term and len(term) >= 4 and term.lower() in text:
+            if term and len(term) >= 4 and term_in_text(term, text):
                 penalty += 12.0
                 matched_reasons.append(f"feedback_penalty:{term.lower()}")
 
     return min(35.0, penalty), list(set(matched_reasons))
+
+COMPONENT_WEIGHTS = {
+    "topic_similarity": 0.35,
+    "exact_term_match": 0.20,
+    "method_match": 0.10,
+    "application_match": 0.10,
+    "venue_or_funder_fit": 0.10,
+    "recency": 0.05,
+    "deadline_actionability": 0.10,
+}
+NOT_APPLICABLE = -1.0  # stored in scoring_log components when the profile has no terms of that type
+
+
+def _or_na(value: float | None) -> float:
+    return NOT_APPLICABLE if value is None else value
+
 
 def score_band(score: float) -> str:
     if score >= 80.0:
@@ -234,6 +269,11 @@ def encode_opportunities_batch(opportunities: list[Opportunity], batch_size: int
                 opp.embedding = list(emb)
     except Exception as e:
         logger.warning(f"Batch embedding failed: {e}. Falling back to per-item embedding.", error_category="BATCH_ENCODE_ERROR")
+        for opp, text in zip(to_encode, texts):
+            try:
+                opp.embedding = model.encode(text).tolist()
+            except Exception as item_error:
+                logger.warning(f"Embedding failed for '{opp.title[:60]}': {item_error}", error_category="ENCODE_ERROR")
 
 
 def score_opportunity(
@@ -271,15 +311,19 @@ def score_opportunity(
     feedback_pen, fb_matches = compute_feedback_penalty(opportunity, negative_signals)
     total_penalty = penalty + feedback_pen
 
-    base = (
-        0.35 * topic_sim_pct +
-        0.20 * exact_match +
-        0.10 * method_match +
-        0.10 * app_match +
-        0.10 * v_fit +
-        0.05 * recency +
-        0.10 * deadline_act
-    )
+    # Weighted average over the components that apply: a profile without method terms, or a run
+    # with the embedding model down, is scored on what is known instead of counting it as 0 or 50.
+    weighted = [
+        (COMPONENT_WEIGHTS["topic_similarity"], None if is_model_degraded() else topic_sim_pct),
+        (COMPONENT_WEIGHTS["exact_term_match"], exact_match),
+        (COMPONENT_WEIGHTS["method_match"], method_match),
+        (COMPONENT_WEIGHTS["application_match"], app_match),
+        (COMPONENT_WEIGHTS["venue_or_funder_fit"], v_fit),
+        (COMPONENT_WEIGHTS["recency"], recency),
+        (COMPONENT_WEIGHTS["deadline_actionability"], deadline_act),
+    ]
+    applicable = [(w, v) for w, v in weighted if v is not None]
+    base = sum(w * v for w, v in applicable) / sum(w for w, _ in applicable)
 
     final_score = max(0.0, min(100.0, base - total_penalty))
     band = score_band(final_score)
@@ -289,10 +333,10 @@ def score_opportunity(
 
     components = {
         "topic_similarity": topic_sim_pct,
-        "exact_term_match": exact_match,
-        "method_match": method_match,
-        "application_match": app_match,
-        "venue_or_funder_fit": v_fit,
+        "exact_term_match": _or_na(exact_match),
+        "method_match": _or_na(method_match),
+        "application_match": _or_na(app_match),
+        "venue_or_funder_fit": _or_na(v_fit),
         "recency": recency,
         "deadline_actionability": deadline_act,
         "feedback_penalty": feedback_pen,
@@ -319,8 +363,8 @@ class ComponentScorer:
     ) -> ScoreResult:
         return score_opportunity(
             opportunity=opportunity,
-            faculty_profile=faculty_profile,
-            profile_terms=profile_terms,
+            profile=faculty_profile,
+            profile_terms=profile_terms or [],
             negative_signals=negative_signals
         )
 

@@ -1,4 +1,5 @@
 """Faculty profile store module."""
+from datetime import date
 
 from radar import config
 from radar.db import client as db_client
@@ -17,6 +18,15 @@ _DEFAULT_PROFILE = {
 }
 
 
+def _as_date(value) -> date | None:
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10]) if value else None
+    except ValueError:
+        return None
+
+
 def _row_to_profile(row: dict) -> FacultyProfile:
     profile = FacultyProfile(
         id=row["id"],
@@ -31,10 +41,15 @@ def _row_to_profile(row: dict) -> FacultyProfile:
         alert_frequency=row.get("alert_frequency", "weekly"),
         openalex_author_id=row.get("openalex_author_id"),
         orcid=row.get("orcid"),
-        career_stage=row.get("career_stage", "Assistant Professor"),
-        phd_year=row.get("phd_year", 2021),
-        institution_type=row.get("institution_type", "R1 Doctoral University (IHE)"),
-        citizenship_status=row.get("citizenship_status", "US Citizen or Permanent Resident"),
+        career_stage=row.get("career_stage") or "",
+        phd_year=row.get("phd_year"),
+        institution_type=row.get("institution_type") or "",
+        citizenship_status=row.get("citizenship_status") or "",
+        designation=row.get("designation"),
+        employment_type=row.get("employment_type"),
+        date_of_birth=_as_date(row.get("date_of_birth")),
+        superannuation_year=row.get("superannuation_year"),
+        state=row.get("state"),
         user_id=row.get("user_id"),
         loaded_updated_at=row.get("updated_at")
     )

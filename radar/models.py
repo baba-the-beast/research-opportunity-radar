@@ -128,9 +128,16 @@ class FacultyProfile:
     openalex_author_id: str | None = None
     orcid: str | None = None
     career_stage: str = "Assistant Professor"
-    phd_year: int | None = 2021
-    institution_type: str = "R1 Doctoral University (IHE)"
-    citizenship_status: str = "US Citizen or Permanent Resident"
+    phd_year: int | None = None
+    institution_type: str = ""
+    citizenship_status: str = ""  # unstated: nationality-restricted calls go to manual review
+    # Fields Indian calls restrict on (all optional; a missing one means "check manually")
+    designation: str | None = None  # Assistant / Associate / Professor, Scientist B–H, ...
+    employment_type: str | None = None  # regular, contractual
+    date_of_birth: date | None = None
+    superannuation_year: int | None = None
+    state: str | None = None  # state/UT of the institution
+    preferred_sources: list[str] | None = None  # agency names; None = defaults (Indian agencies)
     user_id: str | None = None  # auth.users(id); None for the legacy single-tenant seed profile
     embedding_refreshed: bool = False  # True when the embedding was (re)computed this run -> rescore catalog
     loaded_updated_at: str | None = None  # faculty_profile.updated_at as read at run start (edit detection)

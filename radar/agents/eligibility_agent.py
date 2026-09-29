@@ -1,8 +1,13 @@
-"""Solicitation Eligibility and Compliance Gatekeeper Agent.
+"""Eligibility check for funding calls.
 
-Extracts and parses solicitation requirements (citizenship, early career tenure clock,
-institution type, limited submissions, cost sharing) and cross-references them against
-faculty profile attributes to eliminate noise and prevent non-compliant submissions.
+Reads the call's text (title, summary, and the eligibility/guideline excerpts pulled from its PDF)
+and compares the restrictions it states with the faculty profile. Rules cover what Indian calls
+usually restrict on (nationality, age limit, years to superannuation, regular position, region,
+years since PhD) plus U.S.-person restrictions for U.S. sources.
+
+Every excerpt in a report is quoted from the call text. When the call text is missing, or the
+profile lacks the field a rule needs, the verdict is NEEDS_MANUAL_REVIEW, never a silent pass.
+Calls for papers are open to any author and are not checked.
 """
 import re
 from collections.abc import Callable
@@ -10,6 +15,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any
 
+from radar.deadlines.deadline_engine import today_ist
 from radar.models import FacultyProfile, Opportunity
 
 # Order matters in us_person_status(): an explicit negation ("Non-US citizen", "not a U.S. national")
@@ -41,6 +47,8 @@ _NON_US_PATTERNS = [
     )
 ]
 
+NE_STATES = {"arunachal pradesh", "assam", "manipur", "meghalaya", "mizoram", "nagaland", "sikkim", "tripura"}
+
 
 def us_person_status(citizenship: str) -> bool | None:
     """True if the profile states U.S. citizenship/permanent residency, False if it states another
@@ -55,16 +63,97 @@ def us_person_status(citizenship: str) -> bool | None:
     return None
 
 
+def indian_nationality(citizenship: str) -> str | None:
+    """'indian', 'oci' (Overseas Citizen of India / PIO), 'foreign', or None when unstated."""
+    text = (citizenship or "").lower()
+    if re.search(r"\b(oci|overseas citizen|pio|person of indian origin)\b", text) and not re.search(r"\bindian (citizen|national)\b", text):
+        return "oci"
+    if re.search(r"\bnon[\s-]*indian\b", text):
+        return "foreign"
+    if re.search(r"\b(indian|india)\b", text):
+        return "indian"
+    if us_person_status(text) or re.search(r"\b(foreign|international)\b", text):
+        return "foreign"
+    if re.search(r"\b(citizen|national|nationality|passport)\b", text):
+        # "German citizen", "UK national": a stated, non-Indian nationality. A bare "citizen" (old
+        # schema default) says nothing about which country.
+        qualifier = re.sub(r"\b(citizens?|nationals?|nationality|passport|holder|of|an?|the|permanent|resident)\b", " ", text)
+        if re.search(r"[a-z]{2,}", qualifier):
+            return "foreign"
+    return None
+
+
+# --- Restrictions as they appear in Indian call documents -------------------------------------
+_INDIAN_ONLY = re.compile(r"\b(indian (?:nationals?|citizens?)|(?:citizens?|nationals?) of india)\b", re.I)
+_AGE_LIMIT = re.compile(
+    r"\b(?:below|under|less than|not (?:be )?(?:above|more than|older than|exceed(?:ing)?)|"
+    r"upper age limit(?: of| is)?|maximum age(?: limit)?(?: of| is)?|age limit(?: of| is)?)\s*:?\s*(\d{2})\s*(?:years|yrs)",
+    re.I,
+)
+_SERVICE_LEFT = re.compile(
+    r"\b(?:at least|minimum(?: of)?|not less than)\s*(\d{1,2})\s*years?\s*(?:of\s*)?(?:regular\s*)?"
+    r"(?:service|superannuation|before (?:superannuation|retirement)|left|remaining)",
+    re.I,
+)
+_REGULAR_POSITION = re.compile(r"\bregular (?:position|faculty|employee|appointment|basis|post)\b", re.I)
+_NE_ONLY = re.compile(r"\b(?:only|exclusively|restricted)\b[^.]{0,40}\bnorth[\s-]*east(?:ern)?\s*(?:region|states)\b", re.I)
+_PHD_WINDOW = re.compile(r"\bwithin\s*(\d{1,2})\s*years\s*(?:of|after|from)\s*(?:the\s*)?(?:award of\s*)?(?:their\s*)?(?:ph\.?\s*d|doctoral)", re.I)
+_EARLY_CAREER = re.compile(r"\b(early[\s-]career|young (?:scientist|investigator|researcher)s?|new investigator|start[\s-]?up research grant)\b", re.I)
+_SENIOR_ONLY = re.compile(r"\b(senior investigator|tenured faculty only|distinguished (?:chair|professor)|full professors? only)\b", re.I)
+_US_ONLY = re.compile(
+    r"(u\.s\. citizens only|us citizens only|united states citizens? only|itar restricted|secret clearance required|"
+    r"u\.s\. national or permanent resident|us persons? only|u\.s\. persons? only)",
+    re.I,
+)
+_LIMITED_SUBMISSION = re.compile(
+    r"(limit on number of proposals per organization:\s*(\d+)|institutions? may submit no more than\s*(\d+)|limited submission|"
+    r"maximum of\s*(\d+)\s*proposals?\s*per\s*institution|only\s*(\d+|one|two)\s*proposals?\s*(?:per|from each|from an?)\s*(?:campus|institution|organisation|organization))",
+    re.I,
+)
+_COST_SHARING = re.compile(r"(cost[\s-]sharing is (?:required|mandatory)|mandatory cost match|matching (?:contribution|share) (?:is )?(?:required|mandatory))", re.I)
+
+
+def _excerpt(text: str, match: re.Match[str], width: int = 160) -> str:
+    """The sentence around a match (at most ~width chars each side), quoted from the call text."""
+    start = max(text.rfind(".", 0, match.start()) + 1, match.start() - width)
+    if start > 0 and text[start - 1].isalnum():
+        start = text.find(" ", start) + 1 or start  # don't start mid-word
+    end_dot = text.find(".", match.end())
+    end = min(end_dot + 1 if end_dot != -1 else len(text), match.end() + width)
+    if end < len(text) and text[end - 1].isalnum():
+        end = text.rfind(" ", match.end(), end) if text.rfind(" ", match.end(), end) > 0 else end
+    return " ".join(text[start:end].split())
+
+
+_RESTRICTIVE_CUE = re.compile(r"(only|exclusively|restricted|eligible|open to|meant for|intended for|must be|should be|applicants? (?:are|should be))[^.]{0,60}$", re.I)
+
+
+def _early_career_restriction(text: str, title: str) -> re.Match[str] | None:
+    """An early-career requirement, not a passing mention ("faculty and young researchers will be
+    trained"): the call itself is an early-career scheme, or a restrictive phrase leads into it."""
+    title_match = _EARLY_CAREER.search(title)
+    if title_match:
+        return _EARLY_CAREER.search(text)
+    for match in _EARLY_CAREER.finditer(text):
+        if _RESTRICTIVE_CUE.search(text[max(0, match.start() - 80):match.start()]):
+            return match
+    return None
+
+
+def _age_on(dob: date, on: date) -> int:
+    return on.year - dob.year - ((on.month, on.day) < (dob.month, dob.day))
+
+
 @dataclass
 class ComplianceCheckResult:
     rule_name: str
-    verdict: str  # PASS, FAIL, WARNING, NOT_APPLICABLE
+    verdict: str  # PASS, FAIL, WARNING, NEEDS_MANUAL_REVIEW
     reason: str
     solicitation_excerpt: str | None = None
 
 @dataclass
 class EligibilityReport:
-    status: str  # ELIGIBLE, WARNING_LIMITED_SUBMISSION, DISQUALIFIED, UNKNOWN
+    status: str  # ELIGIBLE, WARNING_LIMITED_SUBMISSION, NEEDS_MANUAL_REVIEW, DISQUALIFIED
     confidence: float
     summary: str
     checks: list[ComplianceCheckResult] = field(default_factory=list)
@@ -87,268 +176,230 @@ class EligibilityReport:
             "action_items": self.action_items
         }
 
+
 class EligibilityAgent:
-    """Agent that performs compliance verification against faculty credentials."""
+    """Checks a funding call's stated restrictions against one faculty profile."""
 
     def __init__(self, telemetry_callback: Callable[[dict[str, Any]], None] | None = None):
         self.telemetry_callback = telemetry_callback
 
-    def _emit(self, phase: str, message: str, payload: dict[str, Any] | None = None):
+    def _emit(self, opp: Opportunity, report: EligibilityReport) -> None:
         if self.telemetry_callback:
             self.telemetry_callback({
                 "agent": "EligibilityAgent",
-                "phase": phase,
-                "message": message,
-                "payload": payload or {},
+                "phase": "COMPLIANCE_COMPLETE",
+                "message": f"Eligibility for '{opp.title[:60]}': {report.status}",
+                "payload": {"opp_id": opp.id, "verdict": report.status},
                 "timestamp": datetime.now(UTC).isoformat()
             })
 
     def evaluate_opportunity(self, opp: Opportunity, profile: FacultyProfile) -> EligibilityReport:
-        """Evaluate a single opportunity against faculty profile parameters."""
-        self._emit(
-            phase="COMPLIANCE_START",
-            message=f"Evaluating compliance rules for '{opp.title[:60]}' against {profile.full_name} ({profile.institution}).",
-            payload={"opp_id": opp.id, "title": opp.title}
-        )
-
-        checks: list[ComplianceCheckResult] = []
-        action_items: list[str] = []
-
-        # Gather searchable text from summary, title, and metadata
-        raw_text = " ".join([
-            opp.title,
-            opp.summary or "",
-            str(opp.metadata.get("solicitation_guidelines", "")),
-            str(opp.metadata.get("eligibility_clause", ""))
-        ]).lower()
-
-        # Extract faculty attributes (with robust defaults)
-        career_stage = getattr(profile, "career_stage", "Assistant Professor").lower()
-        phd_year = getattr(profile, "phd_year", 2021)
-        current_year = date.today().year
-        years_post_phd = current_year - phd_year if phd_year else 4
-        citizenship = getattr(profile, "citizenship_status", "US Citizen or Permanent Resident").lower()
-        institution_type = getattr(profile, "institution_type", "R1 Doctoral University (IHE)").lower()
-
-        is_disqualified = False
-        has_limited_submission = False
-
-        # --- Rule 1: Career Stage & Tenure Clock ---
-        early_career_keywords = [
-            "early career", "young investigator", "nsf career", "career development",
-            "assistant professor", "new investigator", "tenure-track", "postdoctoral"
-        ]
-        is_early_career_call = any(kw in raw_text for kw in early_career_keywords)
-        is_senior_call = any(kw in raw_text for kw in ["senior investigator", "tenured faculty only", "distinguished chair"])
-
-        if is_early_career_call:
-            if "assistant professor" in career_stage or "early" in career_stage or years_post_phd <= 7:
-                checks.append(ComplianceCheckResult(
-                    rule_name="CAREER_STAGE_ELIGIBILITY",
-                    verdict="PASS",
-                    reason=f"Faculty stage '{career_stage}' ({years_post_phd} yrs post-PhD) satisfies early-career tenure clock criteria.",
-                    solicitation_excerpt="Principal Investigators must hold a tenure-track appointment as an Assistant Professor or equivalent."
-                ))
-            else:
-                is_disqualified = True
-                checks.append(ComplianceCheckResult(
-                    rule_name="CAREER_STAGE_ELIGIBILITY",
-                    verdict="FAIL",
-                    reason=f"Solicitation requires early-career status, but faculty is recorded as '{career_stage}' ({years_post_phd} yrs post-PhD).",
-                    solicitation_excerpt="Restricted to early-career faculty within 7 years of terminal doctoral degree."
-                ))
-        elif is_senior_call:
-            if "associate" in career_stage or "full" in career_stage or "tenured" in career_stage:
-                checks.append(ComplianceCheckResult(
-                    rule_name="CAREER_STAGE_ELIGIBILITY",
-                    verdict="PASS",
-                    reason=f"Faculty stage '{career_stage}' matches senior researcher prerequisite.",
-                    solicitation_excerpt="Applicants must hold tenured appointment at an accredited institution."
-                ))
-            else:
-                is_disqualified = True
-                checks.append(ComplianceCheckResult(
-                    rule_name="CAREER_STAGE_ELIGIBILITY",
-                    verdict="FAIL",
-                    reason="Solicitation requires tenured senior investigator appointment.",
-                    solicitation_excerpt="Tenured faculty members only; assistant professors and postdocs ineligible."
-                ))
-        else:
-            checks.append(ComplianceCheckResult(
-                rule_name="CAREER_STAGE_ELIGIBILITY",
-                verdict="PASS",
-                reason="Solicitation has open career stage parameters without restrictive tenure barriers.",
-                solicitation_excerpt="Open to all active researchers and faculty regardless of rank."
-            ))
+        if opp.kind != "funding":
+            report = EligibilityReport(
+                status="ELIGIBLE", confidence=0.9,
+                summary="Calls for papers are open to all authors; no eligibility check needed.",
+            )
+            opp.metadata["eligibility_report"] = report.to_dict()
+            return report
 
         meta = opp.metadata or {}
-        has_full_guidelines = bool(meta.get("solicitation_guidelines") or meta.get("eligibility_clause"))
-        is_academic_pub = opp.kind in ("journal", "venue") or any(
-            src in (opp.primary_source_name or "").lower()
-            for src in ("openalex", "crossref", "arxiv", "wikicfp", "semanticscholar")
-        )
+        guidelines = " ".join(str(meta.get(k) or "") for k in ("eligibility_clause", "solicitation_guidelines"))
+        text = " ".join([opp.title, opp.summary or "", guidelines])
+        has_call_text = bool(guidelines.strip())
 
-        # --- Rule 2: Citizenship, Residency & Security Clearances ---
-        us_only_patterns = [
-            "u.s. citizens only", "us citizens only", "united states citizen",
-            "itar restricted", "secret clearance required", "permanent residents only",
-            "u.s. national or permanent resident", "us person only", "u.s. person only"
-        ]
-        is_us_restricted = any(pat in raw_text for pat in us_only_patterns)
-        us_person = us_person_status(citizenship)
+        checks: list[ComplianceCheckResult] = []
+        actions: list[str] = []
+        reference_day = opp.earliest_confirmed_deadline() or today_ist()
 
-        if is_us_restricted:
-            if us_person is None:
-                checks.append(ComplianceCheckResult(
-                    rule_name="CITIZENSHIP_SECURITY_CLEARANCE",
-                    verdict="NEEDS_MANUAL_REVIEW",
-                    reason=f"Solicitation restricts proposals to U.S. persons; faculty citizenship '{citizenship}' does not say whether that is met.",
-                    solicitation_excerpt="Eligibility restricted to U.S. Citizens, U.S. Nationals, or lawful permanent residents."
-                ))
-                action_items.append("Set an explicit citizenship status in Profile Calibration to confirm U.S.-person eligibility.")
-            elif us_person:
-                checks.append(ComplianceCheckResult(
-                    rule_name="CITIZENSHIP_SECURITY_CLEARANCE",
-                    verdict="PASS",
-                    reason=f"Faculty citizenship '{citizenship}' meets U.S. person / permanent resident requirement.",
-                    solicitation_excerpt="Eligibility restricted to U.S. Citizens, U.S. Nationals, or lawful permanent residents."
-                ))
-            else:
-                is_disqualified = True
-                checks.append(ComplianceCheckResult(
-                    rule_name="CITIZENSHIP_SECURITY_CLEARANCE",
-                    verdict="FAIL",
-                    reason=f"Solicitation restricts proposals to U.S. persons/citizens; faculty profile indicates '{citizenship}'.",
-                    solicitation_excerpt="Strict U.S. citizenship or lawful permanent residency required at time of submission."
-                ))
-        elif is_academic_pub:
-            checks.append(ComplianceCheckResult(
-                rule_name="CITIZENSHIP_SECURITY_CLEARANCE",
-                verdict="PASS",
-                reason="Academic journal / conference venue open worldwide without security clearance barriers.",
-                solicitation_excerpt="Open scholarly submission."
-            ))
-        elif has_full_guidelines:
-            checks.append(ComplianceCheckResult(
-                rule_name="CITIZENSHIP_SECURITY_CLEARANCE",
-                verdict="PASS",
-                reason="Solicitation guidelines reviewed; no export-control or nationality barrier detected.",
-                solicitation_excerpt="No restrictive citizenship or security clearance barriers in published guidelines."
-            ))
+        self._check_nationality(text, has_call_text, profile, checks, actions)
+        self._check_age(text, profile, reference_day, checks, actions)
+        self._check_service_left(text, profile, reference_day, checks, actions)
+        self._check_regular_position(text, profile, checks, actions)
+        self._check_region(text, profile, checks, actions)
+        # The scheme's own identity: its title and the first sentence of its summary
+        identity = opp.title + " " + (opp.summary or "").split(".")[0]
+        self._check_career_stage(text, identity, profile, checks, actions)
+        has_limited = self._check_limited_submission(text, checks, actions)
+        self._check_cost_sharing(text, checks, actions)
+
+        verdicts = {c.verdict for c in checks}
+        if "FAIL" in verdicts:
+            failed = [c.rule_name.replace("_", " ").lower() for c in checks if c.verdict == "FAIL"]
+            report = EligibilityReport("DISQUALIFIED", 0.9, f"Not eligible: the call's {', '.join(failed)} requirement is not met.", checks, actions)
+        elif "NEEDS_MANUAL_REVIEW" in verdicts:
+            report = EligibilityReport(
+                "NEEDS_MANUAL_REVIEW", 0.6,
+                "Eligibility unconfirmed: check the points below against the official call before applying.", checks, actions,
+            )
+        elif has_limited:
+            report = EligibilityReport(
+                "WARNING_LIMITED_SUBMISSION", 0.8,
+                "Eligible, but the institution can forward only a limited number of proposals: get an internal nomination.",
+                checks, actions,
+            )
         else:
-            # Short summary / title only without populated solicitation guidelines or eligibility clause
-            checks.append(ComplianceCheckResult(
-                rule_name="CITIZENSHIP_SECURITY_CLEARANCE",
-                verdict="NEEDS_MANUAL_REVIEW",
-                reason="Citizenship, residency, or export-control restrictions could not be verified from available data (title/summary only). Check official solicitation before proceeding.",
-                solicitation_excerpt="Full solicitation guidelines not provided in API feed."
-            ))
-            action_items.append("Verify citizenship, residency, and ITAR/export-control eligibility clauses directly in official solicitation document.")
+            report = EligibilityReport(
+                "ELIGIBLE", 0.8 if has_call_text else 0.6,
+                "No eligibility barrier found in the call text. Confirm with the official call document.", checks, actions,
+            )
 
-        # --- Rule 3: Institution Classification (IHE / Non-profit / SBIR) ---
-        is_sbir = "sbir" in raw_text or "small business innovation research" in raw_text or "sttr" in raw_text
-
-        if is_sbir:
-            checks.append(ComplianceCheckResult(
-                rule_name="INSTITUTION_CLASSIFICATION",
-                verdict="WARNING",
-                reason="SBIR/STTR solicitation: Universities cannot be primary applicant without a small business commercial partner.",
-                solicitation_excerpt="Small business concern must serve as primary awardee; university sub-awards permitted up to 30-40%."
-            ))
-            action_items.append("Identify eligible small business partner to serve as primary applicant for SBIR/STTR vehicle.")
-        else:
-            checks.append(ComplianceCheckResult(
-                rule_name="INSTITUTION_CLASSIFICATION",
-                verdict="PASS",
-                reason=f"Faculty institution '{profile.institution}' (classification: {institution_type}) is an eligible applicant entity.",
-                solicitation_excerpt="Proposals may be submitted by accredited Institutions of Higher Education (IHEs) in the US."
-            ))
-
-        # --- Rule 4: Limited Submissions Cap ---
-        limited_patterns = [
-            r"limit on number of proposals per organization:\s*(\d+)",
-            r"institutions may submit no more than\s*(\d+)",
-            r"limited submission",
-            r"maximum of\s*(\d+)\s*proposals?\s*per\s*institution",
-            r"only\s*(\d+)\s*proposal\s*per\s*campus"
-        ]
-        quota = None
-        for pat in limited_patterns:
-            m = re.search(pat, raw_text)
-            if m:
-                has_limited_submission = True
-                if m.groups():
-                    quota = m.group(1)
-                break
-
-        if has_limited_submission:
-            quota_text = f" (Cap: {quota} per campus)" if quota else ""
-            checks.append(ComplianceCheckResult(
-                rule_name="LIMITED_SUBMISSION_QUOTA",
-                verdict="WARNING",
-                reason=f"Institutional quota detected{quota_text}. Internal university nomination/selection required before sponsor deadline.",
-                solicitation_excerpt=f"Limited Submissions Policy: An institution may submit only {quota or 'a limited number of'} application(s)."
-            ))
-            action_items.append("Submit internal Letter of Intent to university Office of Sponsored Programs (OSP) for institutional nomination.")
-        else:
-            checks.append(ComplianceCheckResult(
-                rule_name="LIMITED_SUBMISSION_QUOTA",
-                verdict="PASS",
-                reason="Unrestricted institutional submissions; no internal campus quota bottleneck detected.",
-                solicitation_excerpt="No limitation on the number of proposals submitted per organization."
-            ))
-
-        # --- Rule 5: Cost Sharing & Institutional Match ---
-        if "cost sharing is required" in raw_text or "mandatory cost match" in raw_text:
-            checks.append(ComplianceCheckResult(
-                rule_name="COST_SHARING_REQUIREMENT",
-                verdict="WARNING",
-                reason="Mandatory cost-sharing detected. Requires departmental/college financial commitment approval.",
-                solicitation_excerpt="Inclusion of voluntary or mandatory committed cost sharing is required by statute."
-            ))
-            action_items.append("Obtain formal cost-share commitment letter from Department Chair / Dean.")
-        else:
-            checks.append(ComplianceCheckResult(
-                rule_name="COST_SHARING_REQUIREMENT",
-                verdict="PASS",
-                reason="No mandatory institutional cost-sharing required.",
-                solicitation_excerpt="Cost sharing is not required and will not be considered in evaluation."
-            ))
-
-        # Final Status Determination
-        has_manual_review = any(c.verdict == "NEEDS_MANUAL_REVIEW" for c in checks)
-
-        if is_disqualified:
-            status = "DISQUALIFIED"
-            summary = "Ineligible due to mandatory solicitation criteria (career stage or citizenship restriction mismatch)."
-            confidence = 0.95
-        elif has_manual_review:
-            status = "NEEDS_MANUAL_REVIEW"
-            summary = "Eligibility unconfirmed: Citizenship, residency, or export-control restrictions could not be verified from available solicitation text. Manual review required."
-            confidence = 0.60
-        elif has_limited_submission:
-            status = "WARNING_LIMITED_SUBMISSION"
-            summary = "Eligible with administrative warning: Institutional submission cap requires internal university clearance."
-            confidence = 0.90
-        else:
-            status = "ELIGIBLE"
-            summary = "Fully verified: Faculty rank, institution classification, and credentials satisfy all eligibility clauses."
-            confidence = 0.92
-
-        report = EligibilityReport(
-            status=status,
-            confidence=confidence,
-            summary=summary,
-            checks=checks,
-            action_items=action_items
-        )
-
-        self._emit(
-            phase="COMPLIANCE_COMPLETE",
-            message=f"Compliance check completed for '{opp.title[:60]}': Verdict = {status} (Confidence: {confidence*100:.0f}%).",
-            payload={"opp_id": opp.id, "verdict": status, "report": report.to_dict()}
-        )
-
-        # Cache report in opportunity metadata
+        self._emit(opp, report)
         opp.metadata["eligibility_report"] = report.to_dict()
         return report
+
+    # --- rules ------------------------------------------------------------------------------------
+
+    def _check_nationality(self, text, has_call_text, profile, checks, actions) -> None:
+        citizenship = profile.citizenship_status or ""
+        us_only = _US_ONLY.search(text)
+        indian_only = _INDIAN_ONLY.search(text)
+
+        if us_only:
+            us_person = us_person_status(citizenship)
+            excerpt = _excerpt(text, us_only)
+            if us_person is None:
+                checks.append(ComplianceCheckResult("CITIZENSHIP_SECURITY_CLEARANCE", "NEEDS_MANUAL_REVIEW",
+                    f"The call is restricted to U.S. persons; the profile's citizenship ('{citizenship}') does not say whether that is met.", excerpt))
+                actions.append("Set your citizenship in Profile to confirm nationality-restricted calls.")
+            elif us_person:
+                checks.append(ComplianceCheckResult("CITIZENSHIP_SECURITY_CLEARANCE", "PASS",
+                    f"Citizenship '{citizenship}' meets the U.S.-person requirement.", excerpt))
+            else:
+                checks.append(ComplianceCheckResult("CITIZENSHIP_SECURITY_CLEARANCE", "FAIL",
+                    f"The call is restricted to U.S. persons; the profile says '{citizenship}'.", excerpt))
+            return
+
+        if indian_only:
+            nationality = indian_nationality(citizenship)
+            excerpt = _excerpt(text, indian_only)
+            if nationality == "indian":
+                checks.append(ComplianceCheckResult("CITIZENSHIP_SECURITY_CLEARANCE", "PASS", "The call requires Indian nationals; the profile is Indian.", excerpt))
+            elif nationality == "foreign":
+                checks.append(ComplianceCheckResult("CITIZENSHIP_SECURITY_CLEARANCE", "FAIL",
+                    f"The call requires Indian nationals; the profile says '{citizenship}'.", excerpt))
+            else:
+                # OCI holders are eligible for some schemes and not others; unstated citizenship is unknown
+                checks.append(ComplianceCheckResult("CITIZENSHIP_SECURITY_CLEARANCE", "NEEDS_MANUAL_REVIEW",
+                    f"The call requires Indian nationals; eligibility for '{citizenship or 'unstated citizenship'}' must be checked in the call.", excerpt))
+                actions.append("Confirm whether OCI/PIO applicants are eligible, or set your citizenship in Profile.")
+            return
+
+        if not has_call_text:
+            checks.append(ComplianceCheckResult("CITIZENSHIP_SECURITY_CLEARANCE", "NEEDS_MANUAL_REVIEW",
+                "Nationality and position restrictions could not be verified: only the title and summary were available."))
+            actions.append("Read the eligibility section of the official solicitation document.")
+
+    def _check_age(self, text, profile, on, checks, actions) -> None:
+        match = _AGE_LIMIT.search(text)
+        if not match:
+            return
+        limit = int(match.group(1))
+        excerpt = _excerpt(text, match)
+        dob = profile.date_of_birth
+        if not dob:
+            checks.append(ComplianceCheckResult("AGE_LIMIT", "NEEDS_MANUAL_REVIEW", f"The call has an age limit of {limit}; add your date of birth to check it.", excerpt))
+            actions.append("Add your date of birth in Profile so age limits can be checked.")
+            return
+        age = _age_on(dob, on)
+        if age <= limit:
+            checks.append(ComplianceCheckResult("AGE_LIMIT", "PASS", f"Age {age} is within the limit of {limit}.", excerpt))
+        elif age <= limit + 5:
+            # Government schemes commonly relax age limits by up to 5 years (SC/ST/women/PwD)
+            checks.append(ComplianceCheckResult("AGE_LIMIT", "NEEDS_MANUAL_REVIEW",
+                f"Age {age} is above the limit of {limit}; check whether an age relaxation applies to you.", excerpt))
+            actions.append(f"Check the call's age-relaxation rules (limit {limit}, your age {age}).")
+        else:
+            checks.append(ComplianceCheckResult("AGE_LIMIT", "FAIL", f"Age {age} is above the limit of {limit}.", excerpt))
+
+    def _check_service_left(self, text, profile, on, checks, actions) -> None:
+        match = _SERVICE_LEFT.search(text)
+        if not match:
+            return
+        required = int(match.group(1))
+        excerpt = _excerpt(text, match)
+        if not profile.superannuation_year:
+            checks.append(ComplianceCheckResult("SERVICE_BEFORE_SUPERANNUATION", "NEEDS_MANUAL_REVIEW",
+                f"The call needs at least {required} years of service left; add your superannuation year to check it.", excerpt))
+            actions.append("Add your superannuation (retirement) year in Profile.")
+            return
+        years_left = profile.superannuation_year - on.year
+        verdict = "PASS" if years_left >= required else "FAIL"
+        checks.append(ComplianceCheckResult("SERVICE_BEFORE_SUPERANNUATION", verdict,
+            f"{years_left} years of service left; the call needs {required}.", excerpt))
+
+    def _check_regular_position(self, text, profile, checks, actions) -> None:
+        match = _REGULAR_POSITION.search(text)
+        if not match:
+            return
+        excerpt = _excerpt(text, match)
+        employment = (profile.employment_type or "").lower()
+        if employment == "regular":
+            checks.append(ComplianceCheckResult("REGULAR_POSITION", "PASS", "The call needs a regular position; the profile says regular.", excerpt))
+        elif employment in ("contract", "contractual", "adhoc", "ad-hoc", "visiting", "guest"):
+            checks.append(ComplianceCheckResult("REGULAR_POSITION", "FAIL", f"The call needs a regular position; the profile says '{employment}'.", excerpt))
+        else:
+            checks.append(ComplianceCheckResult("REGULAR_POSITION", "NEEDS_MANUAL_REVIEW", "The call needs a regular (permanent) position; set your employment type in Profile.", excerpt))
+            actions.append("Set your employment type (regular / contractual) in Profile.")
+
+    def _check_region(self, text, profile, checks, actions) -> None:
+        match = _NE_ONLY.search(text)
+        if not match:
+            return
+        excerpt = _excerpt(text, match)
+        state = (profile.state or "").strip().lower()
+        if not state:
+            checks.append(ComplianceCheckResult("REGION", "NEEDS_MANUAL_REVIEW", "The call is only for institutions in the North-Eastern Region; add your state in Profile.", excerpt))
+            actions.append("Add your institution's state in Profile.")
+        elif state in NE_STATES:
+            checks.append(ComplianceCheckResult("REGION", "PASS", f"Institution is in {profile.state} (North-Eastern Region).", excerpt))
+        else:
+            checks.append(ComplianceCheckResult("REGION", "FAIL", f"The call is only for the North-Eastern Region; the institution is in {profile.state}.", excerpt))
+
+    def _check_career_stage(self, text, title, profile, checks, actions) -> None:
+        stage = (profile.designation or profile.career_stage or "").lower()
+        phd_window = _PHD_WINDOW.search(text)
+        if phd_window:
+            limit = int(phd_window.group(1))
+            excerpt = _excerpt(text, phd_window)
+            if not profile.phd_year:
+                checks.append(ComplianceCheckResult("CAREER_STAGE_ELIGIBILITY", "NEEDS_MANUAL_REVIEW", f"The call is for researchers within {limit} years of their PhD; add your PhD year.", excerpt))
+                actions.append("Add your PhD year in Profile.")
+            else:
+                years = today_ist().year - profile.phd_year
+                checks.append(ComplianceCheckResult("CAREER_STAGE_ELIGIBILITY", "PASS" if years <= limit else "FAIL",
+                    f"{years} years since PhD; the call allows up to {limit}.", excerpt))
+            return
+
+        early = _early_career_restriction(text, title)
+        if early:
+            excerpt = _excerpt(text, early)
+            senior = any(w in stage for w in ("associate", "full professor", "professor emeritus", "tenured", "senior", "head"))
+            recent_phd = bool(profile.phd_year) and today_ist().year - profile.phd_year <= 7
+            if senior and not recent_phd:
+                checks.append(ComplianceCheckResult("CAREER_STAGE_ELIGIBILITY", "FAIL", f"The call is for early-career researchers; the profile says '{stage}'.", excerpt))
+            else:
+                checks.append(ComplianceCheckResult("CAREER_STAGE_ELIGIBILITY", "PASS", "The call is for early-career researchers and the profile fits.", excerpt))
+            return
+
+        senior_only = _SENIOR_ONLY.search(text)
+        if senior_only:
+            excerpt = _excerpt(text, senior_only)
+            senior = any(w in stage for w in ("associate", "full", "tenured", "senior"))
+            checks.append(ComplianceCheckResult("CAREER_STAGE_ELIGIBILITY", "PASS" if senior else "FAIL",
+                "The call is restricted to senior researchers." + ("" if senior else f" The profile says '{stage}'."), excerpt))
+
+    def _check_limited_submission(self, text, checks, actions) -> bool:
+        match = _LIMITED_SUBMISSION.search(text)
+        if not match:
+            return False
+        checks.append(ComplianceCheckResult("LIMITED_SUBMISSION_QUOTA", "WARNING",
+            "The institution can forward only a limited number of proposals; an internal selection is needed before the deadline.", _excerpt(text, match)))
+        actions.append("Ask your Dean (R&D) / Office of Sponsored Research for the internal nomination deadline.")
+        return True
+
+    def _check_cost_sharing(self, text, checks, actions) -> None:
+        match = _COST_SHARING.search(text)
+        if match:
+            checks.append(ComplianceCheckResult("COST_SHARING_REQUIREMENT", "WARNING",
+                "The call requires an institutional financial contribution.", _excerpt(text, match)))
+            actions.append("Get a commitment letter for the institutional contribution from your Head / Dean.")
