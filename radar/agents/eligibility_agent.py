@@ -125,7 +125,7 @@ def _excerpt(text: str, match: re.Match[str], width: int = 160) -> str:
     return " ".join(text[start:end].split())
 
 
-_RESTRICTIVE_CUE = re.compile(r"(only|exclusively|restricted|eligible|open to|meant for|intended for|must be|should be|applicants? (?:are|should be))[^.]{0,60}$", re.I)
+_RESTRICTIVE_CUE = re.compile(r"\b(only|exclusively|restricted|eligible|open to|meant for|intended for|must be|should be|applicants? (?:are|should be))\b[^.]{0,60}$", re.I)
 
 
 def _early_career_restriction(text: str, title: str) -> re.Match[str] | None:
@@ -138,6 +138,15 @@ def _early_career_restriction(text: str, title: str) -> re.Match[str] | None:
         if _RESTRICTIVE_CUE.search(text[max(0, match.start() - 80):match.start()]):
             return match
     return None
+
+
+def _is_senior(stage: str) -> bool:
+    """Associate Professor and above, in Indian and US titles ('Professor' alone is the senior rank;
+    'Assistant Professor' is not). Scientists E-H count as senior."""
+    stage = stage.lower().strip()
+    if "assistant" in stage:
+        return False
+    return bool(re.search(r"\b(associate|full professor|professor|emeritus|tenured|senior|head|dean|scientist[\s-]*[e-h])\b", stage))
 
 
 def _age_on(dob: date, on: date) -> int:
@@ -373,7 +382,7 @@ class EligibilityAgent:
         early = _early_career_restriction(text, title)
         if early:
             excerpt = _excerpt(text, early)
-            senior = any(w in stage for w in ("associate", "full professor", "professor emeritus", "tenured", "senior", "head"))
+            senior = _is_senior(stage)
             recent_phd = bool(profile.phd_year) and today_ist().year - profile.phd_year <= 7
             if senior and not recent_phd:
                 checks.append(ComplianceCheckResult("CAREER_STAGE_ELIGIBILITY", "FAIL", f"The call is for early-career researchers; the profile says '{stage}'.", excerpt))
@@ -384,7 +393,7 @@ class EligibilityAgent:
         senior_only = _SENIOR_ONLY.search(text)
         if senior_only:
             excerpt = _excerpt(text, senior_only)
-            senior = any(w in stage for w in ("associate", "full", "tenured", "senior"))
+            senior = _is_senior(stage)
             checks.append(ComplianceCheckResult("CAREER_STAGE_ELIGIBILITY", "PASS" if senior else "FAIL",
                 "The call is restricted to senior researchers." + ("" if senior else f" The profile says '{stage}'."), excerpt))
 
