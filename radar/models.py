@@ -30,6 +30,7 @@ class ScoreResult:
     matched_terms: list[str] = field(default_factory=list)
     negative_matches: list[str] = field(default_factory=list)
     model_version: str = "component-v1"
+    eligibility_report: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -61,7 +62,8 @@ class Opportunity:
     source_name: str | None = None
     source_url: str | None = None
     external_id: str | None = None
-    score_result: ScoreResult | None = None
+    score_result: ScoreResult | None = None  # best score across all faculty profiles
+    profile_scores: dict[str, ScoreResult] = field(default_factory=dict)  # faculty_profile.id -> score
     is_new: bool = True
 
     @property
@@ -129,6 +131,9 @@ class FacultyProfile:
     phd_year: int | None = 2021
     institution_type: str = "R1 Doctoral University (IHE)"
     citizenship_status: str = "US Citizen or Permanent Resident"
+    user_id: str | None = None  # auth.users(id); None for the legacy single-tenant seed profile
+    embedding_refreshed: bool = False  # True when the embedding was (re)computed this run -> rescore catalog
+    loaded_updated_at: str | None = None  # faculty_profile.updated_at as read at run start (edit detection)
 
 @dataclass
 class ProfileTerm:

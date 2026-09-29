@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
-import { getSupabaseAdminClient, getSupabaseUserClient } from '@/lib/supabaseServerClient';
+import { getRequestSupabase } from '@/lib/routeContext';
 import { authenticateRequest } from '@/lib/auth';
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { consumeRateLimit, getClientIp } from '@/lib/rateLimit';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { runCopilotTurn, ChatMessage } from '@/lib/ai/llmProvider';
 import { z } from 'zod';
@@ -21,9 +21,27 @@ export async function POST(req: NextRequest) {
     }
 
     const ip = getClientIp(req);
-    const rateCheck = checkRateLimit(`chat_${ip}`, 30, 60000);
-    if (!rateCheck.allowed) {
-      return createErrorResponse('RATE_LIMIT_EXCEEDED', 'Too many chat requests. Please slow down.', 429, req);
+
+    // 1. Dual-Key Rate Limiting: Per-IP (25 req/min) to accommodate institutional proxy/NAT environments
+    const ipRateCheck = await consumeRateLimit(`chat_ip_${ip}`, 25, 60000);
+    if (!ipRateCheck.allowed) {
+      return createErrorResponse(
+        'RATE_LIMIT_EXCEEDED',
+        'Rate limit exceeded: Too many chat requests from this network address. Please wait a minute.',
+        429,
+        req
+      );
+    }
+
+    // 2. Dual-Key Rate Limiting: Per-User (10 req/min) to guard LLM API quota and prevent runaway automation
+    const userRateCheck = await consumeRateLimit(`chat_usr_${auth.user.id}`, 10, 60000);
+    if (!userRateCheck.allowed) {
+      return createErrorResponse(
+        'RATE_LIMIT_EXCEEDED',
+        'Rate limit exceeded: Maximum 10 chat requests per minute per user account. Please slow down.',
+        429,
+        req
+      );
     }
 
     const body = await req.json();
@@ -32,85 +50,93 @@ export async function POST(req: NextRequest) {
       return createErrorResponse('VALIDATION_ERROR', 'Invalid message payload', 400, req, parsed.error.issues);
     }
 
-    const supabase = auth.user.isServiceRole
-      ? getSupabaseAdminClient()
-      : getSupabaseUserClient(auth.user.token);
+    const supabase = getRequestSupabase(auth.user);
+    // Operator/dev identities have no auth.users row, so their turns are not persisted
+    const persist = !auth.user.isServiceRole;
+    const userId = auth.user.id;
 
     let sessionId = parsed.data.session_id;
 
-    // 1. Ensure or create a valid chat session
-    if (!sessionId) {
+    if (sessionId && persist) {
+      // RLS on chat_messages checks user_id only, so verify the session itself belongs to the caller
+      const { data: owned, error: ownErr } = await supabase
+        .from('chat_sessions')
+        .select('id')
+        .eq('id', sessionId)
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (ownErr) {
+        return createErrorResponse('DATABASE_ERROR', ownErr.message, 500, req);
+      }
+      if (!owned) {
+        return createErrorResponse('NOT_FOUND', 'Chat session not found', 404, req);
+      }
+    }
+
+    // 1. Ensure a chat session exists
+    if (!sessionId && persist) {
       const { data: newSession, error: sErr } = await supabase
         .from('chat_sessions')
         .insert({
-          user_id: auth.user.id,
+          user_id: userId,
           title: parsed.data.message.slice(0, 40) + '...'
         })
         .select('id')
         .single();
-
-      if (!sErr && newSession) {
-        sessionId = newSession.id;
+      if (sErr) {
+        return createErrorResponse('DATABASE_ERROR', sErr.message, 500, req);
       }
+      sessionId = newSession.id;
     }
 
-    // 2. Load recent conversation history
+    // 2. Load the 10 most recent messages (newest first, then restored to chronological order)
     const messageHistory: ChatMessage[] = [];
-    if (sessionId) {
-      const { data: pastMessages } = await supabase
+    if (sessionId && persist) {
+      const { data: pastMessages, error: histErr } = await supabase
         .from('chat_messages')
-        .select('role, content, tool_calls')
+        .select('role, content')
         .eq('session_id', sessionId)
-        .order('created_at', { ascending: true })
+        .order('created_at', { ascending: false })
         .limit(10);
-
-      if (pastMessages) {
-        for (const m of pastMessages) {
-          messageHistory.push({
-            role: m.role as any,
-            content: m.content
-          });
-        }
+      if (histErr) {
+        return createErrorResponse('DATABASE_ERROR', histErr.message, 500, req);
+      }
+      for (const m of (pastMessages || []).reverse()) {
+        messageHistory.push({ role: m.role as ChatMessage['role'], content: m.content });
       }
     }
 
-    // Add current user message
-    messageHistory.push({
-      role: 'user',
-      content: parsed.data.message
-    });
+    messageHistory.push({ role: 'user', content: parsed.data.message });
 
     // 3. Persist user message
-    if (sessionId) {
-      try {
-        await supabase.from('chat_messages').insert({
-          session_id: sessionId,
-          user_id: auth.user.id,
-          role: 'user',
-          content: parsed.data.message
-        });
-      } catch {
-        // Tolerant if table not migrated
+    if (sessionId && persist) {
+      const { error: umErr } = await supabase.from('chat_messages').insert({
+        session_id: sessionId,
+        user_id: userId,
+        role: 'user',
+        content: parsed.data.message
+      });
+      if (umErr) {
+        return createErrorResponse('DATABASE_ERROR', umErr.message, 500, req);
       }
     }
 
-    // 4. Run Copilot inference turn
-    const result = await runCopilotTurn(messageHistory, auth.user.id);
+    // 4. Run Copilot inference turn; tools run with the caller's own RLS-scoped client
+    const result = await runCopilotTurn(messageHistory, { userId, supabase });
 
-    // 5. Persist assistant message
-    if (sessionId) {
-      try {
-        await supabase.from('chat_messages').insert({
+    // 5. Persist assistant message, bump the session, audit
+    if (sessionId && persist) {
+      const writes = await Promise.all([
+        supabase.from('chat_messages').insert({
           session_id: sessionId,
-          user_id: auth.user.id,
+          user_id: userId,
           role: 'assistant',
           content: result.text,
           tool_calls: result.executedTools.length > 0 ? result.executedTools : null
-        });
-
-        // Audit in user_activity
-        await supabase.from('user_activity').insert({
-          user_id: auth.user.id,
+        }),
+        supabase.from('chat_sessions').update({ updated_at: new Date().toISOString() }).eq('id', sessionId),
+        supabase.from('user_activity').insert({
+          user_id: userId,
           event_type: 'chat_message',
           title: 'Consulted AI Research Copilot',
           description: parsed.data.message.slice(0, 100),
@@ -118,9 +144,10 @@ export async function POST(req: NextRequest) {
             session_id: sessionId,
             tools_called: result.executedTools.map((t) => t.name)
           }
-        });
-      } catch {
-        // Tolerant
+        })
+      ]);
+      for (const { error } of writes) {
+        if (error) console.error('Copilot persistence write failed:', error.message);
       }
     }
 
@@ -144,9 +171,7 @@ export async function GET(req: NextRequest) {
       return auth.errorResponse!;
     }
 
-    const supabase = auth.user.isServiceRole
-      ? getSupabaseAdminClient()
-      : getSupabaseUserClient(auth.user.token);
+    const supabase = getRequestSupabase(auth.user);
 
     const { data: sessions, error } = await supabase
       .from('chat_sessions')

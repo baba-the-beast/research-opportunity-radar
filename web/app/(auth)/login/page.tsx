@@ -3,12 +3,14 @@
 import { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { safeRedirectPath } from '@/lib/safeRedirect';
 import { getSupabaseBrowserClient } from '@/lib/supabaseBrowserClient';
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get('next') || '/';
+  // Validated: `next` comes from the URL and must never send a freshly signed-in user off-site
+  const next = safeRedirectPath(searchParams.get('next'));
   const errorParam = searchParams.get('error');
 
   const [email, setEmail] = useState('');
@@ -47,7 +49,7 @@ function LoginForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-12">
+    <div className="min-h-screen flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md bg-surface-container border border-outline-variant/30 rounded-xl p-8 shadow-2xl backdrop-blur-sm">
         {/* Observatory Emblem */}
         <div className="flex flex-col items-center text-center mb-8">
@@ -148,7 +150,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-background" />}>
+    <Suspense fallback={<div className="min-h-screen" />}>
       <LoginForm />
     </Suspense>
   );

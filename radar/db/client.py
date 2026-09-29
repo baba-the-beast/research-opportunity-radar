@@ -1,11 +1,16 @@
 """Supabase database client wrapper and queries."""
+import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from supabase import Client, create_client
+from postgrest.exceptions import APIError
 
 from radar import config
-from radar.models import Opportunity, OpportunityDeadline, OpportunitySource
+from radar.logging_config import get_logger, sanitize_log_text
+from radar.models import Opportunity, OpportunityDeadline, OpportunitySource, ScoreResult
+from supabase import Client, create_client
+
+logger = get_logger(__name__)
 
 
 class _InMemoryTable:
@@ -28,7 +33,11 @@ class _InMemoryTable:
         return self
 
     def update(self, data: dict[str, Any]):
-        self._update_data = data
+        # Deferred like PostgREST: filters chained after update()/delete() narrow the mutation,
+        # which is applied once at execute(). (Applying on the first .eq() silently ignored later
+        # filters, e.g. the updated_at guard in save_profile_embedding.)
+        self._mutation = ("update", data)
+        self._mutation_filters = []
         return self
 
     def upsert(self, records: Any, **kwargs):
@@ -56,45 +65,34 @@ class _InMemoryTable:
         return self
 
     def delete(self):
-        self._is_delete = True
+        self._mutation = ("delete", None)
+        self._mutation_filters = []
+        return self
+
+    def _filter(self, predicate):
+        if getattr(self, "_mutation", None):
+            self._mutation_filters.append(predicate)
+        else:
+            self._last_result = [r for r in getattr(self, "_last_result", self._rows) if predicate(r)]
         return self
 
     def eq(self, col: str, val: Any):
-        if getattr(self, "_is_delete", False):
-            deleted = [r for r in self._rows if r.get(col) == val]
-            self._rows = [r for r in self._rows if r.get(col) != val]
-            self._last_result = deleted
-            self._is_delete = False
-        elif hasattr(self, "_update_data"):
-            updated = []
-            for r in self._rows:
-                if r.get(col) == val:
-                    r.update(self._update_data)
-                    updated.append(r)
-            del self._update_data
-            self._last_result = updated
-        else:
-            self._last_result = [r for r in self._rows if r.get(col) == val]
-        return self
+        return self._filter(lambda r: r.get(col) == val)
 
     def neq(self, col: str, val: Any):
-        if hasattr(self, "_update_data"):
-            for r in self._rows:
-                if r.get(col) != val:
-                    r.update(self._update_data)
-            del self._update_data
-        else:
-            self._last_result = [r for r in getattr(self, "_last_result", self._rows) if r.get(col) != val]
-        return self
+        return self._filter(lambda r: r.get(col) != val)
+
+    def in_(self, col: str, vals: list[Any]):
+        return self._filter(lambda r: r.get(col) in vals)
+
+    def lt(self, col: str, val: Any):
+        return self._filter(lambda r: r.get(col) is not None and str(r.get(col)) < str(val))
 
     def lte(self, col: str, val: Any):
-        self._last_result = [r for r in getattr(self, "_last_result", self._rows) if r.get(col) and str(r.get(col)) <= str(val)]
-        return self
+        return self._filter(lambda r: r.get(col) is not None and str(r.get(col)) <= str(val))
 
     def gt(self, col: str, val: Any):
-        self._last_result = [r for r in getattr(self, "_last_result", self._rows) if r.get(col) and str(r.get(col)) > str(val)]
-        return self
-
+        return self._filter(lambda r: r.get(col) is not None and str(r.get(col)) > str(val))
 
     def order(self, *args, **kwargs):
         return self
@@ -105,6 +103,19 @@ class _InMemoryTable:
 
     def execute(self):
         from types import SimpleNamespace
+        mutation = getattr(self, "_mutation", None)
+        if mutation:
+            kind, data = mutation
+            filters = self._mutation_filters
+            matched = [r for r in self._rows if all(f(r) for f in filters)]
+            if kind == "update":
+                for r in matched:
+                    r.update(data)
+            else:
+                self._rows = [r for r in self._rows if not any(r is m for m in matched)]
+            self._mutation = None
+            self._mutation_filters = []
+            self._last_result = matched
         data = getattr(self, "_last_result", list(self._rows))
         return SimpleNamespace(data=data)
 
@@ -150,7 +161,9 @@ def finish_run_log(run_id: str, status: str, found: int = 0, new: int = 0, error
         "status": status,
         "opportunities_found": found,
         "opportunities_new": new,
-        "errors": errors or []
+        # run_log is readable by every signed-in user (activity feed): redact secrets that exception
+        # text can carry (e.g. a Telegram URL with the bot token), whatever code path produced it
+        "errors": [sanitize_log_text(e) if isinstance(e, str) else e for e in (errors or [])]
     }).eq("id", run_id).execute()
 
 def start_source_run(run_id: str, source_name: str) -> str:
@@ -338,24 +351,64 @@ def upsert_opportunities(accepted: list[tuple[Opportunity, str]], provenance_upd
                 "raw_text": dl.raw_text
             }, on_conflict="opportunity_id, deadline_type, deadline_date").execute()
 
-        # Write scoring log if scored
-        if opp.score_result:
-            # fetch faculty id if available
-            prof_res = client.table("faculty_profile").select("id").limit(1).execute()
-            if prof_res.data:
-                faculty_id = prof_res.data[0]["id"]
-                client.table("scoring_log").insert({
-                    "opportunity_id": inserted_id,
-                    "faculty_id": faculty_id,
-                    "final_score": opp.score_result.final_score,
-                    "band": opp.score_result.band,
-                    "components": opp.score_result.components,
-                    "matched_terms": opp.score_result.matched_terms,
-                    "negative_matches": opp.score_result.negative_matches,
-                    "model_version": opp.score_result.model_version
-                }).execute()
+        # One scoring_log row per faculty profile scored this run
+        insert_scores(inserted_id, opp.profile_scores)
 
     return new_count
+
+def insert_scores(opportunity_id: str, profile_scores: dict[str, ScoreResult]) -> None:
+    """Append scoring_log rows. Eligibility lives in components (RLS-scoped per faculty), not in the
+    shared opportunities.metadata, so one faculty member's eligibility verdict is never visible to others."""
+    if profile_scores:
+        insert_scores_bulk([(opportunity_id, profile_scores)])
+
+
+def insert_scores_bulk(scored: list[tuple[str, dict[str, ScoreResult]]], chunk_size: int = 500) -> None:
+    """insert_scores for many opportunities in a few round trips instead of one per opportunity."""
+    client = get_client()
+    rows: list[dict[str, Any]] = []
+    for opportunity_id, profile_scores in scored:
+        for faculty_id, score in profile_scores.items():
+            components: dict[str, Any] = dict(score.components)
+            if score.eligibility_report:
+                components["eligibility_report"] = score.eligibility_report
+            rows.append({
+                "opportunity_id": opportunity_id,
+                "faculty_id": faculty_id,
+                "final_score": score.final_score,
+                "band": score.band,
+                "components": components,
+                "matched_terms": score.matched_terms,
+                "negative_matches": score.negative_matches,
+                "model_version": score.model_version,
+            })
+    for i in range(0, len(rows), chunk_size):
+        client.table("scoring_log").insert(rows[i:i + chunk_size]).execute()
+
+
+def load_alertable_opportunity_ids(faculty_id: str, user_id: str | None) -> set[str]:
+    """Opportunities a faculty member should get deadline alerts for: ones they saved or are
+    pursuing/applied to, plus ones scored high/strong for them."""
+    client = get_client()
+    ids: set[str] = set()
+    # scoring_log is append-only: judge each opportunity by its LATEST score for this faculty, so a
+    # profile edit that rescored something down to "watch" stops its urgent alerts
+    scored = (
+        client.table("scoring_log").select("opportunity_id, band, scored_at")
+        .eq("faculty_id", faculty_id).order("scored_at", desc=True).execute()
+    )
+    latest_band: dict[str, str] = {}
+    for row in sorted(scored.data or [], key=lambda r: str(r.get("scored_at") or ""), reverse=True):
+        latest_band.setdefault(row["opportunity_id"], row.get("band"))
+    ids.update(opp_id for opp_id, band in latest_band.items() if band in ("high", "strong"))
+    if user_id:
+        tracked = client.table("user_opportunity_state").select("opportunity_id, saved, status").eq("user_id", user_id).execute()
+        ids.update(
+            r["opportunity_id"] for r in tracked.data or []
+            if r.get("saved") or r.get("status") in ("pursuing", "applied")
+        )
+    return ids
+
 
 def record_feedback(
     opportunity_id: str,
@@ -376,16 +429,24 @@ def record_feedback(
     }).execute()
     return res.data[0]["id"] if res.data else ""
 
-def load_feedback_signals(rating: str = "not_relevant") -> list[dict[str, Any]]:
-    """Load feedback records to adjust scoring models dynamically."""
+def load_feedback_signals(rating: str = "not_relevant", faculty_id: str | None = None) -> list[dict[str, Any]]:
+    """Load feedback records to adjust scoring. Pass faculty_id so one user's dismissals
+    only penalise their own scores."""
     client = get_client()
-    res = client.table("feedback").select("*").eq("rating", rating).execute()
+    query = client.table("feedback").select("*").eq("rating", rating)
+    if faculty_id:
+        query = query.eq("faculty_id", faculty_id)
+    res = query.execute()
     return res.data or []
+
+
+ARCHIVED_STATUS = "closed"
 
 
 def archive_stale_opportunities(older_than_days: int = 90) -> int:
     """
-    Sets status = 'archived' for opportunities where next_deadline < now() - older_than_days.
+    Sets status = 'closed' for opportunities whose every deadline is older than older_than_days.
+    Uses 'closed' because opportunities.status is CHECK-constrained to open/forecasted/upcoming/closed/unknown.
     Preserves fingerprint deduplication records so expired opportunities are never re-discovered as new.
     """
     client = get_client()
@@ -411,10 +472,13 @@ def archive_stale_opportunities(older_than_days: int = 90) -> int:
             .execute()
         )
         if not active_dl.data:
-            client.table("opportunities").update({"status": "archived"}).eq("id", opp_id).neq("status", "archived").execute()
+            client.table("opportunities").update({"status": ARCHIVED_STATUS}).eq("id", opp_id).neq("status", ARCHIVED_STATUS).execute()
             archived_count += 1
 
     return archived_count
+
+
+_in_memory_lock_mutex = threading.Lock()
 
 
 def acquire_pipeline_lock(
@@ -423,46 +487,121 @@ def acquire_pipeline_lock(
     ttl_seconds: int = 900
 ) -> bool:
     """
-    Acquires a distributed lock using the pipeline_locks table.
-    Returns True if acquired, False if another process holds an unexpired lock.
+    Acquires a distributed lease in pipeline_locks. Returns True only if this caller now holds it.
+
+    Atomic on Postgres: a plain INSERT wins when no row exists (PK conflict otherwise), and an
+    UPDATE ... WHERE expires_at < now() takes over only an expired lease. Fails closed on errors.
     """
     client = get_client()
     now_dt = datetime.now(UTC)
     now_iso = now_dt.isoformat()
-    expires_at = (now_dt + timedelta(seconds=ttl_seconds)).isoformat()
+    row = {
+        "lock_key": lock_key,
+        "locked_by": locked_by,
+        "locked_at": now_iso,
+        "expires_at": (now_dt + timedelta(seconds=ttl_seconds)).isoformat(),
+    }
+
+    if isinstance(client, _InMemoryClient):
+        with _in_memory_lock_mutex:
+            table = client.table("pipeline_locks")
+            existing = next((r for r in table._rows if r.get("lock_key") == lock_key), None)
+            if existing and str(existing.get("expires_at", "")) > now_iso:
+                return False
+            if existing:
+                existing.update(row)
+            else:
+                table._rows.append(dict(row))
+            return True
 
     try:
-        res = client.table("pipeline_locks").select("*").eq("lock_key", lock_key).execute()
-        if res.data:
-            existing_lock = res.data[0]
-            lock_exp = existing_lock.get("expires_at")
-            if lock_exp and lock_exp > now_iso:
-                return False
-            update_res = (
-                client.table("pipeline_locks")
-                .update({
-                    "locked_by": locked_by,
-                    "acquired_at": now_iso,
-                    "expires_at": expires_at
-                })
-                .eq("lock_key", lock_key)
-                .execute()
-            )
-            return bool(update_res.data)
-        else:
-            insert_res = (
-                client.table("pipeline_locks")
-                .insert({
-                    "lock_key": lock_key,
-                    "locked_by": locked_by,
-                    "acquired_at": now_iso,
-                    "expires_at": expires_at
-                })
-                .execute()
-            )
-            return bool(insert_res.data)
-    except Exception:
+        client.table("pipeline_locks").insert(row).execute()
         return True
+    except APIError as e:
+        if e.code != "23505":  # anything but "lease row already exists"
+            logger.error(f"Pipeline lock acquisition failed: {e}", source_name="pipeline_lock", error_category="database_error")
+            return False
+    except Exception as e:  # network/timeout: refuse rather than crash before run_log is closed
+        logger.error(f"Pipeline lock acquisition failed: {e}", source_name="pipeline_lock", error_category="database_error")
+        return False
+
+    try:
+        takeover = (
+            client.table("pipeline_locks")
+            .update(row)
+            .eq("lock_key", lock_key)
+            .lt("expires_at", now_iso)
+            .execute()
+        )
+        return bool(takeover.data)
+    except Exception as e:
+        logger.error(f"Pipeline lock takeover failed: {e}", source_name="pipeline_lock", error_category="database_error")
+        return False
+
+
+def renew_pipeline_lock(
+    lock_key: str = "radar_pipeline_global",
+    locked_by: str = "orchestrator",
+    ttl_seconds: int = 300
+) -> bool:
+    """Extends a lease this caller still holds. False if it was lost (taken over or deleted) or the
+    renewal failed, in which case the caller must stop doing lock-protected work."""
+    client = get_client()
+    try:
+        res = (
+            client.table("pipeline_locks")
+            .update({"expires_at": (datetime.now(UTC) + timedelta(seconds=ttl_seconds)).isoformat()})
+            .eq("lock_key", lock_key)
+            .eq("locked_by", locked_by)
+            .execute()
+        )
+        return bool(res.data)
+    except Exception as e:
+        logger.error(f"Pipeline lock renewal failed: {e}", source_name="pipeline_lock", error_category="database_error")
+        return False
+
+
+class PipelineLease:
+    """Keeps a pipeline lease alive from a background thread for as long as the run lasts.
+
+    A fixed TTL either expires under a long multi-profile run (another run takes over and both send
+    alerts) or, if set very long, leaves a crashed run's lock stuck. Renewing a short lease gives
+    both: overlap protection for any run length and quick recovery after a crash.
+    """
+
+    def __init__(self, lock_key: str, locked_by: str, ttl_seconds: int = 300, renew_every: float = 60.0):
+        self.lock_key = lock_key
+        self.locked_by = locked_by
+        self.ttl_seconds = ttl_seconds
+        self.renew_every = renew_every
+        self._stop = threading.Event()
+        self._lost = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    @property
+    def lost(self) -> bool:
+        return self._lost.is_set()
+
+    def acquire(self) -> bool:
+        if not acquire_pipeline_lock(self.lock_key, locked_by=self.locked_by, ttl_seconds=self.ttl_seconds):
+            return False
+        self._thread = threading.Thread(target=self._heartbeat, name="pipeline-lease", daemon=True)
+        self._thread.start()
+        return True
+
+    def _heartbeat(self) -> None:
+        while not self._stop.wait(self.renew_every):
+            if not renew_pipeline_lock(self.lock_key, self.locked_by, self.ttl_seconds):
+                self._lost.set()
+                logger.error("Pipeline lease lost; this run will skip alerting",
+                             source_name="pipeline_lock", error_category="lock_lost")
+                return
+
+    def release(self) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=5)
+        release_pipeline_lock(self.lock_key, locked_by=self.locked_by)
 
 
 def release_pipeline_lock(

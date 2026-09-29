@@ -4,7 +4,13 @@ from datetime import UTC, datetime
 from radar.models import Opportunity
 
 
-def build(opportunities: list[Opportunity], failed_sources: list[dict[str, str]] | None = None) -> str:
+def build(
+    opportunities: list[Opportunity],
+    failed_sources: list[dict[str, str]] | None = None,
+    faculty_id: str | None = None,
+) -> str:
+    """Render a digest. Pass faculty_id so each recipient sees their own score and matched terms
+    (opp.score_result is the best score across all faculty and would expose other users' terms)."""
     today_str = datetime.now(UTC).strftime("%Y-%m-%d")
     lines = [
         "# Weekly Research Opportunity Digest",
@@ -41,8 +47,9 @@ def build(opportunities: list[Opportunity], failed_sources: list[dict[str, str]]
         return "\n".join(lines)
 
     for idx, opp in enumerate(opportunities, start=1):
-        score_info = f"Score: {opp.score_result.final_score:.1f}/100 ({opp.score_result.band.capitalize()})" if opp.score_result else "Score: N/A"
-        matched_str = ", ".join(opp.score_result.matched_terms) if opp.score_result and opp.score_result.matched_terms else "Topic match"
+        score = opp.profile_scores.get(faculty_id) if faculty_id else opp.score_result
+        score_info = f"Score: {score.final_score:.1f}/100 ({score.band.capitalize()})" if score else "Score: N/A"
+        matched_str = ", ".join(score.matched_terms) if score and score.matched_terms else "Topic match"
 
         conf_dl = opp.earliest_confirmed_deadline()
         dl_str = conf_dl.strftime("%Y-%m-%d") if conf_dl else "Rolling"

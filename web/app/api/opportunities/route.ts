@@ -1,9 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseUserClient } from '@/lib/supabaseServerClient';
 import { authenticateRequest } from '@/lib/auth';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
+import { getOwnProfileId, getRequestSupabase, UUID_PATTERN } from '@/lib/routeContext';
 
 export const dynamic = 'force-dynamic';
+
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T[\d:.]+(Z|[+-]\d{2}:\d{2})?$/;
+
+/**
+ * Keyset cursor "<discovered_at>|<id>". The id tiebreak keeps pages stable when several
+ * opportunities share a discovered_at (batch inserts). A bare timestamp is accepted for old clients.
+ */
+function parseCursor(raw: string | null): { ts: string; id?: string } | null | 'invalid' {
+  if (!raw) return null;
+  const [ts, id] = raw.split('|');
+  if (!ISO_TIMESTAMP.test(ts) || (id !== undefined && !UUID_PATTERN.test(id))) return 'invalid';
+  return { ts, id };
+}
+
+function earliestUpcoming(deadlines: any[]): any | null {
+  const today = new Date().toISOString().slice(0, 10);
+  const sorted = [...deadlines].sort((a, b) => String(a.deadline_date).localeCompare(String(b.deadline_date)));
+  return sorted.find((d) => d.deadline_date >= today) || sorted[sorted.length - 1] || null;
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -15,74 +34,109 @@ export async function GET(req: NextRequest) {
     const searchParams = req.nextUrl.searchParams;
     const limitParam = parseInt(searchParams.get('limit') || '20', 10);
     const limit = Math.max(1, Math.min(isNaN(limitParam) ? 20 : limitParam, 50));
-    const cursor = searchParams.get('cursor'); // ISO timestamp for discovered_at pagination
+    const cursor = parseCursor(searchParams.get('cursor'));
+    if (cursor === 'invalid') {
+      return createErrorResponse('VALIDATION_ERROR', 'Invalid pagination cursor', 400, req);
+    }
     const kindFilter = searchParams.get('kind');
     const savedOnly = searchParams.get('saved') === 'true';
     const statusFilter = searchParams.get('status');
+    const hasStatusFilter = Boolean(statusFilter && statusFilter !== 'all');
 
-    const supabase = getSupabaseUserClient(auth.user?.token);
+    const supabase = getRequestSupabase(auth.user);
+    const userId = auth.user?.isServiceRole ? null : auth.user?.id;
+    const profileId = await getOwnProfileId(supabase, auth.user);
+
+    // Saved/status filters join the caller's user_opportunity_state rows inside the same query, so
+    // pagination stays correct and the URL doesn't grow with the user's history (an id list in
+    // ?id=in.(...) eventually breaks proxy URL limits).
+    //  - 'inner': saved and/or a specific tracked status -> only opportunities with a matching row
+    //  - 'anti':  status=new -> opportunities with NO non-'new' row (no row at all means 'new')
+    const stateJoin: 'none' | 'inner' | 'anti' =
+      !savedOnly && !hasStatusFilter ? 'none' : !savedOnly && statusFilter === 'new' ? 'anti' : 'inner';
+    if (stateJoin !== 'none' && !userId) {
+      return createSuccessResponse({ data: [], pagination: { limit, next_cursor: null, has_more: false } }, req);
+    }
+    const stateSelect =
+      stateJoin === 'inner'
+        ? ',user_opportunity_state!inner (status)'
+        : stateJoin === 'anti'
+          ? ',user_opportunity_state!left (status)'
+          : '';
+
+    // Scores are per faculty: embed only this user's latest scoring_log row
+    const scoringSelect = profileId ? ',scoring_log (final_score, band, components, matched_terms, scored_at)' : '';
     let query = supabase
       .from('opportunities')
       .select(`
         id, kind, title, summary, agency_or_publisher, venue_name, doi, status, discovered_at, fingerprint,
         opportunity_deadlines (id, deadline_type, deadline_date, confidence, raw_text),
-        opportunity_sources (source_url, source_id, sources (name)),
-        opportunity_status (status),
-        scoring_log (final_score, band, components, matched_terms)
+        opportunity_sources (source_url, source_id, sources (name))${scoringSelect}${stateSelect}
       `)
       .order('discovered_at', { ascending: false })
+      .order('id', { ascending: false })
       .limit(limit + 1);
 
+    if (profileId) {
+      query = query
+        .eq('scoring_log.faculty_id', profileId)
+        .order('scored_at', { referencedTable: 'scoring_log', ascending: false })
+        .limit(1, { referencedTable: 'scoring_log' });
+    }
+
     if (cursor) {
-      query = query.lt('discovered_at', cursor);
+      query = cursor.id
+        ? query.or(`discovered_at.lt."${cursor.ts}",and(discovered_at.eq."${cursor.ts}",id.lt.${cursor.id})`)
+        : query.lt('discovered_at', cursor.ts);
     }
 
     if (kindFilter && kindFilter !== 'all') {
       query = query.eq('kind', kindFilter);
     }
 
-    const { data: opps, error } = await query;
+    if (stateJoin === 'inner') {
+      query = query.eq('user_opportunity_state.user_id', userId!);
+      if (savedOnly) query = query.eq('user_opportunity_state.saved', true);
+      if (hasStatusFilter) query = query.eq('user_opportunity_state.status', statusFilter!);
+    } else if (stateJoin === 'anti') {
+      query = query
+        .eq('user_opportunity_state.user_id', userId!)
+        .neq('user_opportunity_state.status', 'new')
+        .is('user_opportunity_state', null);
+    }
 
+    const { data: opps, error } = await query;
     if (error) {
       return createErrorResponse('DATABASE_ERROR', error.message, 500, req);
     }
 
-    const rows = opps || [];
-    const oppIds = rows.map((r: any) => r.id);
+    // any[]: the conditional scoring_log embed makes the select string non-literal for the type parser
+    const rows: any[] = opps || [];
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
 
-    // Fetch user-scoped opportunity state (saved, notes, personal status)
+    // User-scoped state (saved, notes, personal status) for this page
     const userStatesMap: Record<string, { saved: boolean; status: string; notes?: string; personal_score?: number }> = {};
-    if (auth.user?.id && oppIds.length > 0) {
-      try {
-        const { data: userStates } = await supabase
-          .from('user_opportunity_state')
-          .select('opportunity_id, status, saved, notes, personal_score')
-          .eq('user_id', auth.user.id)
-          .in('opportunity_id', oppIds);
-
-        if (userStates) {
-          for (const s of userStates) {
-            userStatesMap[s.opportunity_id] = s;
-          }
-        }
-      } catch {
-        // Tolerant if table not yet migrated
+    if (userId && pageRows.length > 0) {
+      const { data: userStates, error: usErr } = await supabase
+        .from('user_opportunity_state')
+        .select('opportunity_id, status, saved, notes, personal_score')
+        .eq('user_id', userId)
+        .in('opportunity_id', pageRows.map((r: any) => r.id));
+      if (usErr) {
+        return createErrorResponse('DATABASE_ERROR', usErr.message, 500, req);
+      }
+      for (const st of userStates || []) {
+        userStatesMap[st.opportunity_id] = st;
       }
     }
 
-    // Format and apply user-specific filters (e.g. saved-only)
-    let formatted = rows.map((row: any) => {
+    const formatted = pageRows.map((row: any) => {
       const src = row.opportunity_sources?.[0];
-      const scoring = row.scoring_log?.[0] || { final_score: 50, band: 'watch', matched_terms: [] };
-      const dls = row.opportunity_deadlines || [];
-      const nextDl = dls.length > 0 ? dls[0] : null;
+      const scoring = row.scoring_log?.[0];
+      const nextDl = earliestUpcoming(row.opportunity_deadlines || []);
       const userState = userStatesMap[row.id];
-
-      const saved = Boolean(userState?.saved);
-      const status = userState?.status || row.opportunity_status?.[0]?.status || 'new';
-      const personalScore = userState?.personal_score !== undefined && userState?.personal_score !== null
-        ? Number(userState.personal_score)
-        : Number(scoring.final_score);
+      const personalScore = userState?.personal_score ?? scoring?.final_score ?? null;
 
       return {
         id: row.id,
@@ -94,37 +148,27 @@ export async function GET(req: NextRequest) {
         primary_source_name: src?.sources?.name || row.agency_or_publisher || 'Primary Source',
         primary_source_url: src?.source_url || (row.doi ? `https://doi.org/${row.doi}` : ''),
         next_deadline: nextDl ? { deadline_date: nextDl.deadline_date, confidence: nextDl.confidence } : null,
-        final_score: personalScore,
-        band: scoring.band,
-        matched_terms: scoring.matched_terms || [],
-        status,
-        saved,
+        // null = not yet scored for this user (new profile awaiting the next pipeline run)
+        final_score: personalScore === null ? null : Number(personalScore),
+        band: scoring?.band ?? 'unscored',
+        matched_terms: scoring?.matched_terms || [],
+        status: userState?.status || 'new',
+        saved: Boolean(userState?.saved),
         notes: userState?.notes || ''
       };
     });
 
-    if (savedOnly) {
-      formatted = formatted.filter((item: any) => item.saved);
-    }
-
-    if (statusFilter && statusFilter !== 'all') {
-      formatted = formatted.filter((item: any) => item.status === statusFilter);
-    }
-
-    const hasMore = formatted.length > limit;
-    const paginatedRows = hasMore ? formatted.slice(0, limit) : formatted;
-    const nextCursor = hasMore && paginatedRows.length > 0
-      ? rows[paginatedRows.length - 1]?.discovered_at
-      : null;
+    const last = pageRows[pageRows.length - 1];
+    const nextCursor = hasMore && last ? `${last.discovered_at}|${last.id}` : null;
 
     // Check if client requested legacy array format
     if (searchParams.get('format') === 'array') {
-      return NextResponse.json(paginatedRows);
+      return NextResponse.json(formatted);
     }
 
     return createSuccessResponse(
       {
-        data: paginatedRows,
+        data: formatted,
         pagination: {
           limit,
           next_cursor: nextCursor,

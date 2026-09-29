@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateRequest, authorizeRole } from '@/lib/auth';
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
-import { acquirePipelineLock } from '@/lib/pipelineLock';
+import { consumeRateLimit, getClientIp } from '@/lib/rateLimit';
+import { getActivePipelineLock } from '@/lib/pipelineLock';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 
 export async function POST(req: NextRequest) {
@@ -18,23 +18,12 @@ export async function POST(req: NextRequest) {
 
     // 2. Sanitized Rate limiting check (max 5 triggers per 10 minutes)
     const ip = getClientIp(req);
-    const rateCheck = checkRateLimit(`trigger_${ip}`, 5, 600000);
+    const rateCheck = await consumeRateLimit(`trigger_${ip}`, 5, 600000);
     if (!rateCheck.allowed) {
       return createErrorResponse(
         'RATE_LIMIT_EXCEEDED',
         'Rate limit exceeded: Too many pipeline trigger requests.',
         429,
-        req
-      );
-    }
-
-    // 3. Concurrency check
-    const lockResult = await acquirePipelineLock('pipeline_main', 'github_actions_dispatcher', 900);
-    if (!lockResult.acquired) {
-      return createErrorResponse(
-        'PIPELINE_CONCURRENCY_CONFLICT',
-        `Pipeline execution already active by '${lockResult.currentHolder || 'unknown'}'. Dispatch rejected.`,
-        409,
         req
       );
     }
@@ -55,6 +44,23 @@ export async function POST(req: NextRequest) {
         'NOT_CONFIGURED',
         'GITHUB_REPO environment variable not configured. Please set GITHUB_REPO in owner/repo format (e.g. your-org/research-opportunity-radar).',
         501,
+        req
+      );
+    }
+
+    // Fail fast if a run is in progress. The dispatched workflow's Python process takes the
+    // actual lease itself, so no lock is held (or leaked) here.
+    let active;
+    try {
+      active = await getActivePipelineLock();
+    } catch (err: any) {
+      return createErrorResponse('DATABASE_ERROR', `Could not check pipeline status: ${err.message}`, 503, req);
+    }
+    if (active) {
+      return createErrorResponse(
+        'PIPELINE_CONCURRENCY_CONFLICT',
+        `Pipeline execution already active by '${active.lockedBy}' until ${active.expiresAt}. Dispatch rejected.`,
+        409,
         req
       );
     }

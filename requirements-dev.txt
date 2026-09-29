@@ -1,0 +1,7 @@
+# Test and lint tooling; not installed in the production image
+-r requirements.txt
+pytest>=8.0
+pytest-mock>=3.14
+responses>=0.25
+ruff>=0.16.0
+mypy>=1.10.0

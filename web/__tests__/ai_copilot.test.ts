@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { runCopilotTurn } from '../lib/ai/llmProvider';
 
-// Mock Supabase Server client for offline tests
-vi.mock('../lib/supabaseServerClient', () => {
+// Fake RLS-scoped client handed to the Copilot (tools never create their own client)
+const fakeSupabase = (() => {
   const createQueryMock = (tableName: string) => {
     const mock: any = {
       select: vi.fn().mockReturnThis(),
@@ -65,18 +65,17 @@ vi.mock('../lib/supabaseServerClient', () => {
     return mock;
   };
 
-  return {
-    getSupabaseAdminClient: () => ({
-      from: (tableName: string) => createQueryMock(tableName)
-    })
-  };
-});
+  return { from: (tableName: string) => createQueryMock(tableName) } as any;
+})();
+
+const ctx = { userId: 'usr-123', supabase: fakeSupabase };
+const OPP_ID = '6f1c2b1e-9a4d-4c7e-8b2a-3d5e6f7a8b9c';
 
 describe('AI Research Copilot Tests', () => {
   it('handles academic search requests and dispatches searchOpportunities tool', async () => {
     const result = await runCopilotTurn(
       [{ role: 'user', content: 'Find grant funding for Autonomous Systems and AI' }],
-      'usr-123'
+      ctx
     );
 
     expect(result.text).toContain('Academic Opportunities Discovered');
@@ -88,7 +87,7 @@ describe('AI Research Copilot Tests', () => {
   it('handles profile queries and returns investigator node parameters', async () => {
     const result = await runCopilotTurn(
       [{ role: 'user', content: 'Show my active research profile keywords' }],
-      'usr-123'
+      ctx
     );
 
     expect(result.text).toContain('Investigator Node Configuration');
@@ -98,12 +97,26 @@ describe('AI Research Copilot Tests', () => {
 
   it('handles recommendation rationale queries', async () => {
     const result = await runCopilotTurn(
-      [{ role: 'user', content: 'Why is opportunity test-opp-123 recommended for me?' }],
-      'usr-123'
+      [{ role: 'user', content: `Why is opportunity ${OPP_ID} recommended for me?` }],
+      ctx
     );
 
     expect(result.text).toContain('Recommendation Rationale Analysis');
     expect(result.text).toContain('Thematic Fit');
     expect(result.executedTools.some((t) => t.name === 'getWhyRecommended')).toBe(true);
+  });
+});
+
+describe('Copilot tool guards', () => {
+  it('strips PostgREST filter syntax from LLM-supplied search terms', async () => {
+    const { sanitizeSearchTerm } = await import('../lib/ai/tools');
+    expect(sanitizeSearchTerm('ai,id.eq.1),or(title.ilike.*')).toBe('ai id eq 1 or title ilike');
+    expect(sanitizeSearchTerm('50% "quoted" \ back_slash')).toBe('50 quoted back slash');
+  });
+
+  it('rejects non-UUID opportunity ids before touching the database', async () => {
+    const { executeTool } = await import('../lib/ai/tools');
+    const result = await executeTool('saveOpportunity', { opportunityId: 'x,user_id.eq.other', saved: 'true' }, ctx);
+    expect(result.error).toMatch(/UUID/);
   });
 });

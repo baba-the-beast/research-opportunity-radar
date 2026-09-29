@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
-import { getSupabaseUserClient, getSupabaseAdminClient } from '@/lib/supabaseServerClient';
+import { getRequestSupabase, hasUserAccount, requireUserAccount } from '@/lib/routeContext';
 import { authenticateRequest } from '@/lib/auth';
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { consumeRateLimit, getClientIp } from '@/lib/rateLimit';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { z } from 'zod';
 
@@ -12,7 +12,9 @@ const settingsSchema = z.object({
   min_score: z.number().int().min(0).max(100).optional(),
   email_alerts: z.boolean().optional(),
   telegram_alerts: z.boolean().optional(),
-  telegram_chat_id: z.string().max(64).nullable().optional(),
+  // Chats are linked only through the bot (/api/telegram/webhook) so users can't point alerts at
+  // someone else's chat; the settings API may only disconnect.
+  telegram_chat_id: z.null().optional(),
   digest_frequency: z.enum(['daily', 'weekly', 'never']).optional(),
   auto_summarize: z.boolean().optional()
 });
@@ -34,9 +36,11 @@ export async function GET(req: NextRequest) {
       return auth.errorResponse!;
     }
 
-    const supabase = auth.user.isServiceRole
-      ? getSupabaseAdminClient()
-      : getSupabaseUserClient(auth.user.token);
+    if (!hasUserAccount(auth.user)) {
+      return createSuccessResponse({ user_id: null, ...DEFAULT_SETTINGS }, req);
+    }
+
+    const supabase = getRequestSupabase(auth.user);
 
     const { data: prefs, error } = await supabase
       .from('user_preferences')
@@ -61,8 +65,13 @@ export async function PATCH(req: NextRequest) {
       return auth.errorResponse!;
     }
 
+    const noAccount = requireUserAccount(auth.user, req);
+    if (noAccount) {
+      return noAccount;
+    }
+
     const ip = getClientIp(req);
-    const rateCheck = checkRateLimit(`settings_${ip}`, 20, 60000);
+    const rateCheck = await consumeRateLimit(`settings_${ip}`, 20, 60000);
     if (!rateCheck.allowed) {
       return createErrorResponse('RATE_LIMIT_EXCEEDED', 'Too many requests.', 429, req);
     }
@@ -73,9 +82,7 @@ export async function PATCH(req: NextRequest) {
       return createErrorResponse('VALIDATION_ERROR', 'Invalid settings payload', 400, req, parsed.error.issues);
     }
 
-    const supabase = auth.user.isServiceRole
-      ? getSupabaseAdminClient()
-      : getSupabaseUserClient(auth.user.token);
+    const supabase = getRequestSupabase(auth.user);
 
     const payload: any = {
       user_id: auth.user.id,

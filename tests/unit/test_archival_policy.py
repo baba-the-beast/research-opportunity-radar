@@ -1,4 +1,6 @@
+import re
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from radar.db import client as db
 
@@ -30,8 +32,17 @@ def test_archive_stale_opportunities():
     assert archived == 1
 
     opps = {r["id"]: r for r in in_mem_client.table("opportunities")._rows}
-    assert opps["opp-old"]["status"] == "archived"
+    assert opps["opp-old"]["status"] == "closed"
     assert opps["opp-recent"]["status"] == "open"
     assert opps["opp-multi"]["status"] == "open"
     # Ensure fingerprint preserved
     assert opps["opp-old"]["fingerprint"] == "fp-1"
+
+
+def test_archived_status_satisfies_schema_check_constraint():
+    """The in-memory DB has no constraints, so assert against the schema migration directly."""
+    migration = Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "20260901000000_core_schema.sql"
+    schema = migration.read_text(encoding="utf-8")
+    table = re.search(r"create table if not exists opportunities \((.*?)\n\);", schema, re.S).group(1)
+    allowed = re.search(r"status text .*?check \(status in \(([^)]*)\)\)", table).group(1)
+    assert f"'{db.ARCHIVED_STATUS}'" in allowed

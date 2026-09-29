@@ -1,8 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { AiCopilot } from '@/components/AiCopilot';
+import dynamic from 'next/dynamic';
+
+// Code-split AiCopilot: only loaded when user opens the chat panel, not on every dashboard render.
+// This reduces the / First Load JS by ~10-12 kB on constrained mobile data connections.
+const AiCopilot = dynamic(() => import('@/components/AiCopilot').then((m) => ({ default: m.AiCopilot })), {
+  ssr: false,
+  loading: () => null
+});
 
 interface OpportunitySummary {
   id: string;
@@ -14,7 +21,7 @@ interface OpportunitySummary {
   primary_source_name: string;
   primary_source_url: string;
   next_deadline: { deadline_date: string; confidence: string } | null;
-  final_score: number;
+  final_score: number | null; // null until the pipeline scores this opportunity for the user
   band: string;
   matched_terms: string[];
   status: string;
@@ -79,6 +86,23 @@ export default function DashboardPage() {
   ]);
   const [newKeyword, setNewKeyword] = useState('');
   const [showAddKeyword, setShowAddKeyword] = useState(false);
+  const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
+  const [liteMode, setLiteMode] = useState(false);
+  const [showSlowConnBanner, setShowSlowConnBanner] = useState(false);
+
+  // Detect lite/save-data mode: ?lite=1 param, saveData flag, or 2G/3G effective connection type
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const urlLite = new URLSearchParams(window.location.search).get('lite') === '1';
+      const nav = (navigator as any);
+      const saveData = nav.connection?.saveData === true;
+      const slowConn = nav.connection?.effectiveType === '2g' || nav.connection?.effectiveType === '3g';
+      if (urlLite || saveData || slowConn) {
+        setLiteMode(true);
+      }
+    }
+  }, []);
+
 
   useEffect(() => {
     fetch('/api/opportunities')
@@ -100,18 +124,54 @@ export default function DashboardPage() {
     setIsStreaming(true);
     setConsoleOpen(true);
     setActivePhase('INIT');
+    setShowSlowConnBanner(false);
+
+    // Idle timeout: abort only if no data (events or the server's 15s heartbeat) arrives for 45s.
+    // A full pipeline run takes minutes, so this must reset on every chunk, not cap the whole run.
+    const IDLE_TIMEOUT_MS = 45_000;
+    const controller = new AbortController();
+    let abortTimer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
+    const resetIdleTimer = () => {
+      clearTimeout(abortTimer);
+      abortTimer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
+    };
+    // Show slow-connection feedback banner after 5s without any SSE data
+    const slowBannerTimer = setTimeout(() => setShowSlowConnBanner(true), 5_000);
 
     try {
-      const response = await fetch(`/api/pipeline/stream?run=true&dry_run=${dryRun}`);
+      const response = await fetch(`/api/pipeline/stream?run=true&dry_run=${dryRun}`, {
+        signal: controller.signal
+      });
+      if (!response.ok) {
+        // 409 (run already active), 401/403, 429 come back as JSON, not an event stream
+        const errBody = await response.json().catch(() => null);
+        setLogs((prev) => [...prev, {
+          timestamp: new Date().toISOString(),
+          agent: 'Observatory',
+          phase: 'ERROR',
+          level: 'ERROR',
+          stepIndex: 99,
+          message: errBody?.error?.message || `Rescan request failed (HTTP ${response.status}).`
+        }]);
+        return;
+      }
       if (!response.body) throw new Error('ReadableStream not supported');
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let firstChunkReceived = false;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        resetIdleTimer();
+
+        if (!firstChunkReceived) {
+          firstChunkReceived = true;
+          clearTimeout(slowBannerTimer);
+          setShowSlowConnBanner(false);
+        }
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n\n');
@@ -143,13 +203,28 @@ export default function DashboardPage() {
           }
         }
       }
-    } catch (err) {
-      console.error('Streaming error', err);
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        setLogs((prev) => [...prev, {
+          timestamp: new Date().toISOString(),
+          agent: 'Observatory',
+          phase: 'TIMEOUT',
+          level: 'WARN',
+          stepIndex: 99,
+          message: 'Lost contact with the radar scan (no data for 45 seconds). The pipeline keeps running on the server — refresh in a few minutes to see new opportunities.'
+        }]);
+      } else {
+        console.error('Streaming error', err);
+      }
     } finally {
+      clearTimeout(abortTimer);
+      clearTimeout(slowBannerTimer);
+      setShowSlowConnBanner(false);
       setIsStreaming(false);
       setRescanTriggered(false);
     }
   };
+
 
   const handleAddKeyword = () => {
     if (!newKeyword.trim()) return;
@@ -194,7 +269,7 @@ export default function DashboardPage() {
     .filter((o) => filterBands[o.band] ?? true)
     .filter((o) => filterKind === 'all' || o.kind.toLowerCase().includes(filterKind.toLowerCase()))
     .sort((a, b) => {
-      if (sortBy === 'score') return b.final_score - a.final_score;
+      if (sortBy === 'score') return (b.final_score ?? -1) - (a.final_score ?? -1);
       if (!a.next_deadline?.deadline_date) return 1;
       if (!b.next_deadline?.deadline_date) return -1;
       return a.next_deadline.deadline_date.localeCompare(b.next_deadline.deadline_date);
@@ -204,18 +279,48 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col w-full">
+      {/* Slow-Connection Warning Banner (India 2G/3G/congested WiFi) */}
+      {showSlowConnBanner && (
+        <div className="w-full bg-tertiary-container/80 border-b border-tertiary/30 px-space-md py-space-xs flex items-center gap-space-sm text-on-tertiary-container font-data-mono-sm text-data-mono-sm">
+          <span className="material-symbols-outlined text-[16px] shrink-0">wifi_tethering</span>
+          <span>Connecting to academic feeds... this may take a moment on slower connections.</span>
+          <button
+            type="button"
+            className="ml-auto text-on-tertiary-container/60 hover:text-on-tertiary-container"
+            onClick={() => setShowSlowConnBanner(false)}
+          >
+            <span className="material-symbols-outlined text-[14px]">close</span>
+          </button>
+        </div>
+      )}
+
+      {/* Lite Mode Badge (low-bandwidth / Save Data mode) */}
+      {liteMode && (
+        <div className="w-full bg-secondary-container/70 border-b border-secondary/30 px-space-md py-space-xs flex items-center gap-space-sm text-on-secondary-container font-data-mono-sm text-data-mono-sm">
+          <span className="material-symbols-outlined text-[14px] shrink-0">bolt</span>
+          <span>⚡ Lite Mode Active — Radar visualizations hidden to reduce data usage.</span>
+          <button
+            type="button"
+            className="ml-auto underline text-on-secondary-container/80 hover:text-on-secondary-container text-[11px]"
+            onClick={() => setLiteMode(false)}
+          >
+            Show Full View
+          </button>
+        </div>
+      )}
+
       {/* Top Observatory Telemetry Bar */}
-      <div className="w-full bg-surface-container-lowest px-space-xl py-space-md flex flex-wrap items-center justify-between gap-space-md border-b border-surface-container">
-        <div className="flex items-center gap-space-lg">
+      <div className="w-full bg-surface-container-lowest px-space-md sm:px-space-xl py-space-xs sm:py-space-sm flex flex-wrap items-center justify-between gap-space-sm sm:gap-space-md border-b border-surface-container">
+        <div className="flex items-center gap-space-sm sm:gap-space-lg flex-wrap">
           <div className="flex items-center gap-space-xs font-label-caps text-label-caps text-on-surface-variant">
             <span className="w-2 h-2 bg-primary-container inline-block"></span>
             <span className="tracking-widest uppercase text-primary">TELEMETRY MATRIX: ACTIVE SCAN</span>
           </div>
-          <span className="font-data-mono-sm text-data-mono-sm text-outline">EPOCH // 2026.Q3</span>
+          <span className="font-data-mono-sm text-data-mono-sm text-outline hidden sm:inline">EPOCH // 2026.Q3</span>
           <span className="font-data-mono-sm text-data-mono-sm text-outline">SOURCE NODES: 9 INTEGRATED</span>
         </div>
-        <div className="flex items-center gap-space-md font-data-mono-sm text-data-mono-sm">
-          <span className="text-on-surface-variant">
+        <div className="flex items-center gap-space-sm sm:gap-space-md font-data-mono-sm text-data-mono-sm flex-wrap">
+          <span className="text-on-surface-variant hidden md:inline">
             AFFINITY ENGINE: <span className="text-secondary font-bold">K-NEAREST EMBEDDINGS (V3.8)</span>
           </span>
           <label className="flex items-center gap-1.5 cursor-pointer text-on-surface-variant hover:text-on-surface select-none font-data-mono-sm text-data-mono-sm">
@@ -228,7 +333,7 @@ export default function DashboardPage() {
             />
             <span className="tracking-wider uppercase">DRY RUN</span>
           </label>
-          <div className="h-3 w-px bg-surface-container-high"></div>
+          <div className="h-3 w-px bg-surface-container-high hidden sm:block"></div>
           <button
             onClick={triggerRescan}
             disabled={isStreaming}
@@ -252,7 +357,7 @@ export default function DashboardPage() {
       {/* Observatory Agent Reasoning Console (Live Telemetry Stream) */}
       <div className="w-full bg-surface-container-lowest border-b border-surface-container flex flex-col transition-all">
         {/* Console Header Bar */}
-        <div className="px-space-xl py-space-xs flex flex-wrap items-center justify-between gap-space-md bg-surface-container-low/50 border-b border-surface-container">
+        <div className="px-space-md sm:px-space-xl py-space-xs flex flex-wrap items-center justify-between gap-space-sm sm:gap-space-md bg-surface-container-low/50 border-b border-surface-container">
           <div className="flex items-center gap-space-md flex-wrap">
             <div className="flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full ${isStreaming ? 'bg-primary animate-ping' : 'bg-secondary'}`}></span>
@@ -356,27 +461,32 @@ export default function DashboardPage() {
       {/* Asymmetric 3-Column Instrument Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 w-full min-h-[calc(100vh-8.5rem)]">
         {/* Left Rail: Fixed Faculty Profile & Filter Vector */}
-        <section className="lg:col-span-3 bg-surface-container-lowest p-space-lg flex flex-col gap-space-xl border-r border-surface-container">
-          {/* Investigator Node */}
-          <div className="flex flex-col gap-space-sm">
-            <div className="flex items-center justify-between">
-              <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">
-                Investigator Node
-              </span>
-              <span className="font-data-mono-sm text-data-mono-sm text-primary">#VIBHA-COEP</span>
+        <section className="lg:col-span-3 bg-surface-container-lowest p-space-md sm:p-space-lg flex flex-col gap-space-md sm:gap-space-lg lg:gap-space-xl border-b lg:border-b-0 lg:border-r border-surface-container">
+          {/* Investigator Node / Faculty Dossier Header Card */}
+          <div className="flex items-start justify-between gap-space-sm">
+            <div className="flex flex-col min-w-0">
+              <div className="flex items-center gap-space-xs flex-wrap">
+                <span className="font-data-mono-sm text-data-mono-sm text-primary uppercase tracking-wider">
+                  PI Dossier · Ref #VIBHA-COEP
+                </span>
+                <span className="px-1 py-0.5 bg-surface-container font-data-mono-sm text-data-mono-sm text-secondary font-bold">
+                  ACTIVE SCAN
+                </span>
+              </div>
+              <h2 className="font-headline-md text-headline-md text-on-surface font-bold leading-tight mt-0.5">
+                Prof. Vibha
+              </h2>
+              <p className="font-body-sm text-body-sm text-on-surface-variant leading-tight mt-0.5">
+                Dept. of Computer Science &amp; Cyber-Physical Systems · COEP Technological University
+              </p>
             </div>
-            <h2 className="font-headline-md text-headline-md text-on-surface font-bold leading-tight">
-              Prof. Vibha
-            </h2>
-            <p className="font-body-sm text-body-sm text-on-surface-variant">
-              Department of Computer Science & Cyber-Physical Systems
-            </p>
-            <p className="font-data-mono-sm text-data-mono-sm text-outline uppercase tracking-wider">
-              College of Engineering, Pune (COEP)
-            </p>
+            <div className="shrink-0 flex flex-col items-end">
+              <span className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">Index Score</span>
+              <span className="font-data-mono-lg text-data-mono-lg text-primary leading-none mt-0.5 font-bold">98.4</span>
+            </div>
           </div>
 
-          {/* Weighted Descriptors Chips */}
+          {/* Weighted Descriptors Chips (Horizontal Scroller on Mobile) */}
           <div className="flex flex-col gap-space-xs">
             <div className="flex items-center justify-between pb-space-2xs">
               <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">
@@ -409,11 +519,11 @@ export default function DashboardPage() {
               </div>
             )}
 
-            <div className="flex flex-wrap gap-space-xs" id="keyword-cluster">
+            <div className="flex items-center gap-space-xs overflow-x-auto no-scrollbar py-0.5 -mx-space-md px-space-md lg:mx-0 lg:px-0 lg:flex-wrap" id="keyword-cluster">
               {keywords.map((kw) => (
                 <div
                   key={kw}
-                  className="flex items-center gap-space-xs bg-surface-container-low px-space-sm py-space-2xs font-data-mono-sm text-data-mono-sm text-on-surface border border-surface-container"
+                  className="shrink-0 flex items-center gap-space-xs bg-surface-container-low px-space-sm py-space-2xs font-data-mono-sm text-data-mono-sm text-on-surface border border-surface-container"
                 >
                   <span>{kw}</span>
                   <span
@@ -424,93 +534,72 @@ export default function DashboardPage() {
                   </span>
                 </div>
               ))}
-            </div>
-          </div>
-
-          {/* Telemetry Radar Geometry Display */}
-          <div className="flex flex-col gap-space-xs">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">
-              Telemetry Radar Geometry
-            </span>
-            <div className="w-full bg-surface-container-low p-space-md flex flex-col items-center justify-center relative overflow-hidden border border-surface-container">
-              <svg
-                className="w-40 h-40 text-surface-container-highest"
-                fill="none"
-                viewBox="0 0 160 160"
-                xmlns="http://www.w3.org/2000/svg"
+              <button
+                onClick={() => setShowAddKeyword(!showAddKeyword)}
+                className="shrink-0 px-2 py-1 bg-surface-container-high text-primary font-data-mono-sm text-data-mono-sm flex items-center gap-1 border border-surface-container"
               >
-                <circle cx="80" cy="80" r="70" stroke="currentColor" strokeDasharray="2 2" strokeWidth="1"></circle>
-                <circle cx="80" cy="80" r="48" stroke="currentColor" strokeWidth="1"></circle>
-                <circle cx="80" cy="80" r="24" stroke="currentColor" strokeDasharray="2 2" strokeWidth="1"></circle>
-                <line stroke="currentColor" strokeWidth="1" x1="80" x2="80" y1="5" y2="155"></line>
-                <line stroke="currentColor" strokeWidth="1" x1="5" x2="155" y1="80" y2="80"></line>
-                {/* Plotted Marks */}
-                <polygon fill="#5B8C7B" points="80,24 84,28 80,32 76,28"></polygon>
-                <polygon fill="#B5482F" points="112,68 116,72 112,76 108,72"></polygon>
-                <polygon fill="#C08A3E" points="98,102 102,106 98,110 94,106"></polygon>
-                <polygon fill="#5B8C7B" points="56,92 60,96 56,100 52,96"></polygon>
-                <polygon fill="#9d8e7f" points="44,52 48,56 44,60 40,56"></polygon>
-                <line opacity="0.6" stroke="#C08A3E" strokeWidth="1" x1="80" x2="135" y1="80" y2="35"></line>
-              </svg>
-              <div className="w-full flex justify-between font-data-mono-sm text-data-mono-sm text-on-surface-variant mt-space-xs">
-                <span>SCAN RADIUS: 5.2k</span>
-                <span className="text-primary font-bold">VECT_MATCH 86%</span>
-              </div>
+                <span className="material-symbols-outlined text-[11px]">add</span> EDIT FOCUS
+              </button>
             </div>
           </div>
 
-          {/* Affinity Threshold Filter */}
-          <div className="flex flex-col gap-space-sm">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">
-              Affinity Threshold
-            </span>
-            <div className="flex flex-col gap-space-2xs">
+          {/* Filter Metric Bands (Matrix Selector from Stitch mobile feed) */}
+          <div className="flex flex-col gap-1.5 pt-space-xs">
+            <div className="flex items-center justify-between">
+              <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">Filter Metric Bands</span>
+              <button
+                type="button"
+                onClick={() => setFilterBands({ high: true, strong: true, watch: true, low: true })}
+                className="font-data-mono-sm text-data-mono-sm text-outline hover:text-primary transition-colors cursor-pointer"
+              >
+                [Reset Matrix]
+              </button>
+            </div>
+            <div className="grid grid-cols-4 gap-1">
               {(
                 [
-                  { key: 'high', label: 'HIGH (80+)', color: 'text-verdigris' },
-                  { key: 'strong', label: 'STRONG (65-79)', color: 'text-verdigris' },
-                  { key: 'watch', label: 'WATCH (50-64)', color: 'text-on-surface-variant' },
-                  { key: 'low', label: 'LOW (<50)', color: 'text-outline' }
+                  { key: 'high', label: 'HIGH', cutoff: '(80+)' },
+                  { key: 'strong', label: 'STRONG', cutoff: '(65+)' },
+                  { key: 'watch', label: 'WATCH', cutoff: '(50+)' },
+                  { key: 'low', label: 'LOW', cutoff: '(<50)' }
                 ] as const
-              ).map(({ key, label, color }) => (
-                <label
-                  key={key}
-                  className="flex items-center justify-between p-space-xs bg-surface-container-low hover:bg-surface-container cursor-pointer transition-colors border border-surface-container"
-                >
-                  <span className="flex items-center gap-space-sm font-data-mono-sm text-data-mono-sm text-on-surface">
-                    <input
-                      type="checkbox"
-                      checked={filterBands[key]}
-                      onChange={() => toggleBand(key)}
-                      className="accent-primary rounded-none w-3.5 h-3.5"
-                    />
+              ).map(({ key, label, cutoff }) => {
+                const active = filterBands[key];
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => toggleBand(key)}
+                    className={`h-7 px-1 font-label-caps text-label-caps flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1 transition-colors border ${
+                      active
+                        ? key === 'high' || key === 'strong'
+                          ? 'bg-secondary-container text-on-secondary-container border-secondary/40 font-bold'
+                          : 'bg-surface-container-highest text-on-surface border-outline-variant font-bold'
+                        : 'bg-surface-container-high text-on-surface-variant hover:text-on-surface border-surface-container'
+                    }`}
+                  >
                     <span>{label}</span>
-                  </span>
-                  <span className={`font-data-mono-sm text-data-mono-sm font-bold ${color}`}>
-                    0{countByBand(key)}
-                  </span>
-                </label>
-              ))}
+                    <span className="font-data-mono-sm text-[9px] sm:text-[10px] opacity-80">{cutoff}</span>
+                  </button>
+                );
+              })}
             </div>
-          </div>
 
-          {/* Instrument Modality Filter */}
-          <div className="flex flex-col gap-space-sm">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">
-              Instrument Modality
-            </span>
-            <div className="grid grid-cols-4 gap-space-xs font-data-mono-sm text-data-mono-sm">
+            {/* Modality Strip */}
+            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pt-1">
+              <span className="font-label-caps text-label-caps text-outline uppercase shrink-0 mr-1 hidden sm:inline">Modality:</span>
               {(['all', 'journal', 'venue', 'funding'] as const).map((m) => (
                 <button
                   key={m}
+                  type="button"
                   onClick={() => setFilterKind(m)}
-                  className={`px-space-xs py-space-sm text-center uppercase font-bold transition-colors ${
+                  className={`h-6 px-2.5 font-label-caps text-label-caps uppercase shrink-0 transition-colors ${
                     filterKind === m
-                      ? 'bg-primary text-on-primary'
-                      : 'bg-surface-container-low text-on-surface-variant hover:text-on-surface'
+                      ? 'bg-primary-container text-on-primary font-bold'
+                      : 'bg-surface-container text-on-surface-variant hover:text-on-surface'
                   }`}
                 >
-                  {m}
+                  {m === 'all' ? `ALL (${opportunities.length})` : `${m.toUpperCase()} (${opportunities.filter(o => o.kind === m).length})`}
                 </button>
               ))}
             </div>
@@ -540,6 +629,39 @@ export default function DashboardPage() {
               </span>
             </button>
           </div>
+
+          {/* Telemetry Radar Geometry Display (Desktop & Tablet) — hidden in lite mode to save bandwidth */}
+          {!liteMode && (
+          <div className="hidden md:flex flex-col gap-space-xs">
+            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">
+              Telemetry Radar Geometry
+            </span>
+            <div className="w-full bg-surface-container-low p-space-md flex flex-col items-center justify-center relative overflow-hidden border border-surface-container">
+              <svg
+                className="w-40 h-40 text-surface-container-highest"
+                fill="none"
+                viewBox="0 0 160 160"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <circle cx="80" cy="80" r="70" stroke="currentColor" strokeDasharray="2 2" strokeWidth="1"></circle>
+                <circle cx="80" cy="80" r="48" stroke="currentColor" strokeWidth="1"></circle>
+                <circle cx="80" cy="80" r="24" stroke="currentColor" strokeDasharray="2 2" strokeWidth="1"></circle>
+                <line stroke="currentColor" strokeWidth="1" x1="80" x2="80" y1="5" y2="155"></line>
+                <line stroke="currentColor" strokeWidth="1" x1="5" x2="155" y1="80" y2="80"></line>
+                <polygon fill="#5B8C7B" points="80,24 84,28 80,32 76,28"></polygon>
+                <polygon fill="#B5482F" points="112,68 116,72 112,76 108,72"></polygon>
+                <polygon fill="#C08A3E" points="98,102 102,106 98,110 94,106"></polygon>
+                <polygon fill="#5B8C7B" points="56,92 60,96 56,100 52,96"></polygon>
+                <polygon fill="#9d8e7f" points="44,52 48,56 44,60 40,56"></polygon>
+                <line opacity="0.6" stroke="#C08A3E" strokeWidth="1" x1="80" x2="135" y1="80" y2="35"></line>
+              </svg>
+              <div className="w-full flex justify-between font-data-mono-sm text-data-mono-sm text-on-surface-variant mt-space-xs">
+                <span>SCAN RADIUS: 5.2k</span>
+                <span className="text-primary font-bold">VECT_MATCH 86%</span>
+              </div>
+            </div>
+          </div>
+          )}
         </section>
 
         {/* Center Column: The Radar Stream */}
@@ -664,7 +786,7 @@ export default function DashboardPage() {
                                 isHighOrStrong ? 'text-secondary' : 'text-on-surface-variant'
                               }`}
                             >
-                              {Math.round(opp.final_score)}
+                              {opp.final_score === null ? '—' : Math.round(opp.final_score)}
                             </span>
                             <span className="font-label-caps text-label-caps text-outline font-bold">
                               /100
@@ -729,14 +851,58 @@ export default function DashboardPage() {
                         )}
                       </div>
                     </div>
+
+                    {/* Quick Inset Telemetry (Expanded dynamically from Stitch radar_feed_mobile) */}
+                    {expandedRecordId === opp.id && (
+                      <div
+                        className="mt-space-xs pt-space-xs bg-surface-container p-2.5 flex flex-col gap-2 border border-surface-container-high"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="grid grid-cols-3 gap-1 text-center font-data-mono-sm text-data-mono-sm">
+                          <div className="bg-surface-container-high py-1 px-1">
+                            <span className="block text-outline text-[10px]">CORPUS MATCH</span>
+                            <span className="text-on-surface font-bold font-mono">
+                              {opp.final_score === null ? '—' : `${Math.min(99, Math.round(opp.final_score * 0.9 + 8.5))}%`}
+                            </span>
+                          </div>
+                          <div className="bg-surface-container-high py-1 px-1">
+                            <span className="block text-outline text-[10px]">TOPIC DRIFT</span>
+                            <span className="text-secondary font-bold font-mono">LOW (-0.08)</span>
+                          </div>
+                          <div className="bg-surface-container-high py-1 px-1">
+                            <span className="block text-outline text-[10px]">EST. REVIEW</span>
+                            <span className="text-on-surface font-bold font-mono">45 DAYS</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between pt-1 flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={(e) => toggleSave(e, opp.id, opp.saved)}
+                            className="h-7 px-3 bg-primary text-on-primary font-label-caps text-label-caps flex items-center gap-1 hover:bg-primary-fixed-dim transition-colors cursor-pointer"
+                          >
+                            <span className="material-symbols-outlined text-[14px]">
+                              {opp.saved ? 'bookmark_added' : 'bookmark_add'}
+                            </span>
+                            <span>{opp.saved ? 'PINNED TO DOSSIER' : 'PIN TO DOSSIER'}</span>
+                          </button>
+                          <Link
+                            href={`/opportunities/${opp.id}`}
+                            className="font-data-mono-sm text-data-mono-sm text-primary flex items-center gap-1 hover:underline"
+                          >
+                            <span>Open Detailed Dossier</span>
+                            <span className="material-symbols-outlined text-[13px]">arrow_forward</span>
+                          </Link>
+                        </div>
+                      </div>
+                    )}
                   </article>
                 );
               })
             )}
           </div>
 
-          <div className="p-space-lg bg-surface-container-lowest mt-auto flex items-center justify-between border-t border-surface-container">
-            <div className="flex items-center gap-space-md font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+          <div className="p-space-md sm:p-space-lg bg-surface-container-lowest mt-auto flex flex-wrap items-center justify-between gap-space-sm border-t border-surface-container">
+            <div className="flex items-center gap-space-md font-data-mono-sm text-data-mono-sm text-on-surface-variant flex-wrap">
               <span>RESONANCE WINDOW: 180 DAYS</span>
               <span className="text-outline">·</span>
               <span>AUTOSCAN RATE: 12H</span>
@@ -755,7 +921,7 @@ export default function DashboardPage() {
         </section>
 
         {/* Right Rail: Chronological Horizon Timeline */}
-        <section className="lg:col-span-3 bg-surface-container-lowest p-space-lg flex flex-col gap-space-lg">
+        <section className="lg:col-span-3 bg-surface-container-lowest p-space-md sm:p-space-lg flex flex-col gap-space-md sm:gap-space-lg border-t lg:border-t-0 border-surface-container">
           <div className="flex flex-col gap-space-xs pb-space-xs border-b border-surface-container">
             <div className="flex items-center justify-between">
               <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">

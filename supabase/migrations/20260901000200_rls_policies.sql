@@ -49,23 +49,27 @@ drop policy if exists "Allow read feedback" on feedback;
 
 -- 3. Faculty Profile Policies (User-Isolated)
 -- Users can only read and update their own profile record.
+drop policy if exists "faculty_profile_select_owner" on faculty_profile;
 create policy "faculty_profile_select_owner"
   on faculty_profile for select
   to authenticated
   using (user_id = auth.uid() or user_id is null or auth.jwt() ->> 'role' in ('admin', 'service_role'));
 
+drop policy if exists "faculty_profile_update_owner" on faculty_profile;
 create policy "faculty_profile_update_owner"
   on faculty_profile for update
   to authenticated
   using (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'))
   with check (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'));
 
+drop policy if exists "faculty_profile_insert_owner" on faculty_profile;
 create policy "faculty_profile_insert_owner"
   on faculty_profile for insert
   to authenticated
   with check (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'));
 
 -- 4. Profile Terms Policies (Cascaded User Isolation)
+drop policy if exists "profile_terms_select_owner" on profile_terms;
 create policy "profile_terms_select_owner"
   on profile_terms for select
   to authenticated
@@ -74,6 +78,7 @@ create policy "profile_terms_select_owner"
     or auth.jwt() ->> 'role' in ('admin', 'service_role')
   );
 
+drop policy if exists "profile_terms_modify_owner" on profile_terms;
 create policy "profile_terms_modify_owner"
   on profile_terms for all
   to authenticated
@@ -87,6 +92,7 @@ create policy "profile_terms_modify_owner"
   );
 
 -- 5. Opportunity Status Policies (Tracking State Isolation)
+drop policy if exists "opportunity_status_select_owner" on opportunity_status;
 create policy "opportunity_status_select_owner"
   on opportunity_status for select
   to authenticated
@@ -95,6 +101,7 @@ create policy "opportunity_status_select_owner"
     or auth.jwt() ->> 'role' in ('admin', 'service_role')
   );
 
+drop policy if exists "opportunity_status_modify_owner" on opportunity_status;
 create policy "opportunity_status_modify_owner"
   on opportunity_status for all
   to authenticated
@@ -108,6 +115,7 @@ create policy "opportunity_status_modify_owner"
   );
 
 -- 6. Feedback Policies (User-Isolated Feedback Submissions)
+drop policy if exists "feedback_select_owner" on feedback;
 create policy "feedback_select_owner"
   on feedback for select
   to authenticated
@@ -116,6 +124,7 @@ create policy "feedback_select_owner"
     or auth.jwt() ->> 'role' in ('admin', 'service_role')
   );
 
+drop policy if exists "feedback_insert_owner" on feedback;
 create policy "feedback_insert_owner"
   on feedback for insert
   to authenticated
@@ -126,22 +135,26 @@ create policy "feedback_insert_owner"
 
 -- 7. Opportunities & Deadlines: Authenticated Read-Only
 -- Authenticated users can browse the opportunity catalogue.
+drop policy if exists "opportunities_select_authenticated" on opportunities;
 create policy "opportunities_select_authenticated"
   on opportunities for select
   to authenticated
   using (true);
 
+drop policy if exists "opportunity_deadlines_select_authenticated" on opportunity_deadlines;
 create policy "opportunity_deadlines_select_authenticated"
   on opportunity_deadlines for select
   to authenticated
   using (true);
 
+drop policy if exists "opportunity_sources_select_authenticated" on opportunity_sources;
 create policy "opportunity_sources_select_authenticated"
   on opportunity_sources for select
   to authenticated
   using (true);
 
 -- 8. Scoring Log: Restricted Read-Only
+drop policy if exists "scoring_log_select_owner" on scoring_log;
 create policy "scoring_log_select_owner"
   on scoring_log for select
   to authenticated
@@ -151,61 +164,30 @@ create policy "scoring_log_select_owner"
   );
 
 -- 9. Telemetry & Ingestion Runs: Authenticated Read-Only
+drop policy if exists "run_log_select_authenticated" on run_log;
 create policy "run_log_select_authenticated"
   on run_log for select
   to authenticated
   using (true);
 
+drop policy if exists "source_runs_select_authenticated" on source_runs;
 create policy "source_runs_select_authenticated"
   on source_runs for select
   to authenticated
   using (true);
 
+drop policy if exists "sources_select_authenticated" on sources;
 create policy "sources_select_authenticated"
   on sources for select
   to authenticated
   using (true);
 
 -- 10. Pipeline Locks: Protected against non-admin tampering
+drop policy if exists "pipeline_locks_select_operator" on pipeline_locks;
 create policy "pipeline_locks_select_operator"
   on pipeline_locks for select
   to authenticated
   using (auth.jwt() ->> 'role' in ('admin', 'service_role'));
 
--- 11. Multi-User SaaS Tenant Tables RLS
-alter table if exists user_preferences enable row level security;
-alter table if exists user_opportunity_state enable row level security;
-alter table if exists user_activity enable row level security;
-alter table if exists chat_sessions enable row level security;
-alter table if exists chat_messages enable row level security;
-
-create policy "user_preferences_owner_all"
-  on user_preferences for all
-  to authenticated
-  using (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'))
-  with check (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'));
-
-create policy "user_opportunity_state_owner_all"
-  on user_opportunity_state for all
-  to authenticated
-  using (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'))
-  with check (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'));
-
-create policy "user_activity_owner_all"
-  on user_activity for all
-  to authenticated
-  using (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'))
-  with check (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'));
-
-create policy "chat_sessions_owner_all"
-  on chat_sessions for all
-  to authenticated
-  using (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'))
-  with check (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'));
-
-create policy "chat_messages_owner_all"
-  on chat_messages for all
-  to authenticated
-  using (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'))
-  with check (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'));
-
+-- Tenant tables (user_preferences, user_opportunity_state, user_activity, chat_*) get their RLS
+-- policies in 20260901000100_multi_user_schema.sql.

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
-import { getSupabaseUserClient, getSupabaseAdminClient } from '@/lib/supabaseServerClient';
+import { getOwnProfileId, getRequestSupabase } from '@/lib/routeContext';
 import { authenticateRequest, authorizeRole } from '@/lib/auth';
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { consumeRateLimit, getClientIp } from '@/lib/rateLimit';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { z } from 'zod';
 
@@ -14,24 +14,18 @@ export async function GET(req: NextRequest) {
       return auth.errorResponse!;
     }
 
-    const supabase = auth.user?.isServiceRole
-      ? getSupabaseAdminClient()
-      : getSupabaseUserClient(auth.user?.token);
+    const supabase = getRequestSupabase(auth.user);
 
-    let profQuery = supabase.from('faculty_profile').select('*');
-    if (auth.user?.id && auth.user.role === 'faculty') {
-      profQuery = profQuery.eq('user_id', auth.user.id);
-    }
-    const { data: profs, error } = await profQuery.limit(1);
-    let prof = profs?.[0];
-
-    // Fallback: If no user-specific profile found but default profiles exist, check for unassigned or create default
-    if (!prof && auth.user?.id) {
-      // Check if unassigned profile exists
-      const { data: unassigned } = await supabase.from('faculty_profile').select('*').is('user_id', null).limit(1);
-      if (unassigned && unassigned.length > 0) {
-        prof = unassigned[0];
+    // Only ever the caller's own profile. New users get the uncalibrated default below rather
+    // than another faculty member's (or the legacy seed) profile.
+    const profileId = await getOwnProfileId(supabase, auth.user);
+    let prof: any = null;
+    if (profileId) {
+      const { data, error } = await supabase.from('faculty_profile').select('*').eq('id', profileId).single();
+      if (error) {
+        return createErrorResponse('DATABASE_ERROR', error.message, 500, req);
       }
+      prof = data;
     }
 
     if (!prof) {
@@ -115,7 +109,7 @@ export async function POST(req: NextRequest) {
     }
 
     const ip = getClientIp(req);
-    const rateCheck = checkRateLimit(`profile_${ip}`, 10, 60000);
+    const rateCheck = await consumeRateLimit(`profile_${ip}`, 10, 60000);
     if (!rateCheck.allowed) {
       return createErrorResponse(
         'RATE_LIMIT_EXCEEDED',
@@ -131,22 +125,13 @@ export async function POST(req: NextRequest) {
       return createErrorResponse('VALIDATION_ERROR', 'Invalid profile payload', 400, req, parsed.error.issues);
     }
 
-    const supabase = auth.user?.isServiceRole
-      ? getSupabaseAdminClient()
-      : getSupabaseUserClient(auth.user?.token);
+    const supabase = getRequestSupabase(auth.user);
+    let profileId = await getOwnProfileId(supabase, auth.user);
 
-    let profQuery = supabase.from('faculty_profile').select('id');
-    if (auth.user?.id && auth.user.role === 'faculty') {
-      profQuery = profQuery.eq('user_id', auth.user.id);
-    }
-    const { data: profs } = await profQuery.limit(1);
-    let prof = profs?.[0];
-    let profileId = prof?.id;
-
-    if (!prof) {
+    if (!profileId) {
       // Auto-provision faculty_profile for new user
       const insertData: any = {
-        user_id: auth.user?.id || null,
+        user_id: auth.user?.isServiceRole ? null : auth.user?.id,
         full_name: parsed.data.full_name || 'Investigator',
         institution: parsed.data.institution || 'University',
         department: parsed.data.department || 'Department',
@@ -173,6 +158,8 @@ export async function POST(req: NextRequest) {
       const updateData: any = {
         research_keywords: parsed.data.research_keywords,
         profile_text: parsed.data.profile_text,
+        // Cleared so the next pipeline run re-embeds the profile and rescores the catalog for it
+        profile_embedding: null,
         updated_at: new Date().toISOString()
       };
       if (parsed.data.full_name) updateData.full_name = parsed.data.full_name;
@@ -183,20 +170,29 @@ export async function POST(req: NextRequest) {
       if (parsed.data.institution_type) updateData.institution_type = parsed.data.institution_type;
       if (parsed.data.citizenship_status) updateData.citizenship_status = parsed.data.citizenship_status;
 
-      await supabase.from('faculty_profile').update(updateData).eq('id', profileId);
+      const { error: updErr } = await supabase.from('faculty_profile').update(updateData).eq('id', profileId);
+      if (updErr) {
+        return createErrorResponse('DATABASE_ERROR', updErr.message, 500, req);
+      }
     }
 
-    if (profileId) {
-      await supabase.from('profile_terms').delete().eq('profile_id', profileId);
-      for (const term of parsed.data.profile_terms) {
-        await supabase.from('profile_terms').insert({
+    const { error: delErr } = await supabase.from('profile_terms').delete().eq('profile_id', profileId);
+    if (delErr) {
+      return createErrorResponse('DATABASE_ERROR', delErr.message, 500, req);
+    }
+    if (parsed.data.profile_terms.length > 0) {
+      const { error: termErr } = await supabase.from('profile_terms').insert(
+        parsed.data.profile_terms.map((term) => ({
           profile_id: profileId,
           term: term.term,
           term_type: term.term_type,
           weight: term.weight,
           polarity: term.polarity,
           source: 'manual'
-        });
+        }))
+      );
+      if (termErr) {
+        return createErrorResponse('DATABASE_ERROR', termErr.message, 500, req);
       }
     }
 

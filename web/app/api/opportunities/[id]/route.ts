@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getSupabaseUserClient } from '@/lib/supabaseServerClient';
+import { getOwnProfileId, getRequestSupabase, UUID_PATTERN } from '@/lib/routeContext';
 import { authenticateRequest } from '@/lib/auth';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 
@@ -11,19 +11,20 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     }
 
     const id = params?.id?.trim();
-    if (!id || !/^[a-zA-Z0-9_\-\.]{1,64}$/.test(id)) {
+    if (!id || !UUID_PATTERN.test(id)) {
       return createErrorResponse('INVALID_IDENTIFIER', 'Invalid opportunity identifier format', 400, req);
     }
 
-    const supabase = getSupabaseUserClient(auth.user?.token);
+    const supabase = getRequestSupabase(auth.user);
+    const userId = auth.user?.isServiceRole ? null : auth.user?.id;
+    const profileId = await getOwnProfileId(supabase, auth.user);
+
     const { data: row, error } = await supabase
       .from('opportunities')
       .select(`
         *,
         opportunity_deadlines (*),
-        opportunity_sources (*, sources(name)),
-        opportunity_status (*),
-        scoring_log (*)
+        opportunity_sources (*, sources(name))
       `)
       .eq('id', id)
       .single();
@@ -32,13 +33,42 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       return createErrorResponse('NOT_FOUND', 'Opportunity not found', 404, req);
     }
 
-    const scoring = row.scoring_log?.[0] || {
-      final_score: 50,
-      band: 'watch',
-      components: { topic_similarity: 50, exact_term_match: 50 },
+    // This faculty member's latest score (scoring_log is append-only and per faculty)
+    let scoringRow: any = null;
+    if (profileId) {
+      const { data: scores, error: scoreErr } = await supabase
+        .from('scoring_log')
+        .select('*')
+        .eq('opportunity_id', id)
+        .eq('faculty_id', profileId)
+        .order('scored_at', { ascending: false })
+        .limit(1);
+      if (scoreErr) {
+        return createErrorResponse('DATABASE_ERROR', scoreErr.message, 500, req);
+      }
+      scoringRow = scores?.[0] ?? null;
+    }
+
+    let userStatus = 'new';
+    if (userId) {
+      const { data: state } = await supabase
+        .from('user_opportunity_state')
+        .select('status')
+        .eq('user_id', userId)
+        .eq('opportunity_id', id)
+        .maybeSingle();
+      userStatus = state?.status || 'new';
+    }
+
+    const { eligibility_report: eligibilityReport = null, ...components } = scoringRow?.components || {};
+    const scoring = scoringRow || {
+      final_score: null,
+      band: 'unscored',
       matched_terms: [],
       negative_matches: []
     };
+    // Legacy rows stored the seed profile's eligibility verdict in the shared metadata; never expose it
+    const { eligibility_report: _legacyEligibility, ...publicMetadata } = row.metadata || {};
 
     return createSuccessResponse(
       {
@@ -49,7 +79,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         agency_or_publisher: row.agency_or_publisher,
         venue_name: row.venue_name,
         doi: row.doi,
-        status: row.opportunity_status?.[0]?.status || 'new',
+        status: userStatus,
         discovered_at: row.discovered_at,
         deadlines: row.opportunity_deadlines || [],
         sources: (row.opportunity_sources || []).map((s: any) => ({
@@ -62,13 +92,16 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           model_version: scoring.model_version || 'component-v1',
           final_score: scoring.final_score,
           band: scoring.band,
-          components: scoring.components || {},
+          components,
           matched_terms: scoring.matched_terms || [],
           negative_matches: scoring.negative_matches || [],
-          eligibility: { status: scoring.band !== 'not_eligible' ? 'eligible' : 'ineligible', confidence: 0.8 }
+          eligibility: {
+            status: scoring.band === 'unscored' ? 'unknown' : scoring.band !== 'not_eligible' ? 'eligible' : 'ineligible',
+            confidence: eligibilityReport?.confidence ?? null
+          }
         },
-        eligibility_report: row.metadata?.eligibility_report || null,
-        metadata: row.metadata || {}
+        eligibility_report: eligibilityReport,
+        metadata: publicMetadata
       },
       req
     );

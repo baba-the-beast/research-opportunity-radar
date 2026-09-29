@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { authenticateRequest, timingSafeEqual } from '../lib/auth';
 import { getClientIp } from '../lib/rateLimit';
-import { acquirePipelineLock, releasePipelineLock } from '../lib/pipelineLock';
+import { getActivePipelineLock } from '../lib/pipelineLock';
 
 describe('Auth & IP Resolution System', () => {
   const originalEnv = { ...process.env };
@@ -53,7 +53,7 @@ describe('Auth & IP Resolution System', () => {
       delete process.env.SUPABASE_URL;
       delete process.env.SUPABASE_ANON_KEY;
       delete process.env.RADAR_API_SECRET;
-      process.env.NODE_ENV = 'development';
+      (process.env as Record<string, string>).NODE_ENV = 'development';
 
       const req = new Request('http://localhost/api/opportunities');
       const auth = await authenticateRequest(req);
@@ -62,7 +62,7 @@ describe('Auth & IP Resolution System', () => {
     });
 
     it('rejects unauthenticated requests in production when secret is set', async () => {
-      process.env.NODE_ENV = 'production';
+      (process.env as Record<string, string>).NODE_ENV = 'production';
       process.env.RADAR_API_SECRET = 'prod-secret-999';
 
       const req = new Request('http://localhost/api/opportunities');
@@ -79,34 +79,18 @@ describe('Auth & IP Resolution System', () => {
           'x-radar-secret': 'prod-secret-999'
         }
       });
-      const auth = await authenticateRequest(req, { requiredRole: 'operator' });
+      const auth = await authenticateRequest(req);
       expect(auth.authenticated).toBe(true);
       expect(auth.user?.role).toBe('operator');
     });
   });
 
-  describe('Distributed Pipeline Lock Manager', () => {
-    it('acquires and releases lock cleanly', async () => {
-      const lockKey = `test-lock-${Date.now()}`;
-      const workerA = 'worker-A';
-      const workerB = 'worker-B';
-
-      const acquiredA = await acquirePipelineLock(lockKey, workerA, 30);
-      expect(acquiredA.acquired).toBe(true);
-
-      // Concurrent request by worker B should be rejected
-      const acquiredB = await acquirePipelineLock(lockKey, workerB, 30);
-      expect(acquiredB.acquired).toBe(false);
-
-      // Worker A releases
-      const released = await releasePipelineLock(lockKey, workerA);
-      expect(released).toBe(true);
-
-      // Now worker B can acquire
-      const acquiredB2 = await acquirePipelineLock(lockKey, workerB, 30);
-      expect(acquiredB2.acquired).toBe(true);
-
-      await releasePipelineLock(lockKey, workerB);
+  describe('Pipeline lock visibility', () => {
+    it('reports no active run when Supabase is not configured', async () => {
+      delete process.env.SUPABASE_URL;
+      delete process.env.SUPABASE_ANON_KEY;
+      delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+      expect(await getActivePipelineLock()).toBeNull();
     });
   });
 });

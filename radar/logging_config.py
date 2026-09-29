@@ -11,6 +11,9 @@ from typing import Any
 SENSITIVE_PATTERNS = [
     re.compile(r'(?i)\b(token|key|secret|password|api_key|bot_token|service_role_key|bearer)\s*[:=]\s*["\']?([^"\'\s,;]{6,})["\']?'),
     re.compile(r'\b(sbp_[a-zA-Z0-9_]{16,}|eyJh[a-zA-Z0-9_\-\.]{30,})\b'),
+    # Telegram puts the bot token in the URL path (api.telegram.org/bot<id>:<secret>/sendMessage),
+    # so any requests error for a Telegram call would otherwise print it verbatim
+    re.compile(r'\bbot\d{5,}:[A-Za-z0-9_-]{20,}'),
 ]
 
 

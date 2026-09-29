@@ -1,4 +1,29 @@
-import { getSupabaseAdminClient } from '../supabaseServerClient';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { UUID_PATTERN } from '../routeContext';
+
+export interface ToolContext {
+  userId: string;
+  /** The caller's RLS-scoped client (see getRequestSupabase). Tools never use the service role. */
+  supabase: SupabaseClient;
+}
+
+/**
+ * Tool arguments come from the LLM, which is steered by user text and by scraped opportunity
+ * content. Strip PostgREST filter syntax (, . ( ) " \) and LIKE wildcards before building .or().
+ */
+export function sanitizeSearchTerm(raw: unknown): string {
+  return String(raw ?? '')
+    .replace(/[,.()"'\\%*_:]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .slice(0, 100);
+}
+
+function requireOpportunityId(raw: unknown): string | null {
+  const id = String(raw ?? '').trim();
+  return UUID_PATTERN.test(id) ? id : null;
+}
 
 export interface ToolDefinition {
   name: string;
@@ -69,16 +94,17 @@ export const COPILOT_TOOLS: ToolDefinition[] = [
 ];
 
 /**
- * Executes a tool call strictly within the context and authorization of the authenticated user.
+ * Executes a tool call with the caller's own RLS-scoped client, so the LLM can never reach
+ * rows the user could not read or write directly.
  */
-export async function executeTool(name: string, args: Record<string, any>, userId: string): Promise<any> {
-  const supabase = getSupabaseAdminClient();
+export async function executeTool(name: string, args: Record<string, any>, ctx: ToolContext): Promise<any> {
+  const { supabase, userId } = ctx;
 
   switch (name) {
     case 'searchOpportunities': {
-      const q = (args.query || '').trim().toLowerCase();
-      const kind = args.kind && args.kind !== 'all' ? args.kind : null;
-      const limit = Math.min(Math.max(1, parseInt(args.limit || '5', 10)), 10);
+      const q = sanitizeSearchTerm(args.query);
+      const kind = ['funding', 'journal', 'venue'].includes(args.kind) ? args.kind : null;
+      const limit = Math.min(Math.max(1, parseInt(args.limit || '5', 10) || 5), 10);
 
       let query = supabase
         .from('opportunities')
@@ -112,7 +138,8 @@ export async function executeTool(name: string, args: Record<string, any>, userI
     }
 
     case 'getOpportunityDetails': {
-      const id = (args.opportunityId || '').trim();
+      const id = requireOpportunityId(args.opportunityId);
+      if (!id) return { error: 'opportunityId must be an opportunity UUID' };
       const { data, error } = await supabase
         .from('opportunities')
         .select(`
@@ -128,7 +155,8 @@ export async function executeTool(name: string, args: Record<string, any>, userI
     }
 
     case 'getWhyRecommended': {
-      const id = (args.opportunityId || '').trim();
+      const id = requireOpportunityId(args.opportunityId);
+      if (!id) return { error: 'opportunityId must be an opportunity UUID' };
       // Fetch opportunity and profile
       const [oppRes, profRes] = await Promise.all([
         supabase.from('opportunities').select('id, title, summary, agency_or_publisher').eq('id', id).single(),
@@ -163,7 +191,8 @@ export async function executeTool(name: string, args: Record<string, any>, userI
     }
 
     case 'saveOpportunity': {
-      const id = (args.opportunityId || '').trim();
+      const id = requireOpportunityId(args.opportunityId);
+      if (!id) return { error: 'opportunityId must be an opportunity UUID' };
       const saved = args.saved === 'true' || args.saved === true;
 
       const { error } = await supabase

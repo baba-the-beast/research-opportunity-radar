@@ -18,3 +18,7 @@ venv/
 *.ics
 *.log
 
+*.tsbuildinfo
+
+# Local scratch notes
+scratch/

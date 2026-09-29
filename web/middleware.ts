@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { safeRedirectPath } from '@/lib/safeRedirect';
 
 const PUBLIC_EXACT_PATHS = new Set([
   '/',
@@ -19,11 +20,11 @@ const PUBLIC_EXACT_PATHS = new Set([
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // 1. Skip static assets, internal paths, and favicon
+  // 1. Skip internal paths and favicon. Static files are already excluded by `config.matcher`;
+  // do not skip on '.' in the path, or dynamic routes like /api/opportunities/a.b bypass auth.
   if (
     pathname.startsWith('/_next') ||
     pathname.startsWith('/static') ||
-    pathname.includes('.') ||
     pathname.startsWith('/favicon')
   ) {
     return NextResponse.next();
@@ -39,10 +40,28 @@ export async function middleware(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
 
-  // In test environment or if Supabase is intentionally unconfigured, allow local dev access
-  const isDevOrTest = process.env.NODE_ENV === 'test' || !supabaseUrl || !supabaseAnonKey;
-  if (isDevOrTest) {
-    return response;
+  if (!supabaseUrl || !supabaseAnonKey) {
+    // Unconfigured Supabase is a supported local-dev mode, but in production it must not
+    // turn the auth gate off: route handlers re-check auth and would fail closed anyway.
+    if (process.env.NODE_ENV !== 'production') {
+      return response;
+    }
+    if (pathname.startsWith('/api/health') || pathname === '/api/config/status') {
+      return response;
+    }
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json(
+        { error: { code: 'NOT_CONFIGURED', message: 'Authentication backend is not configured.' } },
+        { status: 503 }
+      );
+    }
+    return new NextResponse(
+      '<!doctype html><meta charset="utf-8"><title>Service unavailable</title>' +
+        '<p style="font-family:system-ui;margin:3rem auto;max-width:36rem">' +
+        'Research Opportunity Radar is not configured yet: authentication settings are missing. ' +
+        'Operators: set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY (see DEPLOY_CHECKLIST.md).</p>',
+      { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+    );
   }
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
@@ -78,6 +97,8 @@ export async function middleware(req: NextRequest) {
     PUBLIC_EXACT_PATHS.has(pathname) ||
     pathname.startsWith('/api/health') ||
     pathname.startsWith('/api/config/health') ||
+    // Telegram has no user session; the route authenticates it with the webhook secret header
+    (pathname === '/api/telegram/webhook' && req.method === 'POST') ||
     (pathname === '/api/opportunities' && req.method === 'GET') ||
     (pathname === '/api/deadlines' && req.method === 'GET');
 
@@ -89,7 +110,7 @@ export async function middleware(req: NextRequest) {
 
   // 3. If user is logged in and visits auth pages, redirect to home
   if (user && isAuthPage) {
-    const nextUrl = req.nextUrl.searchParams.get('next') || '/';
+    const nextUrl = safeRedirectPath(req.nextUrl.searchParams.get('next'));
     return NextResponse.redirect(new URL(nextUrl, req.url));
   }
 

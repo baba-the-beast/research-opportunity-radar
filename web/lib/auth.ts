@@ -103,7 +103,7 @@ export function extractAuthToken(req: Request | NextRequest): { token?: string; 
  * Authenticates request against:
  * 1. Server-side RADAR_API_SECRET (grants 'operator' identity for CI/schedulers)
  * 2. Supabase Auth JWT (verifies cryptographic signature against Supabase)
- * 3. Fallback: Single-user local development mode when neither auth is configured.
+ * 3. Fallback: anonymous operator identity in NODE_ENV development/test only.
  */
 export async function authenticateRequest(req: Request | NextRequest): Promise<AuthResult> {
   const { token, isSecretHeader } = extractAuthToken(req);
@@ -124,8 +124,11 @@ export async function authenticateRequest(req: Request | NextRequest): Promise<A
   }
 
   // 2. Validate token against Supabase Auth if Supabase is configured
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey =
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (token && !isSecretHeader && supabaseUrl && anonKey) {
     try {
@@ -140,7 +143,10 @@ export async function authenticateRequest(req: Request | NextRequest): Promise<A
 
       const { data: { user }, error } = await supabase.auth.getUser(token);
       if (!error && user) {
-        const userRole = (user.app_metadata?.role || user.user_metadata?.role || 'faculty') as 'faculty' | 'operator' | 'admin';
+        // Only app_metadata is server-controlled; user_metadata is writable by the user via auth.updateUser()
+        const appRole = user.app_metadata?.role;
+        const userRole: 'faculty' | 'operator' | 'admin' =
+          appRole === 'operator' || appRole === 'admin' ? appRole : 'faculty';
         return {
           authenticated: true,
           user: {
@@ -157,13 +163,9 @@ export async function authenticateRequest(req: Request | NextRequest): Promise<A
     }
   }
 
-  // 3. Local single-user trusted intranet / development fallback
-  // When no RADAR_API_SECRET is configured AND no Supabase URL is present, or in test environment
-  const isTestOrLocalDev =
-    process.env.NODE_ENV === 'test' ||
-    process.env.NODE_ENV === 'development' ||
-    (!process.env.RADAR_API_SECRET && process.env.ALLOW_IN_MEMORY_DB === '1') ||
-    (!process.env.RADAR_API_SECRET && !process.env.SUPABASE_URL);
+  // 3. Local development / test fallback. Never in production: a missing or misnamed env var
+  // there must reject requests, not silently grant anonymous callers the operator role.
+  const isTestOrLocalDev = process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development';
 
   if (isTestOrLocalDev && !token) {
     return {

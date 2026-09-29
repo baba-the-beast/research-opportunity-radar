@@ -68,76 +68,76 @@ export default function ActivityPage() {
   };
 
   return (
-    <div className="w-full max-w-6xl mx-auto px-space-xl py-space-xl flex flex-col gap-space-2xl">
+    <div className="w-full max-w-6xl mx-auto px-space-md sm:px-space-xl py-space-md sm:py-space-xl flex flex-col gap-space-lg sm:gap-space-2xl">
       {/* Header Block */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-space-md pb-space-lg">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-space-md pb-space-md sm:pb-space-lg">
         <div className="flex flex-col gap-space-xs">
           <div className="flex items-center gap-space-xs text-primary-container font-label-caps text-label-caps uppercase">
             <span className="w-1.5 h-1.5 rounded-full bg-primary-container"></span>
             <span>SYSTEM AUDIT LEDGER · LOG ARCHIVE</span>
           </div>
-          <h1 className="font-headline-xl text-headline-xl text-on-surface tracking-tight">
+          <h1 className="font-headline-lg sm:font-headline-xl text-headline-lg sm:text-headline-xl text-on-surface tracking-tight">
             Telemetry Activity &amp; Pipeline Governance
           </h1>
         </div>
-        <div className="bg-surface-container-low px-space-md py-space-sm flex items-center gap-space-sm font-data-mono-sm text-data-mono-sm text-on-surface-variant border border-surface-container">
+        <div className="bg-surface-container-low px-space-md py-space-sm flex flex-wrap items-center gap-x-space-sm gap-y-space-xs font-data-mono-sm text-data-mono-sm text-on-surface-variant border border-surface-container">
           <span className="material-symbols-outlined text-[14px] text-secondary">verified_user</span>
           <span>Ingestion Engine: <span className="text-on-surface font-semibold">v3.8-kNN</span></span>
           <span className="text-outline-variant">·</span>
           <span>Scheduler: <span className="text-on-surface font-semibold">Cron 12h</span></span>
-          <span className="text-outline-variant">·</span>
+          <span className="text-outline-variant hidden sm:inline">·</span>
           <span>Mirror Health: <span className="text-secondary font-semibold">100% Verified</span></span>
         </div>
       </div>
 
-      {/* Summary Stat Tiles with Progress Gauges */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-space-sm">
-        <div className="bg-surface-container-low p-space-md flex flex-col justify-between border border-surface-container">
-          <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">
+      {/* Summary Stat Tiles with Progress Gauges: 2x2 on mobile, 4 across on desktop */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-space-xs sm:gap-space-sm">
+        <div className="bg-surface-container-low p-space-sm sm:p-space-md flex flex-col justify-between border border-surface-container">
+          <span className="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px] sm:text-xs">
             Aggregated Scans (24h)
           </span>
-          <div className="flex items-baseline justify-between mt-space-sm">
-            <span className="font-data-mono-lg text-data-mono-lg text-on-surface font-mono font-bold">224 Records</span>
-            <span className="font-data-mono-sm text-data-mono-sm text-secondary font-mono">+14.2%</span>
+          <div className="flex flex-col sm:flex-row sm:items-baseline justify-between mt-space-xs sm:mt-space-sm font-mono gap-1">
+            <span className="font-data-mono-md sm:font-data-mono-lg text-data-mono-md sm:text-data-mono-lg text-on-surface font-bold">224 Recs</span>
+            <span className="font-data-mono-sm text-[10px] sm:text-data-mono-sm text-secondary font-mono">+14.2%</span>
           </div>
           <div className="w-full bg-surface-container h-1 mt-space-sm">
             <div className="bg-secondary h-1 w-[82%]"></div>
           </div>
         </div>
 
-        <div className="bg-surface-container-low p-space-md flex flex-col justify-between border border-surface-container">
-          <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">
+        <div className="bg-surface-container-low p-space-sm sm:p-space-md flex flex-col justify-between border border-surface-container">
+          <span className="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px] sm:text-xs">
             Mean HTTP Latency
           </span>
-          <div className="flex items-baseline justify-between mt-space-sm">
-            <span className="font-data-mono-lg text-data-mono-lg text-primary font-mono font-bold">614 ms</span>
-            <span className="font-data-mono-sm text-data-mono-sm text-on-surface-variant font-mono">TARGET &lt; 900ms</span>
+          <div className="flex flex-col sm:flex-row sm:items-baseline justify-between mt-space-xs sm:mt-space-sm font-mono gap-1">
+            <span className="font-data-mono-md sm:font-data-mono-lg text-data-mono-md sm:text-data-mono-lg text-primary font-bold">614 ms</span>
+            <span className="font-data-mono-sm text-[10px] sm:text-data-mono-sm text-on-surface-variant font-mono">&lt; 900ms</span>
           </div>
           <div className="w-full bg-surface-container h-1 mt-space-sm">
             <div className="bg-primary-container h-1 w-[68%]"></div>
           </div>
         </div>
 
-        <div className="bg-surface-container-low p-space-md flex flex-col justify-between border border-surface-container">
-          <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">
+        <div className="bg-surface-container-low p-space-sm sm:p-space-md flex flex-col justify-between border border-surface-container">
+          <span className="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px] sm:text-xs">
             Prune &amp; Filter Rate
           </span>
-          <div className="flex items-baseline justify-between mt-space-sm">
-            <span className="font-data-mono-lg text-data-mono-lg text-on-surface font-mono font-bold">64.3%</span>
-            <span className="font-data-mono-sm text-data-mono-sm text-tertiary font-mono">144 Dropped</span>
+          <div className="flex flex-col sm:flex-row sm:items-baseline justify-between mt-space-xs sm:mt-space-sm font-mono gap-1">
+            <span className="font-data-mono-md sm:font-data-mono-lg text-data-mono-md sm:text-data-mono-lg text-on-surface font-bold">64.3%</span>
+            <span className="font-data-mono-sm text-[10px] sm:text-data-mono-sm text-tertiary font-mono">144 Drop</span>
           </div>
           <div className="w-full bg-surface-container h-1 mt-space-sm">
             <div className="bg-tertiary-container h-1 w-[64%]"></div>
           </div>
         </div>
 
-        <div className="bg-surface-container-low p-space-md flex flex-col justify-between border border-surface-container">
-          <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">
+        <div className="bg-surface-container-low p-space-sm sm:p-space-md flex flex-col justify-between border border-surface-container">
+          <span className="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px] sm:text-xs">
             Telemetry Node Pulse
           </span>
-          <div className="flex items-baseline justify-between mt-space-sm">
-            <span className="font-data-mono-lg text-data-mono-lg text-secondary font-mono font-bold">Nominal</span>
-            <span className="font-data-mono-sm text-data-mono-sm text-secondary flex items-center gap-space-2xs font-mono font-bold">
+          <div className="flex flex-col sm:flex-row sm:items-baseline justify-between mt-space-xs sm:mt-space-sm font-mono gap-1">
+            <span className="font-data-mono-md sm:font-data-mono-lg text-data-mono-md sm:text-data-mono-lg text-secondary font-bold">Nominal</span>
+            <span className="font-data-mono-sm text-[10px] sm:text-data-mono-sm text-secondary flex items-center gap-space-2xs font-bold">
               <span className="w-1.5 h-1.5 rounded-full bg-secondary inline-block animate-pulse"></span>ACTIVE
             </span>
           </div>
@@ -179,16 +179,16 @@ export default function ActivityPage() {
                 {/* Run Summary Bar */}
                 <div
                   onClick={() => toggleRun(r.run_id)}
-                  className="p-space-md flex flex-col md:flex-row md:items-center justify-between gap-space-md cursor-pointer select-none hover:bg-surface-container transition-colors"
+                  className="p-space-sm sm:p-space-md flex flex-col sm:flex-row sm:items-center justify-between gap-space-sm sm:gap-space-md cursor-pointer select-none hover:bg-surface-container transition-colors"
                 >
-                  <div className="flex items-center gap-space-md flex-wrap font-mono">
-                    <span className="font-data-mono-md text-data-mono-md text-on-surface font-bold">
+                  <div className="flex items-center gap-space-xs sm:gap-space-md flex-wrap font-mono text-xs sm:text-sm">
+                    <span className="font-data-mono-sm sm:font-data-mono-md text-data-mono-sm sm:text-data-mono-md text-on-surface font-bold">
                       {new Date(r.started_at).toISOString().replace('T', ' ').substring(0, 19)} UTC
                     </span>
                     <span className="text-outline-variant">/</span>
-                    <span className="text-data-mono-sm text-on-surface-variant">ID: #{r.run_id}</span>
+                    <span className="text-data-mono-sm text-[11px] sm:text-data-mono-sm text-on-surface-variant">ID: #{r.run_id.slice(0, 8)}</span>
                     <span
-                      className={`font-data-mono-sm text-data-mono-sm uppercase font-bold px-space-xs py-space-2xs ${
+                      className={`text-[10px] sm:text-data-mono-sm uppercase font-bold px-space-xs py-space-2xs ${
                         r.status === 'success'
                           ? 'bg-secondary-container/40 text-secondary border border-secondary/30'
                           : r.status === 'partial_failure'
@@ -200,7 +200,7 @@ export default function ActivityPage() {
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-space-lg font-mono text-data-mono-sm">
+                  <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-space-md font-mono text-xs sm:text-data-mono-sm">
                     <div className="text-on-surface-variant">
                       FOUND:{' '}
                       <strong className="text-primary font-bold">{r.opportunities_found}</strong> · NEW:{' '}
@@ -214,52 +214,54 @@ export default function ActivityPage() {
 
                 {/* Expanded Detail Panel */}
                 {isExpanded && (
-                  <div className="p-space-lg bg-surface-container-lowest border-t border-surface-container space-y-space-lg font-mono">
+                  <div className="p-space-sm sm:p-space-lg bg-surface-container-lowest border-t border-surface-container space-y-space-md sm:space-y-space-lg font-mono">
                     {/* Per-Source Breakdown Table */}
                     <div>
-                      <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider block mb-space-xs">
+                      <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider block mb-space-xs text-[10px] sm:text-xs">
                         Per-Source Health &amp; Ingestion Breakdown
                       </span>
-                      <table className="w-full text-left border-collapse border border-surface-container font-data-mono-sm text-data-mono-sm">
-                        <thead>
-                          <tr className="bg-surface-container border-b border-surface-container text-on-surface-variant font-normal">
-                            <th className="py-space-xs px-space-sm">Source Ingestion Node</th>
-                            <th className="py-space-xs px-space-sm">Status</th>
-                            <th className="py-space-xs px-space-sm">Requests</th>
-                            <th className="py-space-xs px-space-sm">Inserted</th>
-                            <th className="py-space-xs px-space-sm">Error / Diagnostic</th>
-                            <th className="py-space-xs px-space-sm text-right">Latency</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-surface-container text-on-surface">
-                          {r.sources.map((s, idx) => (
-                            <tr key={idx} className="hover:bg-surface-container-low">
-                              <td className="py-space-xs px-space-sm font-bold">{s.source_name}</td>
-                              <td className="py-space-xs px-space-sm">
-                                <span
-                                  className={`px-space-2xs py-0.5 uppercase text-[10px] font-bold ${
-                                    s.status === 'success'
-                                      ? 'text-secondary'
-                                      : 'text-rust'
-                                  }`}
-                                >
-                                  {s.status}
-                                </span>
-                              </td>
-                              <td className="py-space-xs px-space-sm">{s.request_count}</td>
-                              <td className="py-space-xs px-space-sm text-secondary font-bold">
-                                {s.inserted_count}
-                              </td>
-                              <td className="py-space-xs px-space-sm text-on-surface-variant">
-                                {s.error_category || 'None (Healthy)'}
-                              </td>
-                              <td className="py-space-xs px-space-sm text-right text-primary">
-                                {s.latency_ms} ms
-                              </td>
+                      <div className="overflow-x-auto w-full -mx-space-xs sm:mx-0 border border-surface-container">
+                        <table className="min-w-[560px] w-full text-left border-collapse font-data-mono-sm text-data-mono-sm">
+                          <thead>
+                            <tr className="bg-surface-container border-b border-surface-container text-on-surface-variant font-normal text-xs">
+                              <th className="py-space-xs px-space-sm">Source Ingestion Node</th>
+                              <th className="py-space-xs px-space-sm">Status</th>
+                              <th className="py-space-xs px-space-sm">Requests</th>
+                              <th className="py-space-xs px-space-sm">Inserted</th>
+                              <th className="py-space-xs px-space-sm">Error / Diagnostic</th>
+                              <th className="py-space-xs px-space-sm text-right">Latency</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="divide-y divide-surface-container text-on-surface text-xs">
+                            {r.sources.map((s, idx) => (
+                              <tr key={idx} className="hover:bg-surface-container-low">
+                                <td className="py-space-xs px-space-sm font-bold">{s.source_name}</td>
+                                <td className="py-space-xs px-space-sm">
+                                  <span
+                                    className={`px-space-2xs py-0.5 uppercase text-[10px] font-bold ${
+                                      s.status === 'success'
+                                        ? 'text-secondary'
+                                        : 'text-rust'
+                                    }`}
+                                  >
+                                    {s.status}
+                                  </span>
+                                </td>
+                                <td className="py-space-xs px-space-sm">{s.request_count}</td>
+                                <td className="py-space-xs px-space-sm text-secondary font-bold">
+                                  {s.inserted_count}
+                                </td>
+                                <td className="py-space-xs px-space-sm text-on-surface-variant">
+                                  {s.error_category || 'None (Healthy)'}
+                                </td>
+                                <td className="py-space-xs px-space-sm text-right text-primary">
+                                  {s.latency_ms} ms
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
 
                     {/* Pre-Alert Rejections (Governance Gate) */}

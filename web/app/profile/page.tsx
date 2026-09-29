@@ -145,15 +145,15 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="w-full max-w-5xl mx-auto px-space-xl py-space-xl space-y-space-2xl">
+    <div className="w-full max-w-5xl mx-auto px-space-md sm:px-space-xl py-space-md sm:py-space-xl space-y-space-xl sm:space-y-space-2xl">
       {/* Header Block: Instrument Status & Telemetry Meta */}
-      <div className="flex flex-col gap-space-xs pb-space-lg">
-        <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-space-xs pb-space-md sm:pb-space-lg">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-space-xs">
           <div className="flex items-center gap-space-sm font-data-mono-sm text-data-mono-sm text-on-surface-variant tracking-wider uppercase">
             <span className="w-2 h-2 bg-primary-container inline-block"></span>
             <span>Calibration Console // Engine Heuristics &amp; Weights</span>
           </div>
-          <div className="font-data-mono-sm text-data-mono-sm text-on-surface-variant flex items-center gap-space-md">
+          <div className="font-data-mono-sm text-data-mono-sm text-on-surface-variant flex items-center gap-space-sm sm:gap-space-md flex-wrap">
             <span>MODEL: VECTOR-EMBED-v4.2</span>
             <span className="text-secondary font-bold">STATE: SYNCHRONIZED</span>
           </div>
@@ -180,7 +180,7 @@ export default function ProfilePage() {
               Enter public 16-digit ORCID iD to pre-fill researcher identity, affiliation, recent works, and candidate terms.
             </p>
           </div>
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
             <input
               type="text"
               placeholder="0000-0002-1825-0097"
@@ -205,12 +205,12 @@ export default function ProfilePage() {
       </div>
 
       {/* Section 1: Faculty & Affiliation */}
-      <section className="bg-surface-container-low p-space-xl flex flex-col gap-space-lg">
+      <section className="bg-surface-container-low p-space-md sm:p-space-xl flex flex-col gap-space-md sm:gap-space-lg border border-surface-container">
         <div className="flex items-center justify-between pb-space-xs">
           <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">Section 01 // Identity &amp; Primary Record</span>
           <span className="font-data-mono-md text-data-mono-md text-primary-container">#9104-ASTRO</span>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-space-xl">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-space-md sm:gap-space-xl">
           {/* Faculty Name */}
           <div className="flex flex-col gap-space-2xs group">
             <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase tracking-wider">Faculty Investigator</label>
@@ -252,7 +252,7 @@ export default function ProfilePage() {
             <span className="font-label-caps text-label-caps text-primary uppercase tracking-wider">Compliance &amp; Gatekeeper Vector</span>
             <p className="text-on-surface-variant text-xs font-mono">Parameters evaluated by EligibilityAgent to verify early-career tenure clock, citizenship restrictions, and institutional quotas.</p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-space-lg">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-space-md sm:gap-space-lg">
             {/* Career Stage */}
             <div className="flex flex-col gap-space-2xs">
               <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">Career Stage</label>
@@ -304,47 +304,47 @@ export default function ProfilePage() {
                 onChange={(e) => setProfile({ ...profile, citizenship_status: e.target.value })}
               >
                 <option value="US Citizen or Permanent Resident">US Citizen or Permanent Resident</option>
-                <option value="Non-US Citizen / Work Visa Eligible">Non-US Citizen / Work Visa Eligible</option>
-                <option value="Foreign National">Foreign National</option>
+                <option value="Indian Citizen (National / OCI)">Indian Citizen (National / OCI)</option>
+                <option value="Permanent Resident (Green Card)">Permanent Resident (Green Card)</option>
+                <option value="Foreign National (Visa Eligible)">Foreign National (Visa Eligible)</option>
+                <option value="Active Security Clearance (DoD / DARPA)">Active Security Clearance (DoD / DARPA)</option>
               </select>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Section 2: Research Profile Semantic Base */}
-      <section className="bg-surface-container-low p-space-xl flex flex-col gap-space-md">
-        <div className="flex items-center justify-between">
-          <div className="flex flex-col">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">Section 02 // Research Profile Narrative</span>
-            <span className="font-body-sm text-body-sm text-on-surface-variant">Free-text semantic seed parsed for dense vector cosine similarity matching.</span>
-          </div>
-          <div className="font-data-mono-sm text-data-mono-sm text-on-surface-variant">
-            TOKENS: <span className="text-primary font-bold">{profile.profile_text?.length || 0} / 512</span>
-          </div>
+      {/* Section 2: Research Keywords & Profile Text */}
+      <section className="bg-surface-container-low p-space-md sm:p-space-xl flex flex-col gap-space-md sm:gap-space-lg border border-surface-container">
+        <div className="flex items-center justify-between pb-space-xs">
+          <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">Section 02 // Semantic Persona &amp; Research Dossier</span>
+          <span className="font-data-mono-sm text-data-mono-sm text-primary">VECTOR CORRELATOR: ACTIVE</span>
         </div>
-        <div className="relative group mt-space-xs">
+        <div className="flex flex-col gap-space-xs">
+          <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">Research Persona Abstract</label>
+          <p className="font-body-sm text-body-sm text-on-surface-variant">Used by the scoring engine to calculate semantic topic similarity via bi-encoder sentence transformers.</p>
+        </div>
+        <div className="relative group">
           <textarea
-            className="w-full bg-surface-container-lowest p-space-md font-body-lg text-body-lg text-on-surface focus:outline-none focus:ring-0 leading-relaxed resize-y selection:bg-primary-container selection:text-on-primary-container placeholder:text-outline-variant"
-            placeholder="Enter core research agenda, targeted domains, experimental methodologies, and federal funding priorities..."
+            className="w-full bg-surface-container-lowest p-space-md font-body-md text-body-md text-on-surface border border-outline-variant focus:outline-none focus:border-primary transition-colors leading-relaxed"
             rows={4}
             value={profile.profile_text}
             onChange={(e) => setProfile({ ...profile, profile_text: e.target.value })}
           />
           <div className="absolute inset-x-0 bottom-0 h-0.5 bg-outline-variant group-focus-within:bg-primary-container transition-colors"></div>
         </div>
-        <div className="flex items-center justify-between font-data-mono-sm text-data-mono-sm text-on-surface-variant pt-space-2xs">
+        <div className="flex flex-wrap items-center justify-between gap-2 font-data-mono-sm text-data-mono-sm text-on-surface-variant pt-space-2xs">
           <span className="flex items-center gap-space-xs">
             <span className="material-symbols-outlined text-[14px] text-secondary">memory</span>
-            Vector re-indexing interval: continuous
+            Vector re-indexing: continuous
           </span>
-          <span className="text-on-surface-variant">Embedding depth: 1536-dim semantic space</span>
+          <span className="text-on-surface-variant">Embedding depth: 1536-dim</span>
         </div>
       </section>
 
-      {/* Section 3: Weighted Terms & Heuristic Calibration Table */}
-      <section className="bg-surface-container-low p-space-xl flex flex-col gap-space-lg">
-        <div className="flex items-center justify-between pb-space-xs">
+      {/* Section 3: Weighted Terms & Heuristic Calibration */}
+      <section className="bg-surface-container-low p-space-md sm:p-space-xl flex flex-col gap-space-md sm:gap-space-lg border border-surface-container">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-space-xs gap-space-xs">
           <div className="flex flex-col">
             <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">Section 03 // Weighted Terms (Vocabulary &amp; Calibration)</span>
             <span className="font-body-sm text-body-sm text-on-surface-variant">Explicit term penalties and coefficients applied during post-vector rank arbitration.</span>
@@ -353,8 +353,52 @@ export default function ProfilePage() {
             ACTIVE VOCABULARY: <span className="text-on-surface font-bold">{(profile.profile_terms || []).length} ITEMS</span>
           </div>
         </div>
-        {/* Ledger Table */}
-        <div className="w-full overflow-x-auto">
+
+        {/* Mobile Term Cards (Stitch profile_mobile.html pattern) */}
+        <div className="md:hidden flex flex-col gap-2">
+          {(profile.profile_terms || []).map((t: ProfileTermItem, idx: number) => (
+            <div
+              key={idx}
+              className="bg-surface-container p-space-sm rounded flex items-center justify-between gap-space-sm border border-surface-container-high"
+            >
+              <div className="flex items-center gap-space-sm min-w-0">
+                <button
+                  type="button"
+                  onClick={() => togglePolarity(idx)}
+                  className={`px-space-xs py-space-2xs font-data-mono-sm text-data-mono-sm rounded uppercase font-bold shrink-0 ${
+                    t.polarity === 'negative'
+                      ? 'bg-error-container text-on-error-container'
+                      : 'bg-secondary-container text-on-secondary-container'
+                  }`}
+                >
+                  {t.polarity === 'negative' ? '- NEG' : '+ POS'}
+                </button>
+                <div className="flex flex-col min-w-0">
+                  <span className="font-headline-sm text-headline-sm text-on-surface truncate">{t.term}</span>
+                  <span className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">
+                    Domain: {t.term_type}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-space-sm shrink-0">
+                <span className={`font-data-mono-lg text-data-mono-lg font-bold ${t.polarity === 'negative' ? 'text-rust' : 'text-secondary'}`}>
+                  {(t.weight || 1.0).toFixed(2)}
+                </span>
+                <button
+                  className="text-on-surface-variant hover:text-error transition-colors p-1"
+                  type="button"
+                  onClick={() => removeTerm(idx)}
+                  title="Remove term"
+                >
+                  <span className="material-symbols-outlined text-[18px]">close</span>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Desktop Ledger Table */}
+        <div className="hidden md:block w-full overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-surface-container-lowest text-on-surface-variant font-data-mono-sm text-data-mono-sm uppercase tracking-wider">
@@ -403,8 +447,9 @@ export default function ProfilePage() {
             </tbody>
           </table>
         </div>
+
         {/* Add Term Input Row */}
-        <div className="flex flex-col md:flex-row gap-space-md pt-space-xs">
+        <div className="flex flex-col sm:flex-row gap-space-sm sm:gap-space-md pt-space-xs">
           <input
             className="flex-1 bg-surface-container-lowest p-space-sm font-body-md text-body-md text-on-surface border border-outline-variant focus:outline-none focus:border-primary"
             type="text"
@@ -424,12 +469,12 @@ export default function ProfilePage() {
             <option value="funding_theme">funding_theme</option>
           </select>
           <button
-            className="inline-flex items-center gap-space-xs font-data-mono-sm text-data-mono-sm text-primary hover:text-primary-fixed transition-colors underline decoration-dashed underline-offset-4 decoration-outline-variant hover:decoration-primary"
+            className="inline-flex items-center justify-center gap-space-xs font-data-mono-sm text-data-mono-sm text-primary hover:text-primary-fixed transition-colors underline decoration-dashed underline-offset-4 decoration-outline-variant hover:decoration-primary py-1 sm:py-0"
             type="button"
             onClick={addTerm}
           >
             <span className="material-symbols-outlined text-[14px]">add_circle</span>
-            <span>APPEND CALIBRATED TERM TO MATRIX</span>
+            <span>APPEND TERM</span>
           </button>
         </div>
       </section>

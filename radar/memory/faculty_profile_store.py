@@ -4,27 +4,19 @@ from radar.db import client as db_client
 from radar.models import FacultyProfile, ProfileTerm
 from radar.scoring import component_scorer
 
+_DEFAULT_PROFILE = {
+    "full_name": "Dr. Vibha",
+    "institution": "COEP Technological University",
+    "department": "Computer Engineering",
+    "research_keywords": ["graph neural networks", "fraud detection", "edge AI", "sensor fusion"],
+    "profile_text": "Research focused on graph neural networks, financial fraud detection models, and edge AI sensor fusion.",
+    "min_relevance_band": "watch",
+    "deadline_alert_window_days": 30,
+    "alert_frequency": "weekly"
+}
 
-def get_active_profile() -> FacultyProfile:
-    client = db_client.get_client()
-    res = client.table("faculty_profile").select("*").limit(1).execute()
-    if not res.data:
-        # Create default profile for MVP
-        default_prof = {
-            "full_name": "Dr. Vibha",
-            "institution": "COEP Technological University",
-            "department": "Computer Engineering",
-            "research_keywords": ["graph neural networks", "fraud detection", "edge AI", "sensor fusion"],
-            "profile_text": "Research focused on graph neural networks, financial fraud detection models, and edge AI sensor fusion.",
-            "min_relevance_band": "watch",
-            "deadline_alert_window_days": 30,
-            "alert_frequency": "weekly"
-        }
-        ins_res = client.table("faculty_profile").insert(default_prof).execute()
-        row = ins_res.data[0]
-    else:
-        row = res.data[0]
 
+def _row_to_profile(row: dict) -> FacultyProfile:
     profile = FacultyProfile(
         id=row["id"],
         full_name=row["full_name"],
@@ -41,7 +33,9 @@ def get_active_profile() -> FacultyProfile:
         career_stage=row.get("career_stage", "Assistant Professor"),
         phd_year=row.get("phd_year", 2021),
         institution_type=row.get("institution_type", "R1 Doctoral University (IHE)"),
-        citizenship_status=row.get("citizenship_status", "US Citizen or Permanent Resident")
+        citizenship_status=row.get("citizenship_status", "US Citizen or Permanent Resident"),
+        user_id=row.get("user_id"),
+        loaded_updated_at=row.get("updated_at")
     )
 
     if isinstance(profile.profile_embedding, str):
@@ -51,12 +45,57 @@ def get_active_profile() -> FacultyProfile:
         except Exception:
             profile.profile_embedding = None
 
+    # The web profile editor clears profile_embedding on every save, so a missing embedding
+    # means "new or edited profile": recompute it and flag the profile for catalog rescoring.
     if not profile.profile_embedding and profile.profile_text:
         model = component_scorer.get_sentence_transformer()
         profile.profile_embedding = model.encode(profile.profile_text).tolist()
-        client.table("faculty_profile").update({"profile_embedding": profile.profile_embedding}).eq("id", profile.id).execute()
+        profile.embedding_refreshed = True
 
     return profile
+
+
+def save_profile_embedding(profile: FacultyProfile) -> None:
+    """Persist a recomputed embedding. The pipeline calls this only after rescoring the catalog for
+    the profile, so a dry run or a crash mid-run leaves the profile flagged for the next run."""
+    client = db_client.get_client()
+    # Conditional on the row being unchanged since the run loaded it. The web route bumps updated_at
+    # and clears the embedding on every save (text, keywords, terms, citizenship...), so a save made
+    # mid-run leaves the embedding cleared and the next run rescores against the new profile.
+    query = client.table("faculty_profile").update({"profile_embedding": profile.profile_embedding}).eq("id", profile.id)
+    if profile.loaded_updated_at:
+        query = query.eq("updated_at", profile.loaded_updated_at)
+    else:
+        query = query.eq("profile_text", profile.profile_text)
+    query.execute()
+    profile.embedding_refreshed = False
+
+
+def get_all_profiles() -> list[FacultyProfile]:
+    """Every faculty profile, oldest first. Seeds the default MVP profile when the table is empty."""
+    client = db_client.get_client()
+    res = client.table("faculty_profile").select("*").order("created_at").execute()
+    rows = res.data or []
+    if not rows:
+        rows = client.table("faculty_profile").insert(dict(_DEFAULT_PROFILE)).execute().data
+    return [_row_to_profile(row) for row in rows]
+
+
+def get_profile(profile_id: str) -> FacultyProfile:
+    client = db_client.get_client()
+    res = client.table("faculty_profile").select("*").eq("id", profile_id).execute()
+    if not res.data:
+        raise ValueError(f"Faculty profile {profile_id} not found.")
+    return _row_to_profile(res.data[0])
+
+
+def get_active_profile() -> FacultyProfile:
+    """Oldest profile. Kept for single-profile callers (MCP server); the pipeline uses get_all_profiles()."""
+    client = db_client.get_client()
+    res = client.table("faculty_profile").select("*").order("created_at").limit(1).execute()
+    if not res.data:
+        return get_all_profiles()[0]
+    return _row_to_profile(res.data[0])
 
 def get_profile_terms(profile_id: str) -> list[ProfileTerm]:
     client = db_client.get_client()
@@ -157,4 +196,4 @@ def update_profile(
             "source": t.get("source", "manual")
         }).execute()
 
-    return get_active_profile()
+    return get_profile(profile_id)

@@ -1,14 +1,14 @@
 import { NextRequest } from 'next/server';
-import { getSupabaseUserClient, getSupabaseAdminClient } from '@/lib/supabaseServerClient';
+import { getRequestSupabase, hasUserAccount, requireUserAccount, UUID_PATTERN } from '@/lib/routeContext';
 import { authenticateRequest } from '@/lib/auth';
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { consumeRateLimit, getClientIp } from '@/lib/rateLimit';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 
 const saveSchema = z.object({
-  opportunity_id: z.string().trim().min(1).max(64),
+  opportunity_id: z.string().trim().regex(UUID_PATTERN, 'must be an opportunity UUID'),
   saved: z.boolean(),
   notes: z.string().max(2000).optional()
 });
@@ -20,9 +20,11 @@ export async function GET(req: NextRequest) {
       return auth.errorResponse!;
     }
 
-    const supabase = auth.user.isServiceRole
-      ? getSupabaseAdminClient()
-      : getSupabaseUserClient(auth.user.token);
+    if (!hasUserAccount(auth.user)) {
+      return createSuccessResponse({ data: [], total: 0 }, req);
+    }
+
+    const supabase = getRequestSupabase(auth.user);
 
     const { data: savedRows, error } = await supabase
       .from('user_opportunity_state')
@@ -41,8 +43,9 @@ export async function GET(req: NextRequest) {
     if (error) {
       return createErrorResponse('DATABASE_ERROR', error.message, 500, req);
     }
+    const rowsToFormat = savedRows || [];
 
-    const formatted = (savedRows || []).map((row: any) => {
+    const formatted = rowsToFormat.map((row: any) => {
       const opp = row.opportunities;
       const dls = opp?.opportunity_deadlines || [];
       const src = opp?.opportunity_sources?.[0];
@@ -77,8 +80,13 @@ export async function POST(req: NextRequest) {
       return auth.errorResponse!;
     }
 
+    const noAccount = requireUserAccount(auth.user, req);
+    if (noAccount) {
+      return noAccount;
+    }
+
     const ip = getClientIp(req);
-    const rateCheck = checkRateLimit(`save_${ip}`, 30, 60000);
+    const rateCheck = await consumeRateLimit(`save_${ip}`, 30, 60000);
     if (!rateCheck.allowed) {
       return createErrorResponse('RATE_LIMIT_EXCEEDED', 'Too many requests.', 429, req);
     }
@@ -91,9 +99,7 @@ export async function POST(req: NextRequest) {
 
     const { opportunity_id, saved, notes } = parsed.data;
 
-    const supabase = auth.user.isServiceRole
-      ? getSupabaseAdminClient()
-      : getSupabaseUserClient(auth.user.token);
+    const supabase = getRequestSupabase(auth.user);
 
     // Upsert into user_opportunity_state
     const upsertPayload: any = {
@@ -115,16 +121,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Audit in user_activity
-    try {
-      await supabase.from('user_activity').insert({
+    {
+      const { error: activityErr } = await supabase.from('user_activity').insert({
         user_id: auth.user.id,
         event_type: saved ? 'saved_opportunity' : 'unsaved_opportunity',
         title: saved ? 'Saved Opportunity' : 'Unsaved Opportunity',
         description: `Opportunity ${opportunity_id} marked as ${saved ? 'saved' : 'unsaved'}.`,
         metadata: { opportunity_id }
       });
-    } catch {
-      // Non-fatal if activity log is delayed
+      if (activityErr) {
+        console.error('user_activity insert failed:', activityErr.message);
+      }
     }
 
     return createSuccessResponse({ success: true, opportunity_id, saved }, req);

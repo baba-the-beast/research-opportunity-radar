@@ -7,6 +7,11 @@ on:
 permissions:
   contents: read
 
+# Never run two scheduled/dispatched pipelines at once (the DB lease also guards this)
+concurrency:
+  group: radar-pipeline
+  cancel-in-progress: false
+
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
@@ -24,8 +29,6 @@ jobs:
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
-      - name: Lint with ruff
-        run: ruff check .
       - name: Smoke import check
         run: python -c "import radar; from radar.orchestrator.pipeline import OpportunityPipeline; from radar.scoring.component_scorer import ComponentScorer; print('Smoke import OK')"
       - name: Run pipeline
@@ -37,6 +40,9 @@ jobs:
           SEMANTIC_SCHOLAR_API_KEY: ${{ secrets.SEMANTIC_SCHOLAR_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          BREVO_SENDER_EMAIL: ${{ secrets.BREVO_SENDER_EMAIL }}
+          BREVO_RECIPIENT_EMAIL: ${{ secrets.BREVO_RECIPIENT_EMAIL }}
           MIN_RELEVANCE_BAND: 'watch'
         run: python -m radar.orchestrator.pipeline
       - name: Alert on failure

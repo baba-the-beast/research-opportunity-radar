@@ -28,13 +28,17 @@ export default function DeadlinesPage() {
         const items = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
         if (items.length > 0) {
           const mapped: TimelineEvent[] = items.map((d: any) => {
-            const dateObj = new Date(d.deadline_date);
+            const dateObj = new Date(d.deadline_date + 'T00:00:00+05:30'); // Pin to IST
             const now = new Date();
             const diffDays = Math.max(
               0,
               Math.ceil((dateObj.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
             );
-            const monthName = dateObj.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+            const monthName = dateObj.toLocaleString('en-IN', {
+              month: 'long',
+              year: 'numeric',
+              timeZone: 'Asia/Kolkata'
+            });
             return {
               id: d.id,
               dateStr: d.deadline_date,
@@ -66,22 +70,22 @@ export default function DeadlinesPage() {
   return (
     <div className="flex flex-col w-full">
       {/* Top Feed Synchronizer Bar */}
-      <div className="w-full bg-surface-container-lowest py-space-sm px-space-xl flex flex-wrap items-center justify-between gap-space-md border-b border-surface-container">
-        <div className="flex items-center gap-space-sm">
-          <span className="material-symbols-outlined text-[15px] text-primary">calendar_month</span>
-          <span className="font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+      <div className="w-full bg-surface-container-lowest py-space-xs sm:py-space-sm px-space-md sm:px-space-xl flex flex-wrap items-center justify-between gap-space-sm sm:gap-space-md border-b border-surface-container">
+        <div className="flex items-center gap-space-sm min-w-0">
+          <span className="material-symbols-outlined text-[15px] text-primary shrink-0">calendar_month</span>
+          <span className="font-data-mono-sm text-data-mono-sm text-on-surface-variant truncate">
             Feed Synchronizer:
             <a
               className="text-primary underline hover:text-primary-fixed decoration-primary/40 underline-offset-2 transition-colors ml-1"
               href="/api/deadlines"
               target="_blank"
             >
-              Subscribe to this calendar (webcal://radar.faculty.edu/feed.ics)
+              Subscribe to calendar (webcal://feed.ics)
             </a>
           </span>
         </div>
 
-        <div className="flex items-center gap-space-lg font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+        <div className="flex items-center gap-space-md sm:gap-space-lg font-data-mono-sm text-data-mono-sm text-on-surface-variant flex-wrap">
           <div className="flex items-center gap-space-xs">
             <span className="w-2 h-2 bg-secondary inline-block"></span>
             <span>VERIFIED (4)</span>
@@ -98,11 +102,11 @@ export default function DeadlinesPage() {
       </div>
 
       {/* Main Viewport */}
-      <div className="w-full px-space-xl py-space-xl">
-        <div className="flex flex-col lg:flex-row gap-space-2xl items-start">
+      <div className="w-full px-space-md sm:px-space-xl py-space-md sm:py-space-xl">
+        <div className="flex flex-col lg:flex-row gap-space-xl lg:gap-space-2xl items-start">
           {/* Main Column: Target Submission Horizons */}
           <div className="flex-1 w-full max-w-4xl">
-            <div className="flex items-baseline justify-between mb-space-xl border-b border-surface-container pb-space-md">
+            <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-space-xs mb-space-lg sm:mb-space-xl border-b border-surface-container pb-space-md">
               <div>
                 <span className="font-label-caps text-label-caps text-on-surface-variant tracking-widest block uppercase">
                   Temporal Ledger // Sequence Vector
@@ -111,15 +115,15 @@ export default function DeadlinesPage() {
                   Target Submission Horizons
                 </h1>
               </div>
-              <div className="font-data-mono-sm text-data-mono-sm text-on-surface-variant text-right">
+              <div className="font-data-mono-sm text-data-mono-sm text-on-surface-variant text-left sm:text-right">
                 <span>HORIZON WINDOW: OCT 2025 – JAN 2026</span>
                 <span className="block text-primary font-bold">CYCLE 24-B ACTIVE</span>
               </div>
             </div>
 
             {/* Chronological Timeline */}
-            <div className="relative pl-6 lg:pl-10">
-              <div className="absolute left-2.5 top-2 bottom-6 w-px bg-surface-container"></div>
+            <div className="relative pl-5 sm:pl-8 lg:pl-10">
+              <div className="absolute left-1.5 sm:left-2 top-2 bottom-6 w-px bg-surface-container"></div>
 
               {loading ? (
                 <div className="p-space-2xl text-center font-data-mono-sm text-data-mono-sm text-on-surface-variant">
@@ -132,10 +136,10 @@ export default function DeadlinesPage() {
                 </div>
               ) : (
                 months.map((month, idx) => (
-                <div key={month} className="relative mb-space-2xl">
+                <div key={month} className="relative mb-space-xl sm:mb-space-2xl">
                   {/* Month Header */}
-                  <div className="flex items-center gap-space-md mb-space-lg">
-                    <div className="absolute -left-[18px] lg:-left-[34px] flex items-center justify-center w-6 h-6 bg-surface">
+                  <div className="flex items-center gap-space-sm mb-space-md sm:mb-space-lg">
+                    <div className="absolute -left-[14px] sm:-left-[18px] lg:-left-[24px] flex items-center justify-center w-5 h-5 sm:w-6 sm:h-6 bg-surface">
                       <span
                         className={`w-2 h-2 ${idx === 0 ? 'bg-primary' : 'bg-surface-container-highest'}`}
                       ></span>
@@ -147,7 +151,8 @@ export default function DeadlinesPage() {
                     >
                       {month}
                     </h2>
-                    <span className="font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+                    <span className="h-px flex-1 bg-surface-container hidden sm:block"></span>
+                    <span className="font-data-mono-sm text-data-mono-sm text-on-surface-variant hidden md:inline">
                       {idx === 0 ? '// Q4 OBSERVATION INSET' : idx === 1 ? '// AUTUMN SOLSTICE CYCLE' : '// FISCAL YEAR LAUNCH'}
                     </span>
                   </div>

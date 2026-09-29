@@ -154,8 +154,8 @@ python scripts/check_env.py
 
 ### 3. Install Dependencies
 ```bash
-# Python backend
-pip install -r requirements.txt
+# Python backend (runtime only; add requirements-dev.txt for tests and lint)
+pip install -r requirements-dev.txt
 
 # Next.js frontend
 cd web && npm install && cd ..
@@ -230,7 +230,7 @@ To test database schema migrations, scoring threshold tunings, or new agency scr
 
 1. **Create a Secondary Supabase Project**:
    - Provision a free-tier project (e.g., `radar-staging`).
-   - Execute `radar/db/schema.sql` and `docs/rls_policies.sql` in the Supabase SQL Editor.
+   - Apply the migrations in `supabase/migrations/` in filename order (`supabase db push`, or paste each file into the SQL Editor).
 2. **Configure Staging Environment (`.env.staging`)**:
    ```bash
    SUPABASE_URL=https://<staging-project-id>.supabase.co
@@ -260,12 +260,67 @@ python -m ruff check .
 # 2. Smoke Import Validation across all radar modules
 python -c "import radar; from radar.orchestrator.pipeline import OpportunityPipeline; from radar.scoring.component_scorer import ComponentScorer; print('Smoke import OK')"
 
-# 3. Comprehensive Pytest Suite (102 tests, 100% passing)
+# 3. Pytest suite (in-memory DB; live RLS tests auto-skip without a local Supabase stack)
 pytest -v
 
-# 4. Frontend Unit Tests (10 tests, 100% passing) and Production Route Compilation (15 routes)
-cd web && npm test && npm run build
+# 4. Frontend type-check, unit tests and production build
+cd web && npm run typecheck && npm test && npm run build
 ```
+
+Row Level Security is tested against real Postgres in `tests/integration/test_rls_live.py`
+(`supabase start`, then set `RLS_TEST_SUPABASE_URL`, `RLS_TEST_ANON_KEY`, `RLS_TEST_SERVICE_ROLE_KEY`).
+It refuses non-local URLs because it creates and deletes auth users.
+
+---
+
+## Database Migrations
+
+The schema lives in ordered, re-runnable migrations under `supabase/migrations/`:
+
+| File | Contents |
+|---|---|
+| `20260901000000_core_schema.sql` | Opportunities, deadlines, sources, scoring log, faculty profile, locks |
+| `20260901000100_multi_user_schema.sql` | Per-user preferences, tracking state, activity, Copilot chat + their RLS |
+| `20260901000200_rls_policies.sql` | RLS for the core tables |
+| `20260928000000_tenant_isolation_fixes.sql` | Owner-only reads, per-faculty scores, chat session ownership, `alerts_sent` RLS |
+| `20260929000000_scrub_keyword_sources_and_run_errors.sql` | Removes research keywords from `sources` names and redacts bot tokens / keyword labels already stored in `run_log.errors` |
+
+New project: `supabase link --project-ref <ref> && supabase db push`.
+
+Existing project where the first three files were pasted into the SQL Editor by hand: record them as
+applied, then push, so only the newer migrations run:
+
+```bash
+supabase migration repair --status applied 20260901000000 20260901000100 20260901000200
+supabase db push
+```
+
+(The files are idempotent, so re-running them is also safe; the later fix migration re-tightens the policies.)
+
+---
+
+## Telegram Alerts
+
+Each user connects their own Telegram chat; nobody types chat ids.
+
+**One-time operator setup**
+
+1. In Telegram, message **@BotFather**: `/newbot` (or `/revoke` + `/token` to replace a leaked token).
+2. Set on the web server (Render) **and** as GitHub Actions secrets for the scheduled pipeline:
+   `TELEGRAM_BOT_TOKEN`, plus on the web server `TELEGRAM_BOT_USERNAME` and `TELEGRAM_WEBHOOK_SECRET`
+   (`python -c "import secrets; print(secrets.token_urlsafe(32))"`).
+3. Apply migration `20260929000100_telegram_link_codes.sql`.
+4. Register the webhook once the app is deployed:
+   ```bash
+   python scripts/telegram_setup.py --app-url https://your-app.onrender.com
+   python scripts/telegram_setup.py --check   # status, including Telegram's last delivery error
+   ```
+
+**Per user**: Settings → enable *Telegram Bot Alerts* → **Connect Telegram** → press **Start** in the bot.
+The page confirms automatically; **Send test message** verifies delivery. Sending `/stop` to the bot (or
+blocking it) turns alerts off; the pipeline also disconnects chats that block the bot.
+
+Operator-wide alerts for the legacy seed profile still use `TELEGRAM_CHAT_ID`.
 
 ---
 
@@ -273,14 +328,17 @@ cd web && npm test && npm run build
 
 All state-modifying Next.js API routes are protected against abuse and unauthorized execution:
 
-- **External Trigger Authorization (`web/lib/apiAuth.ts`)**: Server-side `RADAR_API_SECRET` enforcement protects the external webhook trigger route (`POST /api/pipeline/trigger`). Evaluated using constant-time `crypto.timingSafeEqual` with SHA-256 digests to eliminate side-channel timing attacks. External callers (GitHub Actions, cron workers, CI) must provide `Authorization: Bearer <secret>` or `x-radar-secret: <secret>`.
-- **Sliding-Window Rate Limiting (`web/lib/rateLimit.ts`)**: Protects all mutation and streaming execution routes per client IP:
+- **Authentication (`web/lib/auth.ts`)**: Every route calls `authenticateRequest`, which accepts a Supabase session JWT or the operator `RADAR_API_SECRET` (constant-time comparison; `Authorization: Bearer <secret>` or `x-radar-secret: <secret>`). Roles come only from server-controlled `app_metadata.role`. In production a missing configuration fails closed (401/503); the anonymous operator fallback exists only in `NODE_ENV` development/test.
+- **Tenant isolation**: Route handlers query with the caller's own JWT (`web/lib/routeContext.ts`) so Postgres RLS applies; the service-role client is reserved for operator identities and the pipeline. The Copilot's tools run with the same user-scoped client.
+- **Rate Limiting (`web/lib/rateLimit.ts`)**: Fixed-window limits, shared across instances via Upstash Redis when `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` are set (falls back to in-memory per process). Applied per IP and, for the Copilot, per user:
   - `GET /api/pipeline/stream?run=true` (5 executions per 10 minutes)
   - `POST /api/pipeline/trigger` (5 trigger dispatches per 10 minutes)
   - `POST /api/profile` (10 updates per minute)
   - `POST /api/opportunities/[id]/status` (20 updates per minute)
-  Exceeded limits return HTTP `429 Too Many Requests` with a `Retry-After` header. Operates in-memory for single-instance deployments.
-- **Input Sanitization & Schema Validation**: Enforces Zod string boundary limits on profile payloads and regex character masks (`/^[a-zA-Z0-9_\-\.]{1,64}$/`) on opportunity IDs to prevent injection.
+  - `POST /api/chat` (10 per user and 25 per IP per minute)
+  Exceeded limits return HTTP `429 Too Many Requests`.
+- **Input Validation**: Zod schemas on every mutation payload; opportunity ids must be UUIDs; free-text search terms are stripped of PostgREST filter syntax before reaching `.or()` filters.
+- **Security Headers (`web/next.config.js`)**: CSP (self + Google Fonts + your Supabase origin), `frame-ancestors 'none'`, HSTS in production, `nosniff`, strict referrer policy and a restrictive permissions policy.
 
 ---
 

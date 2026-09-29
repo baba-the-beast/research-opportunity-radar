@@ -10,7 +10,15 @@ WORKDIR /app/web
 COPY web/package.json web/package-lock.json* ./
 RUN npm ci --prefer-offline --no-audit
 COPY web/ ./
+# NEXT_PUBLIC_* values are inlined into the browser bundle at build time, so they must be present
+# here (Render passes service env vars to declared build ARGs). Without them the browser Supabase
+# client is built with placeholders and login cannot work.
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL     NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
 RUN npm run build
+# Ship only runtime dependencies (drops typescript, vitest, tailwind build tooling)
+RUN npm prune --omit=dev
 
 # Stage 2: Production runtime with Python 3.11 + Node.js 20
 FROM python:3.11-slim

@@ -1,6 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { checkRateLimit } from '../lib/rateLimit';
-import { validateApiAuth } from '../lib/apiAuth';
 
 describe('Security: Rate Limiter & API Auth', () => {
   const originalSecret = process.env.RADAR_API_SECRET;
@@ -28,40 +27,5 @@ describe('Security: Rate Limiter & API Auth', () => {
     expect(res4.allowed).toBe(false);
     expect(res4.remaining).toBe(0);
     expect(res4.retryAfterSeconds).toBeGreaterThan(0);
-  });
-
-  it('validateApiAuth permits all requests when RADAR_API_SECRET is unset', () => {
-    delete process.env.RADAR_API_SECRET;
-    const req = new Request('http://localhost/api/pipeline/trigger', { method: 'POST' });
-    const auth = validateApiAuth(req);
-    expect(auth.authorized).toBe(true);
-  });
-
-  it('validateApiAuth blocks requests when secret is set and header is missing', () => {
-    process.env.RADAR_API_SECRET = 'secret_radar_token_123';
-    const req = new Request('http://localhost/api/pipeline/trigger', { method: 'POST' });
-    const auth = validateApiAuth(req);
-    expect(auth.authorized).toBe(false);
-    expect(auth.response?.status).toBe(401);
-  });
-
-  it('validateApiAuth permits requests when valid Bearer token is provided', () => {
-    process.env.RADAR_API_SECRET = 'secret_radar_token_123';
-    const req = new Request('http://localhost/api/pipeline/trigger', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer secret_radar_token_123' },
-    });
-    const auth = validateApiAuth(req);
-    expect(auth.authorized).toBe(true);
-  });
-
-  it('validateApiAuth permits requests when valid x-radar-secret is provided', () => {
-    process.env.RADAR_API_SECRET = 'secret_radar_token_123';
-    const req = new Request('http://localhost/api/pipeline/trigger', {
-      method: 'POST',
-      headers: { 'x-radar-secret': 'secret_radar_token_123' },
-    });
-    const auth = validateApiAuth(req);
-    expect(auth.authorized).toBe(true);
   });
 });

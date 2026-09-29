@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getSupabaseUserClient, getSupabaseAdminClient } from '@/lib/supabaseServerClient';
+import { getRequestSupabase } from '@/lib/routeContext';
 import { authenticateRequest } from '@/lib/auth';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 
@@ -12,14 +12,13 @@ export async function GET(req: NextRequest) {
       return auth.errorResponse!;
     }
 
-    const supabase = auth.user?.isServiceRole
-      ? getSupabaseAdminClient()
-      : getSupabaseUserClient(auth.user?.token);
+    const supabase = getRequestSupabase(auth.user);
 
     const { data: runs, error } = await supabase
       .from('run_log')
       .select('*')
-      .eq('status', 'success')
+      // partial_failure runs still ingest and write opportunities
+      .in('status', ['success', 'partial_failure'])
       .order('started_at', { ascending: false })
       .limit(1);
 

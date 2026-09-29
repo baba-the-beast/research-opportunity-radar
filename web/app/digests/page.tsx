@@ -67,11 +67,11 @@ export default function DigestsPage() {
 
   return (
     <div className="flex flex-col w-full">
-      <div className="w-full px-space-xl py-space-xl flex flex-col gap-space-xl">
+      <div className="w-full px-space-md sm:px-space-xl py-space-md sm:py-space-xl flex flex-col gap-space-md sm:gap-space-xl">
         {/* Header Block */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between pb-space-lg gap-space-md border-b border-surface-container">
+        <div className="flex flex-col md:flex-row md:items-end justify-between pb-space-md sm:pb-space-lg gap-space-md border-b border-surface-container">
           <div className="flex flex-col gap-space-xs max-w-2xl">
-            <div className="flex items-center gap-space-sm">
+            <div className="flex items-center gap-space-sm flex-wrap">
               <span className="font-label-caps text-label-caps text-primary uppercase">
                 ARCHIVAL SYNTHESIS // DISPATCH FEED
               </span>
@@ -80,20 +80,20 @@ export default function DigestsPage() {
                 TELEMETRY RIG-9
               </span>
             </div>
-            <h1 className="font-headline-xl text-headline-xl text-on-surface tracking-tight">
+            <h1 className="font-headline-lg sm:font-headline-xl text-headline-lg sm:text-headline-xl text-on-surface tracking-tight">
               Weekly Intelligence Digests
             </h1>
-            <p className="font-body-md text-body-md text-on-surface-variant">
+            <p className="font-body-sm sm:font-body-md text-body-sm sm:text-body-md text-on-surface-variant">
               Automated synthesis reports delivered every Monday at 06:00 UTC based on telemetry filters and faculty research vectors.
             </p>
           </div>
 
-          <div className="flex items-center gap-space-md bg-surface-container px-space-md py-space-sm rounded border border-surface-container-high">
+          <div className="flex flex-wrap items-center gap-space-xs sm:gap-space-md bg-surface-container px-space-md py-space-sm rounded border border-surface-container-high">
             <div className="flex items-center gap-space-xs font-data-mono-sm text-data-mono-sm text-on-surface-variant">
               <span>TOTAL ARCHIVED:</span>
               <span className="text-primary font-bold">24 WEEKS</span>
             </div>
-            <span className="text-outline-variant font-data-mono-sm text-data-mono-sm">/</span>
+            <span className="text-outline-variant font-data-mono-sm text-data-mono-sm hidden sm:inline">/</span>
             <div className="flex items-center gap-space-xs font-data-mono-sm text-data-mono-sm">
               <span className="w-1.5 h-1.5 rounded-full bg-secondary inline-block"></span>
               <span className="text-secondary font-bold">INGESTION MIRROR ACTIVE</span>
@@ -101,53 +101,53 @@ export default function DigestsPage() {
           </div>
         </div>
 
-        {/* 4 Metric Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-space-md">
-          <div className="bg-surface-container p-space-md flex flex-col gap-space-2xs border border-surface-container-high">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">
+        {/* 4 Metric Cards: 2x2 on mobile, 4 across on desktop */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-space-xs sm:gap-space-md">
+          <div className="bg-surface-container p-space-sm sm:p-space-md flex flex-col gap-space-2xs border border-surface-container-high">
+            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px] sm:text-xs">
               Aggregated Signals
             </span>
-            <div className="flex items-baseline justify-between mt-space-xs font-mono">
-              <span className="font-data-mono-lg text-data-mono-lg text-primary font-bold">142</span>
-              <span className="font-data-mono-sm text-data-mono-sm text-secondary font-bold">
+            <div className="flex flex-col sm:flex-row sm:items-baseline justify-between mt-space-xs font-mono gap-1">
+              <span className="font-data-mono-md sm:font-data-mono-lg text-data-mono-md sm:text-data-mono-lg text-primary font-bold">142</span>
+              <span className="font-data-mono-sm text-[10px] sm:text-data-mono-sm text-secondary font-bold">
                 +12 this cycle
               </span>
             </div>
           </div>
 
-          <div className="bg-surface-container p-space-md flex flex-col gap-space-2xs border border-surface-container-high">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">
+          <div className="bg-surface-container p-space-sm sm:p-space-md flex flex-col gap-space-2xs border border-surface-container-high">
+            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px] sm:text-xs">
               Mean Affinity Score
             </span>
-            <div className="flex items-baseline justify-between mt-space-xs font-mono">
-              <span className="font-data-mono-lg text-data-mono-lg text-on-surface font-bold">78.4</span>
-              <span className="font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+            <div className="flex flex-col sm:flex-row sm:items-baseline justify-between mt-space-xs font-mono gap-1">
+              <span className="font-data-mono-md sm:font-data-mono-lg text-data-mono-md sm:text-data-mono-lg text-on-surface font-bold">78.4</span>
+              <span className="font-data-mono-sm text-[10px] sm:text-data-mono-sm text-on-surface-variant">
                 SIGMA 4.2
               </span>
             </div>
           </div>
 
-          <div className="bg-surface-container p-space-md flex flex-col gap-space-2xs border border-surface-container-high">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">
+          <div className="bg-surface-container p-space-sm sm:p-space-md flex flex-col gap-space-2xs border border-surface-container-high">
+            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px] sm:text-xs">
               Critical Windows
             </span>
-            <div className="flex items-baseline justify-between mt-space-xs font-mono">
-              <span className="font-data-mono-lg text-data-mono-lg text-rust font-bold">
-                03 SOLICITATIONS
+            <div className="flex flex-col sm:flex-row sm:items-baseline justify-between mt-space-xs font-mono gap-1">
+              <span className="font-data-mono-md sm:font-data-mono-lg text-data-mono-md sm:text-data-mono-lg text-rust font-bold">
+                03 SOLS
               </span>
-              <span className="font-data-mono-sm text-data-mono-sm text-rust font-bold">&lt; 7 DAYS</span>
+              <span className="font-data-mono-sm text-[10px] sm:text-data-mono-sm text-rust font-bold">&lt; 7 DAYS</span>
             </div>
           </div>
 
-          <div className="bg-surface-container p-space-md flex flex-col gap-space-2xs border border-surface-container-high">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">
+          <div className="bg-surface-container p-space-sm sm:p-space-md flex flex-col gap-space-2xs border border-surface-container-high">
+            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px] sm:text-xs">
               Archival Format
             </span>
-            <div className="flex items-baseline justify-between mt-space-xs font-mono">
-              <span className="font-data-mono-lg text-data-mono-lg text-secondary font-bold">
+            <div className="flex flex-col sm:flex-row sm:items-baseline justify-between mt-space-xs font-mono gap-1">
+              <span className="font-data-mono-md sm:font-data-mono-lg text-data-mono-md sm:text-data-mono-lg text-secondary font-bold truncate">
                 MD // BIBTEX
               </span>
-              <span className="font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+              <span className="font-data-mono-sm text-[10px] sm:text-data-mono-sm text-on-surface-variant">
                 RFC-822
               </span>
             </div>
@@ -203,15 +203,15 @@ export default function DigestsPage() {
                   {/* Accordion Row Header */}
                   <div
                     onClick={() => toggleCycle(cycle.id)}
-                    className="p-space-lg flex flex-col md:flex-row md:items-center justify-between gap-space-md cursor-pointer select-none bg-surface-container hover:bg-surface-container-high transition-colors"
+                    className="p-space-md sm:p-space-lg flex flex-col md:flex-row md:items-center justify-between gap-space-sm sm:gap-space-md cursor-pointer select-none bg-surface-container hover:bg-surface-container-high transition-colors"
                   >
                     <div className="flex flex-col gap-space-2xs">
                       <div className="flex items-center gap-space-sm flex-wrap">
-                        <span className="font-data-mono-md text-data-mono-md font-bold text-primary tracking-wider font-mono">
+                        <span className="font-data-mono-sm sm:font-data-mono-md text-data-mono-sm sm:text-data-mono-md font-bold text-primary tracking-wider font-mono">
                           {cycle.dates} // CYCLE {cycle.cycleNumber}
                         </span>
                         <span
-                          className={`font-data-mono-sm text-data-mono-sm px-space-xs py-space-2xs uppercase ${
+                          className={`font-data-mono-sm text-[10px] sm:text-data-mono-sm px-space-xs py-space-2xs uppercase ${
                             cycle.status === 'Active Window'
                               ? 'bg-secondary-container/40 text-secondary font-bold'
                               : 'bg-surface-container-high text-on-surface-variant'
@@ -229,13 +229,13 @@ export default function DigestsPage() {
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-space-lg self-end md:self-center">
+                    <div className="flex items-center justify-between md:justify-end w-full md:w-auto gap-space-md mt-space-xs md:mt-0">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           copyMarkdown(cycle.executiveSummary);
                         }}
-                        className="font-data-mono-sm text-data-mono-sm text-brass underline hover:text-primary-fixed tracking-wider uppercase font-bold"
+                        className="font-data-mono-sm text-xs sm:text-data-mono-sm text-brass underline hover:text-primary-fixed tracking-wider uppercase font-bold"
                       >
                         Export Markdown / BibTeX
                       </button>
@@ -247,11 +247,11 @@ export default function DigestsPage() {
 
                   {/* Accordion Content Body */}
                   {isOpen && (
-                    <div className="px-space-lg pb-space-xl pt-space-xs flex flex-col gap-space-xl bg-surface-container-lowest border-t border-surface-container">
+                    <div className="px-space-md sm:px-space-lg pb-space-lg sm:pb-space-xl pt-space-xs flex flex-col gap-space-lg sm:gap-space-xl bg-surface-container-lowest border-t border-surface-container">
                       {/* Executive Summary */}
                       <div className="flex flex-col gap-space-md pt-space-md">
-                        <div className="flex items-center justify-between">
-                          <h2 className="font-headline-lg text-headline-lg text-on-surface">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                          <h2 className="font-headline-md sm:font-headline-lg text-headline-md sm:text-headline-lg text-on-surface">
                             Executive Summary &amp; High-Affinity Signals
                           </h2>
                           <span className="font-data-mono-sm text-data-mono-sm text-on-surface-variant font-mono">
@@ -369,11 +369,11 @@ export default function DigestsPage() {
                                 </span>
                               </div>
                             </div>
-                            <div className="flex items-center gap-space-sm mt-space-sm pt-space-sm border-t border-surface-container">
+                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-space-sm mt-space-sm pt-space-sm border-t border-surface-container">
                               <a
                                 href="/api/deadlines"
                                 target="_blank"
-                                className="bg-primary text-on-primary font-data-mono-sm text-data-mono-sm px-space-md py-space-xs rounded font-bold uppercase hover:bg-primary-fixed transition-colors"
+                                className="bg-primary text-on-primary font-data-mono-sm text-data-mono-sm px-space-md py-space-xs rounded font-bold uppercase hover:bg-primary-fixed transition-colors text-center justify-center"
                               >
                                 Export Full TeX Bundle
                               </a>
@@ -383,7 +383,7 @@ export default function DigestsPage() {
                                     `# Research Opportunity Radar Digest — Cycle ${cycle.cycleNumber}\n\n${cycle.executiveSummary}`
                                   )
                                 }
-                                className="bg-transparent text-on-surface font-data-mono-sm text-data-mono-sm px-space-md py-space-xs rounded uppercase hover:bg-surface-container-highest transition-colors border border-surface-container"
+                                className="bg-transparent text-on-surface font-data-mono-sm text-data-mono-sm px-space-md py-space-xs rounded uppercase hover:bg-surface-container-highest transition-colors border border-surface-container text-center justify-center"
                               >
                                 Copy Raw Markdown
                               </button>
@@ -400,12 +400,12 @@ export default function DigestsPage() {
         </div>
 
         {/* Terminal Endpoint Footer Bar */}
-        <div className="bg-surface-container-low p-space-md flex flex-col sm:flex-row items-center justify-between gap-space-md rounded border border-surface-container">
-          <div className="flex items-center gap-space-sm font-data-mono-sm text-data-mono-sm text-on-surface-variant font-mono">
-            <span className="material-symbols-outlined text-[16px] text-primary">terminal</span>
-            <span>INDEX ENDPOINT: ror://archive/digests/stream?cycles=39-43&amp;format=telem-md</span>
+        <div className="bg-surface-container-low p-space-sm sm:p-space-md flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-space-sm sm:gap-space-md rounded border border-surface-container">
+          <div className="flex items-center gap-space-sm font-data-mono-sm text-[11px] sm:text-data-mono-sm text-on-surface-variant font-mono truncate">
+            <span className="material-symbols-outlined text-[16px] text-primary shrink-0">terminal</span>
+            <span className="truncate">INDEX ENDPOINT: ror://archive/digests/stream?cycles=39-43</span>
           </div>
-          <button className="bg-surface-container hover:bg-surface-container-high text-on-surface font-data-mono-sm text-data-mono-sm px-space-md py-space-xs rounded uppercase transition-colors border border-surface-container-high">
+          <button className="bg-surface-container hover:bg-surface-container-high text-on-surface font-data-mono-sm text-data-mono-sm px-space-md py-space-xs rounded uppercase transition-colors border border-surface-container-high w-full sm:w-auto text-center shrink-0">
             Load Previous 20 Cycles
           </button>
         </div>

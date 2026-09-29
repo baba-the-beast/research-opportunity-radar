@@ -34,7 +34,7 @@ function VerifyEmailForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-12">
+    <div className="min-h-screen flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md bg-surface-container border border-outline-variant/30 rounded-xl p-8 shadow-2xl text-center">
         <div className="w-14 h-14 rounded-full bg-secondary-container/40 border border-secondary/40 flex items-center justify-center mx-auto mb-4">
           <span className="material-symbols-outlined text-secondary text-[30px]">mark_email_unread</span>
@@ -80,7 +80,7 @@ function VerifyEmailForm() {
 
 export default function VerifyEmailPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-background" />}>
+    <Suspense fallback={<div className="min-h-screen" />}>
       <VerifyEmailForm />
     </Suspense>
   );

@@ -112,20 +112,20 @@ export function AiCopilot() {
   return (
     <>
       {/* Floating Trigger Button */}
-      <div className="fixed bottom-6 right-6 z-50">
+      <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-40">
         <button
           onClick={() => setOpen(!open)}
-          className="flex items-center gap-2 px-4 py-3 rounded-full bg-primary text-on-primary font-bold shadow-2xl hover:bg-primary-fixed-dim hover:scale-105 transition-all border border-outline-variant/40"
+          className="flex items-center gap-2 px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-full bg-primary text-on-primary font-bold shadow-2xl hover:bg-primary-fixed-dim hover:scale-105 transition-all border border-outline-variant/40"
           title="Open AI Research Copilot"
         >
-          <span className="material-symbols-outlined text-[22px]">auto_awesome</span>
+          <span className="material-symbols-outlined text-[20px] sm:text-[22px]">auto_awesome</span>
           <span className="font-body-md text-body-md hidden sm:inline">Research Copilot</span>
         </button>
       </div>
 
       {/* Slide-out / Floating Panel */}
       {open && (
-        <div className="fixed bottom-20 right-6 z-50 w-full sm:w-[440px] max-h-[640px] h-[80vh] flex flex-col bg-surface-container border border-outline-variant/50 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-md">
+        <div className="fixed inset-x-2 sm:inset-x-auto sm:right-6 bottom-20 z-50 sm:w-[440px] max-h-[calc(100vh-6rem)] h-[75vh] flex flex-col bg-surface-container border border-outline-variant/50 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-md">
           {/* Copilot Header */}
           <div className="px-4 py-3.5 bg-surface-container-high border-b border-outline-variant/30 flex items-center justify-between">
             <div className="flex items-center gap-2.5">

@@ -41,7 +41,7 @@ describe('Multi-User SaaS Tenant Isolation & Security Tests', () => {
   });
 
   it('rejects unauthenticated requests to protected endpoints in production mode', async () => {
-    process.env.NODE_ENV = 'production';
+    (process.env as Record<string, string>).NODE_ENV = 'production';
     process.env.RADAR_API_SECRET = 'super-secret-operator-key';
     process.env.SUPABASE_URL = 'https://mock.supabase.co';
     process.env.SUPABASE_ANON_KEY = 'mock-anon-key';

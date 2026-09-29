@@ -12,6 +12,48 @@ from typing import Any
 
 from radar.models import FacultyProfile, Opportunity
 
+# Order matters in us_person_status(): an explicit negation ("Non-US citizen", "not a U.S. national")
+# must win over the U.S. match it contains, and "American" only counts on its own, not inside
+# "Latin American" / "South American". Plain substring checks previously also treated "Australian"
+# (contains "us") and "Indian Citizen" (contains "citizen") as U.S. persons.
+_US_TERM = r"(?:u\.?s\.?a?|united states|american)"
+_NEGATED_US_PATTERN = re.compile(rf"\b(?:non|not)(?:[\s-]+an?)?[\s-]*{_US_TERM}\b")
+_US_PERSON_PATTERNS = [
+    re.compile(p) for p in (
+        r"\bu\.?s\.?a?\b",            # US, U.S., USA
+        r"\bunited states\b",
+        r"(?<!latin )(?<!south )(?<!central )(?<!north )\bamerican\b",
+        r"\bgreen card\b",
+        r"\bsecurity clearance\b",   # U.S. clearances require U.S. citizenship
+        r"\b(dod|darpa)\b",
+    )
+]
+_NON_US_PATTERNS = [
+    re.compile(p) for p in (
+        r"\bforeign national\b",
+        r"\binternational\b",
+        r"\boci\b",
+        r"\b(indian|india|uk|british|canadian|chinese|german|french|australian|japanese)\b",
+        r"\b(latin|south|central) american\b",
+        r"\bnational of\b",
+        r"\bcitizen of\b",
+        r"\bvisa\b",
+    )
+]
+
+
+def us_person_status(citizenship: str) -> bool | None:
+    """True if the profile states U.S. citizenship/permanent residency, False if it states another
+    nationality or negates U.S. status, None if ambiguous (e.g. the schema default 'citizen')."""
+    text = (citizenship or "").lower()
+    if _NEGATED_US_PATTERN.search(text):
+        return False
+    if any(p.search(text) for p in _US_PERSON_PATTERNS):
+        return True
+    if any(p.search(text) for p in _NON_US_PATTERNS):
+        return False
+    return None
+
 
 @dataclass
 class ComplianceCheckResult:
@@ -153,10 +195,18 @@ class EligibilityAgent:
             "u.s. national or permanent resident", "us person only", "u.s. person only"
         ]
         is_us_restricted = any(pat in raw_text for pat in us_only_patterns)
-        faculty_is_us_or_pr = any(s in citizenship for s in ["us", "u.s.", "citizen", "permanent resident", "green card"])
+        us_person = us_person_status(citizenship)
 
         if is_us_restricted:
-            if faculty_is_us_or_pr:
+            if us_person is None:
+                checks.append(ComplianceCheckResult(
+                    rule_name="CITIZENSHIP_SECURITY_CLEARANCE",
+                    verdict="NEEDS_MANUAL_REVIEW",
+                    reason=f"Solicitation restricts proposals to U.S. persons; faculty citizenship '{citizenship}' does not say whether that is met.",
+                    solicitation_excerpt="Eligibility restricted to U.S. Citizens, U.S. Nationals, or lawful permanent residents."
+                ))
+                action_items.append("Set an explicit citizenship status in Profile Calibration to confirm U.S.-person eligibility.")
+            elif us_person:
                 checks.append(ComplianceCheckResult(
                     rule_name="CITIZENSHIP_SECURITY_CLEARANCE",
                     verdict="PASS",

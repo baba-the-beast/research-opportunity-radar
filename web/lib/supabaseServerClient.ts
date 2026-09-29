@@ -9,12 +9,21 @@ export function isSupabaseConfigured(): boolean {
  * Postgres Row Level Security (RLS) is strictly evaluated against auth.uid().
  */
 export function getSupabaseUserClient(authToken?: string): SupabaseClient {
-  const supabaseUrl = process.env.SUPABASE_URL || '';
-  const key = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+  const key = anonKey || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
   if (!supabaseUrl || !key) {
     throw new Error(
       'SUPABASE_CONFIGURATION_REQUIRED: SUPABASE_URL and SUPABASE_ANON_KEY must be configured.'
+    );
+  }
+
+  // With the service-role key as apikey, PostgREST only applies RLS when a user JWT overrides
+  // the Authorization header. Without one, this "user" client would silently bypass RLS.
+  if (!anonKey && !authToken) {
+    throw new Error(
+      'SUPABASE_CONFIGURATION_REQUIRED: SUPABASE_ANON_KEY must be configured to create a user client without a session token.'
     );
   }
 
@@ -49,8 +58,3 @@ export function getSupabaseAdminClient(): SupabaseClient {
     auth: { persistSession: false }
   });
 }
-
-/**
- * Backwards compatibility alias for getSupabaseAdminClient.
- */
-export const getSupabaseServerClient = getSupabaseAdminClient;

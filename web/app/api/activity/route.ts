@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseUserClient, getSupabaseAdminClient } from '@/lib/supabaseServerClient';
+import { getRequestSupabase, hasUserAccount, requireUserAccount } from '@/lib/routeContext';
 import { authenticateRequest, authorizeRole } from '@/lib/auth';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { z } from 'zod';
@@ -30,9 +30,7 @@ export async function GET(req: NextRequest) {
     const limit = Math.max(1, Math.min(isNaN(limitParam) ? 20 : limitParam, 50));
     const cursor = searchParams.get('cursor');
 
-    const supabase = auth.user?.isServiceRole
-      ? getSupabaseAdminClient()
-      : getSupabaseUserClient(auth.user?.token);
+    const supabase = getRequestSupabase(auth.user);
 
     // If client requested system run telemetry
     if (scope === 'system' || searchParams.get('format') === 'array') {
@@ -88,7 +86,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Default: User-scoped personal activity
-    if (!auth.user?.id) {
+    if (!hasUserAccount(auth.user) || !auth.user) {
       return createSuccessResponse({ data: [], pagination: { limit, next_cursor: null, has_more: false } }, req);
     }
 
@@ -139,9 +137,12 @@ export async function POST(req: NextRequest) {
       return createErrorResponse('VALIDATION_ERROR', 'Invalid activity payload', 400, req, parsed.error.issues);
     }
 
-    const supabase = auth.user.isServiceRole
-      ? getSupabaseAdminClient()
-      : getSupabaseUserClient(auth.user.token);
+    const noAccount = requireUserAccount(auth.user, req);
+    if (noAccount) {
+      return noAccount;
+    }
+
+    const supabase = getRequestSupabase(auth.user);
 
     const { data, error } = await supabase
       .from('user_activity')

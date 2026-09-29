@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
-import { getSupabaseUserClient, getSupabaseAdminClient } from '@/lib/supabaseServerClient';
+import { getOwnProfileId, getRequestSupabase, requireUserAccount, UUID_PATTERN } from '@/lib/routeContext';
 import { authenticateRequest, authorizeRole } from '@/lib/auth';
-import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
+import { consumeRateLimit, getClientIp } from '@/lib/rateLimit';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { z } from 'zod';
 
@@ -15,8 +15,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     // 1. Authentication
     const auth = await authenticateRequest(req);
-    if (!auth.authenticated) {
+    if (!auth.authenticated || !auth.user?.id) {
       return auth.errorResponse!;
+    }
+
+    const noAccount = requireUserAccount(auth.user, req);
+    if (noAccount) {
+      return noAccount;
     }
 
     // 2. Authorization
@@ -27,7 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     // 3. Sanitized Rate Limiting
     const ip = getClientIp(req);
-    const rateCheck = checkRateLimit(`status_${ip}`, 20, 60000);
+    const rateCheck = await consumeRateLimit(`status_${ip}`, 20, 60000);
     if (!rateCheck.allowed) {
       return createErrorResponse(
         'RATE_LIMIT_EXCEEDED',
@@ -38,7 +43,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     const id = params?.id?.trim();
-    if (!id || !/^[a-zA-Z0-9_\-\.]{1,64}$/.test(id)) {
+    if (!id || !UUID_PATTERN.test(id)) {
       return createErrorResponse('INVALID_IDENTIFIER', 'Invalid opportunity identifier format', 400, req);
     }
 
@@ -48,89 +53,62 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return createErrorResponse('VALIDATION_ERROR', 'Invalid status payload', 400, req, parsed.error.issues);
     }
 
-    // Use admin client if operator or user client if authenticated user
-    const supabase = auth.user?.isServiceRole
-      ? getSupabaseAdminClient()
-      : getSupabaseUserClient(auth.user?.token);
+    const supabase = getRequestSupabase(auth.user);
 
-    // Lookup faculty profile associated with user
-    let profQuery = supabase.from('faculty_profile').select('id');
-    if (auth.user?.id && auth.user.role === 'faculty') {
-      profQuery = profQuery.eq('user_id', auth.user.id);
-    }
-    const { data: profs } = await profQuery.limit(1);
-    const prof = profs?.[0];
-
-    if (!prof) {
-      return createErrorResponse('NOT_FOUND', 'Faculty profile not found for authenticated user', 404, req);
-    }
-
-    // Upsert into multi-user user_opportunity_state
-    if (auth.user?.id) {
-      try {
-        await supabase
-          .from('user_opportunity_state')
-          .upsert({
-            user_id: auth.user.id,
-            opportunity_id: id,
-            status: parsed.data.status,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'user_id,opportunity_id' });
-
-        // Record user activity audit event
-        await supabase.from('user_activity').insert({
-          user_id: auth.user.id,
-          event_type: 'status_change',
-          title: `Marked Opportunity as ${parsed.data.status.toUpperCase()}`,
-          description: `Investigator transitioned opportunity ${id} to ${parsed.data.status}.`,
-          metadata: { opportunity_id: id, new_status: parsed.data.status }
-        });
-      } catch {
-        // Tolerant if table not migrated yet
-      }
+    // Per-user tracking state. (The legacy opportunity_status table is keyed by opportunity_id
+    // alone, so writing it let one user's status overwrite another's; it is no longer used.)
+    const { error: stateErr } = await supabase
+      .from('user_opportunity_state')
+      .upsert({
+        user_id: auth.user!.id,
+        opportunity_id: id,
+        status: parsed.data.status,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id,opportunity_id' });
+    if (stateErr) {
+      return createErrorResponse('DATABASE_ERROR', stateErr.message, 500, req);
     }
 
-    // Maintain legacy opportunity_status table compatibility
-    if (prof) {
-      const { error } = await supabase
-        .from('opportunity_status')
-        .upsert({
-          opportunity_id: id,
-          faculty_id: prof.id,
-          status: parsed.data.status,
-          updated_at: new Date().toISOString(),
-          updated_by: auth.user?.role || 'faculty'
-        }, { onConflict: 'opportunity_id' });
-
-      if (error && !auth.user?.id) {
-        return createErrorResponse('DATABASE_ERROR', error.message, 500, req);
-      }
+    const { error: activityErr } = await supabase.from('user_activity').insert({
+      user_id: auth.user!.id,
+      event_type: 'status_change',
+      title: `Marked Opportunity as ${parsed.data.status.toUpperCase()}`,
+      description: `Investigator transitioned opportunity ${id} to ${parsed.data.status}.`,
+      metadata: { opportunity_id: id, new_status: parsed.data.status }
+    });
+    if (activityErr) {
+      console.error('user_activity insert failed:', activityErr.message);
     }
 
-    // Feedback loop: If faculty dismisses the opportunity, record as not_relevant
+    // Feedback loop: a dismissal becomes a not_relevant signal for this faculty's own scoring
     if (parsed.data.status === 'dismissed') {
-      let negativeTerms = parsed.data.negative_terms || [];
-      if (negativeTerms.length === 0) {
-        const { data: oppData } = await supabase
-          .from('opportunities')
-          .select('title, summary')
-          .eq('id', params.id)
-          .single();
-        if (oppData?.title) {
-          const words = oppData.title.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w: string) => w.length > 3);
-          const stopWords = new Set(['with', 'from', 'this', 'that', 'call', 'proposals', 'special', 'issue', 'journal', 'research']);
-          negativeTerms = Array.from(new Set(words.filter((w: string) => !stopWords.has(w)))).slice(0, 5) as string[];
+      const profileId = await getOwnProfileId(supabase, auth.user);
+      if (profileId) {
+        let negativeTerms = parsed.data.negative_terms || [];
+        if (negativeTerms.length === 0) {
+          const { data: oppData } = await supabase
+            .from('opportunities')
+            .select('title')
+            .eq('id', id)
+            .single();
+          if (oppData?.title) {
+            const words = oppData.title.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w: string) => w.length > 3);
+            const stopWords = new Set(['with', 'from', 'this', 'that', 'call', 'proposals', 'special', 'issue', 'journal', 'research']);
+            negativeTerms = Array.from(new Set(words.filter((w: string) => !stopWords.has(w)))).slice(0, 5) as string[];
+          }
+        }
+
+        const { error: fbErr } = await supabase.from('feedback').insert({
+          opportunity_id: id,
+          faculty_id: profileId,
+          rating: 'not_relevant',
+          feedback_text: parsed.data.feedback_text || 'Dismissed by faculty',
+          negative_terms: negativeTerms
+        });
+        if (fbErr) {
+          return createErrorResponse('DATABASE_ERROR', fbErr.message, 500, req);
         }
       }
-
-      await supabase.from('feedback').insert({
-        opportunity_id: params.id,
-        faculty_id: prof.id,
-        rating: 'not_relevant',
-        feedback_text: parsed.data.feedback_text || 'Dismissed by faculty',
-        negative_terms: negativeTerms,
-        created_at: new Date().toISOString()
-      });
     }
 
     return createSuccessResponse({ status: parsed.data.status }, req);

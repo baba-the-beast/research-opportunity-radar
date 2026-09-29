@@ -130,6 +130,7 @@ drop policy if exists "chat_sessions_owner_all" on chat_sessions;
 drop policy if exists "chat_messages_owner_all" on chat_messages;
 
 -- A. User Preferences: Users can manage strictly their own preferences
+drop policy if exists "user_preferences_owner_all" on user_preferences;
 create policy "user_preferences_owner_all"
   on user_preferences for all
   to authenticated
@@ -137,6 +138,7 @@ create policy "user_preferences_owner_all"
   with check (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'));
 
 -- B. User Opportunity State: Strict per-user tracking & bookmark isolation
+drop policy if exists "user_opportunity_state_owner_all" on user_opportunity_state;
 create policy "user_opportunity_state_owner_all"
   on user_opportunity_state for all
   to authenticated
@@ -144,6 +146,7 @@ create policy "user_opportunity_state_owner_all"
   with check (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'));
 
 -- C. User Activity: Users can only read and append to their own activity log
+drop policy if exists "user_activity_owner_all" on user_activity;
 create policy "user_activity_owner_all"
   on user_activity for all
   to authenticated
@@ -151,6 +154,7 @@ create policy "user_activity_owner_all"
   with check (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'));
 
 -- D. Chat Sessions: Strict per-user AI conversation isolation
+drop policy if exists "chat_sessions_owner_all" on chat_sessions;
 create policy "chat_sessions_owner_all"
   on chat_sessions for all
   to authenticated
@@ -158,6 +162,7 @@ create policy "chat_sessions_owner_all"
   with check (user_id = auth.uid() or auth.jwt() ->> 'role' in ('admin', 'service_role'));
 
 -- E. Chat Messages: Strict per-user AI message isolation
+drop policy if exists "chat_messages_owner_all" on chat_messages;
 create policy "chat_messages_owner_all"
   on chat_messages for all
   to authenticated

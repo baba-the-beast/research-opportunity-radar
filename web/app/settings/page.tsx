@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTheme } from '@/components/ThemeProvider';
 import { getSupabaseBrowserClient } from '@/lib/supabaseBrowserClient';
+import { TelegramConnect } from '@/components/TelegramConnect';
 
 interface SettingsData {
   theme: 'light' | 'dark' | 'system';
@@ -74,7 +75,8 @@ export default function SettingsPage() {
       const res = await fetch('/api/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings)
+        // telegram_chat_id is linked by the bot (Connect Telegram), never saved from this form
+        body: JSON.stringify({ ...settings, telegram_chat_id: undefined })
       });
 
       const data = await res.json();
@@ -320,19 +322,11 @@ export default function SettingsPage() {
               />
             </label>
 
-            {settings.telegram_alerts && (
-              <div className="p-3.5 rounded-lg bg-surface-container-high border border-outline-variant/40 space-y-2">
-                <label className="font-label-caps text-label-caps text-on-surface-variant uppercase">
-                  Telegram Chat ID
-                </label>
-                <input
-                  type="text"
-                  value={settings.telegram_chat_id || ''}
-                  onChange={(e) => setSettings({ ...settings, telegram_chat_id: e.target.value.trim() || null })}
-                  placeholder="@your_telegram_id or numeric ID"
-                  className="w-full px-3.5 py-2 rounded-lg bg-surface-container-lowest border border-outline-variant/40 text-on-surface text-body-sm"
-                />
-              </div>
+            {(settings.telegram_alerts || settings.telegram_chat_id) && (
+              <TelegramConnect
+                connected={Boolean(settings.telegram_chat_id)}
+                onConnectionChange={(update) => setSettings((prev) => ({ ...prev, ...update }))}
+              />
             )}
 
             <div className="p-3.5 rounded-lg bg-surface-container-lowest border border-outline-variant/30 space-y-2">

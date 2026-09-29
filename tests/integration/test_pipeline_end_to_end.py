@@ -11,7 +11,7 @@ def test_pipeline_dry_run_mocked(mock_grants, mock_cr, mock_oa, mock_get_client)
     mock_client = MagicMock()
     mock_get_client.return_value = mock_client
     mock_client.table().insert().execute.return_value.data = [{"id": "run-123"}]
-    mock_client.table().select().limit().execute.return_value.data = [{
+    mock_client.table().select().order().execute.return_value.data = [{
         "id": "prof-123",
         "full_name": "Dr. Vibha",
         "institution": "COEP",
@@ -44,7 +44,7 @@ def test_pipeline_dry_run_skips_database_writes(
     mock_client = MagicMock()
     mock_get_client.return_value = mock_client
     mock_client.table().insert().execute.return_value.data = [{"id": "run-dry"}]
-    mock_client.table().select().limit().execute.return_value.data = [{
+    mock_client.table().select().order().execute.return_value.data = [{
         "id": "prof-123",
         "full_name": "Dr. Vibha",
         "institution": "COEP",
@@ -80,7 +80,7 @@ def test_pipeline_suppress_alerts_writes_db_but_skips_notify(
     mock_client = MagicMock()
     mock_get_client.return_value = mock_client
     mock_client.table().insert().execute.return_value.data = [{"id": "run-suppress"}]
-    mock_client.table().select().limit().execute.return_value.data = [{
+    mock_client.table().select().order().execute.return_value.data = [{
         "id": "prof-123",
         "full_name": "Dr. Vibha",
         "institution": "COEP",

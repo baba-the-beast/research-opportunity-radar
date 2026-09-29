@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { isSupabaseConfigured, getSupabaseServerClient } from '../lib/supabaseServerClient';
+import { isSupabaseConfigured, getSupabaseAdminClient } from '../lib/supabaseServerClient';
 
 describe('Supabase Configuration Utility', () => {
   const originalUrl = process.env.SUPABASE_URL;
@@ -22,9 +22,9 @@ describe('Supabase Configuration Utility', () => {
     expect(isSupabaseConfigured()).toBe(true);
   });
 
-  it('throws descriptive configuration error when calling getSupabaseServerClient unconfigured', () => {
+  it('throws descriptive configuration error when calling getSupabaseAdminClient unconfigured', () => {
     delete process.env.SUPABASE_URL;
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-    expect(() => getSupabaseServerClient()).toThrow(/SUPABASE_CONFIGURATION_REQUIRED/);
+    expect(() => getSupabaseAdminClient()).toThrow(/SUPABASE_CONFIGURATION_REQUIRED/);
   });
 });

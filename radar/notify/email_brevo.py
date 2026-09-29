@@ -1,11 +1,15 @@
 """Brevo transactional email notification provider."""
+import html
+
 import requests
 
 from radar import config
 
 
-def send(subject: str, markdown_text: str) -> None:
-    if not config.BREVO_API_KEY or not config.BREVO_SENDER_EMAIL or not config.BREVO_RECIPIENT_EMAIL:
+def send(subject: str, markdown_text: str, recipient: str | None = None) -> None:
+    """Send to recipient, or to the operator-wide BREVO_RECIPIENT_EMAIL when none is given."""
+    to_email = recipient or config.BREVO_RECIPIENT_EMAIL
+    if not config.BREVO_API_KEY or not config.BREVO_SENDER_EMAIL or not to_email:
         return
 
     url = "https://api.brevo.com/v3/smtp/email"
@@ -14,12 +18,12 @@ def send(subject: str, markdown_text: str) -> None:
         "Content-Type": "application/json"
     }
 
-    # Convert simple markdown headers/bullet to basic html
-    html_content = f"<html><body><pre style='font-family: sans-serif;'>{markdown_text}</pre></body></html>"
+    # Escape: digest text includes scraped titles/summaries
+    html_content = f"<html><body><pre style='font-family: sans-serif;'>{html.escape(markdown_text)}</pre></body></html>"
 
     payload = {
         "sender": {"email": config.BREVO_SENDER_EMAIL, "name": "Research Radar"},
-        "to": [{"email": config.BREVO_RECIPIENT_EMAIL}],
+        "to": [{"email": to_email}],
         "subject": subject,
         "htmlContent": html_content
     }

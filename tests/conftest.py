@@ -124,6 +124,18 @@ def setup_test_env(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_real_alert_delivery(monkeypatch):
+    """radar.config loads the developer's .env, so without this unit tests would post to the real
+    Telegram chat / Brevo inbox (and log the bot token on failure). Tests that exercise delivery set
+    these explicitly and mock the HTTP call."""
+    from radar import config
+    for name in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "BREVO_API_KEY", "BREVO_RECIPIENT_EMAIL"):
+        monkeypatch.setattr(config, name, "", raising=False)
+    for name in ("WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_ACCESS_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def hermetic_robots_mock(monkeypatch):
     """
     Enforces hermetic tests by preventing unmocked live network requests to /robots.txt.

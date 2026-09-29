@@ -3,12 +3,14 @@
 import { useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { safeRedirectPath } from '@/lib/safeRedirect';
 import { getSupabaseBrowserClient } from '@/lib/supabaseBrowserClient';
 
 function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get('next') || '/';
+  // Validated: `next` comes from the URL and must never send a freshly signed-in user off-site
+  const next = safeRedirectPath(searchParams.get('next'));
 
   const [fullName, setFullName] = useState('');
   const [institution, setInstitution] = useState('');
@@ -102,7 +104,7 @@ function RegisterForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-12">
+    <div className="min-h-screen flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-lg bg-surface-container border border-outline-variant/30 rounded-xl p-8 shadow-2xl backdrop-blur-sm">
         <div className="flex flex-col items-center text-center mb-8">
           <div className="w-12 h-12 rounded-full bg-surface-container-high border border-primary/40 flex items-center justify-center mb-3">
@@ -260,7 +262,7 @@ function RegisterForm() {
 
 export default function RegisterPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-background" />}>
+    <Suspense fallback={<div className="min-h-screen" />}>
       <RegisterForm />
     </Suspense>
   );

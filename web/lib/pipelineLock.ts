@@ -1,104 +1,35 @@
 import { getSupabaseAdminClient, isSupabaseConfigured } from './supabaseServerClient';
 
-interface LockRecord {
-  lock_key: string;
-  locked_by: string;
-  expires_at: string;
+/**
+ * Lease key taken by the Python orchestrator (radar/orchestrator/pipeline.py). The Python process
+ * owns the lock for the whole run, whether it was started by cron, GitHub Actions, or the stream
+ * route, so the web tier only reads it to fail fast instead of taking a second, uncoordinated lock.
+ */
+export const PIPELINE_LOCK_KEY = 'radar_pipeline_global';
+
+export interface ActivePipelineLock {
+  lockedBy: string;
+  expiresAt: string;
 }
 
-// In-memory fallback for test / local standalone environments
-const inMemoryLocks = new Map<string, { locked_by: string; expires_at: number }>();
-
-/**
- * Attempts to acquire a database-backed distributed lock with lease expiration.
- * Prevents concurrent overlapping pipeline executions across processes and hosts.
- */
-export async function acquirePipelineLock(
-  lockKey: string = 'pipeline_main',
-  lockedBy: string = 'worker',
-  ttlSeconds: number = 900
-): Promise<{ acquired: boolean; currentHolder?: string; expiresAt?: string }> {
-  const now = Date.now();
-  const expiresAtMs = now + ttlSeconds * 1000;
-  const expiresAtIso = new Date(expiresAtMs).toISOString();
-
+/** The unexpired lease on the pipeline, or null if no run is in progress. */
+export async function getActivePipelineLock(
+  lockKey: string = PIPELINE_LOCK_KEY
+): Promise<ActivePipelineLock | null> {
   if (!isSupabaseConfigured()) {
-    const existing = inMemoryLocks.get(lockKey);
-    if (existing && existing.expires_at > now) {
-      return {
-        acquired: false,
-        currentHolder: existing.locked_by,
-        expiresAt: new Date(existing.expires_at).toISOString()
-      };
-    }
-    inMemoryLocks.set(lockKey, { locked_by: lockedBy, expires_at: expiresAtMs });
-    return { acquired: true, currentHolder: lockedBy, expiresAt: expiresAtIso };
+    return null;
   }
 
-  try {
-    const supabase = getSupabaseAdminClient();
+  const supabase = getSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from('pipeline_locks')
+    .select('locked_by, expires_at')
+    .eq('lock_key', lockKey)
+    .gt('expires_at', new Date().toISOString())
+    .maybeSingle();
 
-    // 1. Inspect existing lock
-    const { data: existing } = await supabase
-      .from('pipeline_locks')
-      .select('*')
-      .eq('lock_key', lockKey)
-      .single();
-
-    if (existing && new Date(existing.expires_at).getTime() > now) {
-      return {
-        acquired: false,
-        currentHolder: existing.locked_by,
-        expiresAt: existing.expires_at
-      };
-    }
-
-    // 2. Insert or update expired lease
-    const { error } = await supabase
-      .from('pipeline_locks')
-      .upsert({
-        lock_key: lockKey,
-        locked_at: new Date(now).toISOString(),
-        locked_by: lockedBy,
-        expires_at: expiresAtIso
-      }, { onConflict: 'lock_key' });
-
-    if (error) {
-      return { acquired: false, currentHolder: 'unknown' };
-    }
-
-    return { acquired: true, currentHolder: lockedBy, expiresAt: expiresAtIso };
-  } catch {
-    return { acquired: false, currentHolder: 'db_error' };
+  if (error) {
+    throw new Error(`pipeline_locks lookup failed: ${error.message}`);
   }
-}
-
-/**
- * Releases the distributed lock when pipeline execution concludes.
- */
-export async function releasePipelineLock(
-  lockKey: string = 'pipeline_main',
-  lockedBy: string = 'worker'
-): Promise<boolean> {
-  if (!isSupabaseConfigured()) {
-    const existing = inMemoryLocks.get(lockKey);
-    if (existing && existing.locked_by === lockedBy) {
-      inMemoryLocks.delete(lockKey);
-      return true;
-    }
-    return false;
-  }
-
-  try {
-    const supabase = getSupabaseAdminClient();
-    await supabase
-      .from('pipeline_locks')
-      .delete()
-      .eq('lock_key', lockKey)
-      .eq('locked_by', lockedBy);
-    return true;
-  } catch (err) {
-    console.error(`Failed to release pipeline lock '${lockKey}':`, err);
-    return false;
-  }
+  return data ? { lockedBy: data.locked_by, expiresAt: data.expires_at } : null;
 }
