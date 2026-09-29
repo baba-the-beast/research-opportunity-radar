@@ -14,8 +14,20 @@ const PUBLIC_EXACT_PATHS = new Set([
   '/api/health/live',
   '/api/health/ready',
   '/api/health/deps',
-  '/api/config/health'
+  // Lets the config banner explain a misconfigured deployment before anyone can sign in
+  '/api/config/status'
 ]);
+
+/** Constant-time string comparison (Edge runtime has no crypto.timingSafeEqual). */
+function secretsMatch(provided: string, expected: string): boolean {
+  const a = new TextEncoder().encode(provided);
+  const b = new TextEncoder().encode(expected);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < b.length; i++) {
+    diff |= (a[i % (a.length || 1)] ?? 0) ^ b[i];
+  }
+  return diff === 0;
+}
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -96,7 +108,6 @@ export async function middleware(req: NextRequest) {
   const isPublic =
     PUBLIC_EXACT_PATHS.has(pathname) ||
     pathname.startsWith('/api/health') ||
-    pathname.startsWith('/api/config/health') ||
     // Telegram has no user session; the route authenticates it with the webhook secret header
     (pathname === '/api/telegram/webhook' && req.method === 'POST') ||
     (pathname === '/api/opportunities' && req.method === 'GET') ||
@@ -123,8 +134,9 @@ export async function middleware(req: NextRequest) {
       const secretHeader = req.headers.get('x-radar-secret');
       const authHeader = req.headers.get('authorization') || '';
       if (
-        (secretHeader && operatorSecret && secretHeader === operatorSecret) ||
-        (authHeader.startsWith('Bearer ') && operatorSecret && authHeader.slice(7).trim() === operatorSecret)
+        operatorSecret &&
+        ((secretHeader && secretsMatch(secretHeader, operatorSecret)) ||
+          (authHeader.startsWith('Bearer ') && secretsMatch(authHeader.slice(7).trim(), operatorSecret)))
       ) {
         return response;
       }

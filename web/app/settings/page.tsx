@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useTheme } from '@/components/ThemeProvider';
 import { getSupabaseBrowserClient } from '@/lib/supabaseBrowserClient';
 import { TelegramConnect } from '@/components/TelegramConnect';
+import { DEFAULT_SOURCES, SOURCE_OPTIONS } from '@/lib/sources';
 
 interface SettingsData {
   theme: 'light' | 'dark' | 'system';
@@ -14,7 +15,7 @@ interface SettingsData {
   telegram_alerts: boolean;
   telegram_chat_id: string | null;
   digest_frequency: 'daily' | 'weekly' | 'never';
-  auto_summarize: boolean;
+  preferred_sources: string[];
 }
 
 export default function SettingsPage() {
@@ -28,7 +29,7 @@ export default function SettingsPage() {
     telegram_alerts: false,
     telegram_chat_id: null,
     digest_frequency: 'weekly',
-    auto_summarize: true
+    preferred_sources: DEFAULT_SOURCES
   });
 
   const [user, setUser] = useState<{ id: string; email?: string; name?: string } | null>(null);
@@ -58,7 +59,7 @@ export default function SettingsPage() {
       .then((res) => res.json())
       .then((data) => {
         if (data?.data) {
-          setSettings(data.data);
+          setSettings((prev) => ({ ...prev, ...data.data, preferred_sources: data.data.preferred_sources?.length ? data.data.preferred_sources : DEFAULT_SOURCES }));
         }
         setLoading(false);
       })
@@ -67,6 +68,10 @@ export default function SettingsPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!settings.preferred_sources.length) {
+      setErrorMessage('Choose at least one source.');
+      return;
+    }
     setSaving(true);
     setSaveSuccess(false);
     setErrorMessage(null);
@@ -76,7 +81,14 @@ export default function SettingsPage() {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         // telegram_chat_id is linked by the bot (Connect Telegram), never saved from this form
-        body: JSON.stringify({ ...settings, telegram_chat_id: undefined })
+        body: JSON.stringify({
+          theme: settings.theme,
+          min_score: settings.min_score,
+          email_alerts: settings.email_alerts,
+          telegram_alerts: settings.telegram_alerts,
+          digest_frequency: settings.digest_frequency === 'daily' ? 'weekly' : settings.digest_frequency,
+          preferred_sources: settings.preferred_sources
+        })
       });
 
       const data = await res.json();
@@ -241,6 +253,51 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* Sources */}
+        <div className="bg-surface-container border border-outline-variant/30 rounded-xl p-6 space-y-4">
+          <div className="flex items-center gap-3 pb-3 border-b border-outline-variant/20">
+            <span className="material-symbols-outlined text-primary text-[22px]">travel_explore</span>
+            <div>
+              <h2 className="font-headline-sm text-body-lg font-bold text-on-surface">Sources</h2>
+              <p className="font-body-sm text-body-sm text-on-surface-variant">
+                Where your digests come from. Indian agencies and calls for papers are on by default; US sources are mostly for US institutions.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+            {SOURCE_OPTIONS.map((source) => {
+              const checked = settings.preferred_sources.includes(source.id);
+              return (
+                <label
+                  key={source.id}
+                  className="flex items-start gap-3 p-3.5 rounded-lg bg-surface-container-lowest border border-outline-variant/30 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        preferred_sources: e.target.checked
+                          ? [...settings.preferred_sources, source.id]
+                          : settings.preferred_sources.filter((id) => id !== source.id)
+                      })
+                    }
+                    className="w-5 h-5 mt-0.5 accent-primary rounded"
+                  />
+                  <span>
+                    <span className="font-bold text-on-surface text-body-md block">
+                      {source.label}
+                      {source.region === 'us' && <span className="ml-2 text-[11px] font-normal text-on-surface-variant">US</span>}
+                    </span>
+                    <span className="font-body-sm text-body-sm text-on-surface-variant">{source.description}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Section 2: Relevance Calibration Threshold */}
         <div className="bg-surface-container border border-outline-variant/30 rounded-xl p-6 space-y-4">
           <div className="flex items-center gap-3 pb-3 border-b border-outline-variant/20">
@@ -286,7 +343,7 @@ export default function SettingsPage() {
                 Alert Channels & Digest Schedule
               </h2>
               <p className="font-body-sm text-body-sm text-on-surface-variant">
-                Configure when and where the observatory dispatches deadline updates
+                Digests are sent after each scheduled scan (Monday and Thursday mornings, IST)
               </p>
             </div>
           </div>
@@ -311,7 +368,7 @@ export default function SettingsPage() {
               <div>
                 <span className="font-bold text-on-surface text-body-md block">Telegram Bot Alerts</span>
                 <span className="font-body-sm text-body-sm text-on-surface-variant">
-                  Receive immediate push alerts on verified opportunity changes.
+                  Digests and 3-day deadline warnings in Telegram.
                 </span>
               </div>
               <input
@@ -334,13 +391,12 @@ export default function SettingsPage() {
                 Digest Frequency
               </label>
               <select
-                value={settings.digest_frequency}
+                value={settings.digest_frequency === 'daily' ? 'weekly' : settings.digest_frequency}
                 onChange={(e) => setSettings({ ...settings, digest_frequency: e.target.value as any })}
                 className="w-full px-3.5 py-2.5 rounded-lg bg-surface-container border border-outline-variant/40 text-on-surface text-body-sm focus:outline-none"
               >
-                <option value="daily">Daily Horizon Digest</option>
-                <option value="weekly">Weekly Observatory Digest (Recommended)</option>
-                <option value="never">Never (Mute scheduled digests)</option>
+                <option value="weekly">After every scan (twice a week)</option>
+                <option value="never">Never (deadline alerts only)</option>
               </select>
             </div>
           </div>

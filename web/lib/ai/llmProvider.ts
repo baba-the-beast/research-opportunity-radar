@@ -44,27 +44,44 @@ export async function runCopilotTurn(
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
 
+  // Tools a provider already ran this turn. If it then fails, the turn is NOT replayed on the next
+  // provider: that would run actions such as saveOpportunity twice.
+  const executedTools: ExecutedTool[] = [];
+
   // 1. Google Gemini Provider
   if (geminiKey) {
     try {
-      return await runGeminiCopilot(messages, ctx, geminiKey);
+      return await runGeminiCopilot(messages, ctx, geminiKey, executedTools);
     } catch (err: any) {
       // Loud on purpose: a retired model or bad key otherwise degrades silently to the heuristic engine
       console.error(`[Copilot] Gemini (${GEMINI_MODEL()}) failed, falling back:`, err.message);
+      if (executedTools.length) return partialTurn(executedTools);
     }
   }
 
   // 2. OpenAI Provider
   if (openaiKey) {
     try {
-      return await runOpenAICopilot(messages, ctx, openaiKey);
+      return await runOpenAICopilot(messages, ctx, openaiKey, executedTools);
     } catch (err: any) {
       console.error(`[Copilot] OpenAI (${OPENAI_MODEL()}) failed, falling back:`, err.message);
+      if (executedTools.length) return partialTurn(executedTools);
     }
   }
 
   // 3. Offline heuristic engine
   return runOfflineAcademicCopilot(messages, ctx);
+}
+
+/** The model failed after running tools: report what was done instead of re-running the turn. */
+function partialTurn(executedTools: ExecutedTool[]): CopilotGenerationResult {
+  const done = executedTools
+    .map((t) => `- \`${t.name}\`${t.result?.error ? ` (failed: ${t.result.error})` : ''}`)
+    .join('\n');
+  return {
+    text: `The assistant stopped before it could finish its answer. These steps were already carried out:\n\n${done}\n\nPlease ask again for the summary.`,
+    executedTools
+  };
 }
 
 async function postJson(url: string, headers: Record<string, string>, body: unknown): Promise<any> {
@@ -86,10 +103,9 @@ async function postJson(url: string, headers: Record<string, string>, body: unkn
 async function runGeminiCopilot(
   messages: ChatMessage[],
   ctx: ToolContext,
-  apiKey: string
+  apiKey: string,
+  executedTools: ExecutedTool[]
 ): Promise<CopilotGenerationResult> {
-  const executedTools: ExecutedTool[] = [];
-
   const functionDeclarations = COPILOT_TOOLS.map((tool) => ({
     name: tool.name,
     description: tool.description,
@@ -123,7 +139,9 @@ async function runGeminiCopilot(
       systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
       // No tools on the last round, so the model must answer with the results it already has
       ...(finalRound ? {} : { tools: [{ functionDeclarations }] }),
-      generationConfig: { temperature: 0.2, maxOutputTokens: 1024 }
+      // Gemini 2.5 "thinking" tokens count against maxOutputTokens and could leave no visible text;
+      // this assistant doesn't need them
+      generationConfig: { temperature: 0.2, maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } }
     });
 
     const modelContent = data.candidates?.[0]?.content;
@@ -155,10 +173,9 @@ async function runGeminiCopilot(
 async function runOpenAICopilot(
   messages: ChatMessage[],
   ctx: ToolContext,
-  apiKey: string
+  apiKey: string,
+  executedTools: ExecutedTool[]
 ): Promise<CopilotGenerationResult> {
-  const executedTools: ExecutedTool[] = [];
-
   const openAiTools = COPILOT_TOOLS.map((t) => ({
     type: 'function',
     function: { name: t.name, description: t.description, parameters: t.parameters }

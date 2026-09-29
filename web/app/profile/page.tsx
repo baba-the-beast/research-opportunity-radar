@@ -9,30 +9,67 @@ interface ProfileTermItem {
   polarity: 'positive' | 'negative';
 }
 
-const DEFAULT_PROFILE = {
-  full_name: 'Dr. Vibha',
-  institution: 'COEP Technological University',
-  department: 'Dept. of Computer Engineering',
-  career_stage: 'Assistant Professor',
-  phd_year: 2021,
-  institution_type: 'R1 Doctoral University (IHE)',
-  citizenship_status: 'US Citizen or Permanent Resident',
-  research_keywords: ['graph neural networks', 'fraud detection', 'edge AI', 'cyber-physical systems', 'sensor fusion'],
-  profile_text: 'Research focused on graph neural networks, financial fraud detection models, deterministic inference, distributed consensus, and edge AI sensor fusion in resource-constrained cyber-physical systems.',
+const EMPTY_PROFILE = {
+  id: null as string | null,
+  full_name: '',
+  institution: '',
+  department: '',
+  designation: '',
+  employment_type: '',
+  date_of_birth: '',
+  superannuation_year: null as number | null,
+  state: '',
+  phd_year: null as number | null,
+  institution_type: '',
+  citizenship_status: '',
+  research_keywords: [] as string[],
+  profile_text: '',
   min_relevance_band: 'watch',
-  profile_terms: [
-    { term: 'sensor fusion', term_type: 'method' as const, weight: 0.95, polarity: 'positive' as const },
-    { term: 'cyber-physical systems', term_type: 'topic' as const, weight: 0.90, polarity: 'positive' as const },
-    { term: 'edge AI', term_type: 'application' as const, weight: 0.85, polarity: 'positive' as const },
-    { term: 'autonomous systems', term_type: 'topic' as const, weight: 0.80, polarity: 'positive' as const },
-    { term: 'cryptocurrency', term_type: 'topic' as const, weight: 0.75, polarity: 'negative' as const },
-    { term: 'survey / review', term_type: 'venue' as const, weight: 0.60, polarity: 'negative' as const }
-  ]
+  deadline_alert_window_days: 30,
+  profile_terms: [] as ProfileTermItem[]
 };
 
+const DESIGNATIONS = [
+  'Assistant Professor',
+  'Associate Professor',
+  'Professor',
+  'Scientist / Research Scientist',
+  'Postdoctoral / Research Fellow',
+  'Other'
+];
+
+const INSTITUTION_TYPES = [
+  'IIT / NIT / IISER / IIIT / IISc',
+  'Central University',
+  'State University',
+  'Deemed / Private University',
+  'Affiliated College',
+  'National Lab / Research Institute (CSIR, ICMR, DRDO, ...)',
+  'Institution outside India'
+];
+
+const CITIZENSHIP = ['Indian citizen', 'OCI / PIO card holder', 'Foreign national', 'US Citizen or Permanent Resident'];
+
+const STATES = [
+  'Andaman and Nicobar Islands', 'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chandigarh', 'Chhattisgarh',
+  'Dadra and Nagar Haveli and Daman and Diu', 'Delhi', 'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jammu and Kashmir',
+  'Jharkhand', 'Karnataka', 'Kerala', 'Ladakh', 'Lakshadweep', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya',
+  'Mizoram', 'Nagaland', 'Odisha', 'Puducherry', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura',
+  'Uttar Pradesh', 'Uttarakhand', 'West Bengal', 'Outside India'
+];
+
+function keywordsFromText(text: string): string[] {
+  return text
+    .split(/[,;\n]/)
+    .map((k) => k.trim())
+    .filter(Boolean);
+}
+
 export default function ProfilePage() {
-  const [profile, setProfile] = useState<any>(DEFAULT_PROFILE);
-  const [loading, setLoading] = useState(false);
+  const [profile, setProfile] = useState<any>(EMPTY_PROFILE);
+  const [loading, setLoading] = useState(true);
+  const [saveMessage, setSaveMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [keywordsText, setKeywordsText] = useState('');
   const [saving, setSaving] = useState(false);
   const [newTerm, setNewTerm] = useState('');
   const [newType, setNewType] = useState<'topic' | 'method' | 'application' | 'venue' | 'funding_theme'>('topic');
@@ -59,13 +96,14 @@ export default function ProfilePage() {
         full_name: data.full_name || prev.full_name,
         institution: data.institution || prev.institution,
         department: data.department || prev.department,
-        career_stage: data.career_stage === 'early_career' ? 'Assistant Professor' : (data.career_stage === 'senior' ? 'Full Professor' : 'Associate Professor'),
+        designation: prev.designation || (data.career_stage === 'early_career' ? 'Assistant Professor' : data.career_stage === 'senior' ? 'Professor' : 'Associate Professor'),
         phd_year: data.phd_year || prev.phd_year,
         research_keywords: data.keywords && data.keywords.length > 0 ? data.keywords : prev.research_keywords,
         profile_text: data.profile_text || prev.profile_text,
         profile_terms: data.candidate_terms && data.candidate_terms.length > 0 ? data.candidate_terms : prev.profile_terms,
         orcid: data.orcid
       }));
+      if (data.keywords?.length) setKeywordsText(data.keywords.join(', '));
       setOrcidMessage(`Successfully imported ${data.full_name || 'researcher'} (${data.works_count || 0} works, ${data.candidate_terms?.length || 0} candidate terms extracted). Review and click Save.`);
     } catch (err: any) {
       setOrcidMessage(`Network error: ${err.message}`);
@@ -79,40 +117,68 @@ export default function ProfilePage() {
       .then((res) => res.json())
       .then((data) => {
         const prof = data?.data || data;
-        if (prof && !prof.error && prof.full_name) {
-          setProfile({
-            ...DEFAULT_PROFILE,
-            ...prof,
-            profile_terms: prof.profile_terms && prof.profile_terms.length > 0 ? prof.profile_terms : DEFAULT_PROFILE.profile_terms
-          });
+        if (prof && !prof.error) {
+          setProfile({ ...EMPTY_PROFILE, ...prof, profile_terms: prof.profile_terms || [] });
+          setKeywordsText((prof.research_keywords || []).join(', '));
           if (prof.min_relevance_band) setMinBand(prof.min_relevance_band);
+          if (prof.deadline_alert_window_days) setAlertWindow(prof.deadline_alert_window_days);
         }
       })
-      .catch(() => {
-        // Retain default profile state
-      });
+      .catch(() => setSaveMessage({ ok: false, text: 'Could not load your profile. Refresh to try again.' }))
+      .finally(() => setLoading(false));
   }, []);
 
   const handleSave = async () => {
+    const keywords = keywordsFromText(keywordsText);
+    const missing = [
+      !profile.full_name?.trim() && 'name',
+      !profile.institution?.trim() && 'institution',
+      keywords.length === 0 && 'research keywords',
+      !profile.profile_text?.trim() && 'research summary'
+    ].filter(Boolean);
+    if (missing.length) {
+      setSaveMessage({ ok: false, text: `Please fill in: ${missing.join(', ')}.` });
+      return;
+    }
     setSaving(true);
-    await fetch('/api/profile', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        full_name: profile.full_name,
-        institution: profile.institution,
-        department: profile.department,
-        career_stage: profile.career_stage,
-        phd_year: Number(profile.phd_year),
-        institution_type: profile.institution_type,
-        citizenship_status: profile.citizenship_status,
-        research_keywords: profile.research_keywords,
-        profile_text: profile.profile_text,
-        profile_terms: profile.profile_terms || []
-      })
-    });
-    setSaving(false);
-    alert('Faculty Calibration & Scoring Heuristics synchronized.');
+    setSaveMessage(null);
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name: profile.full_name,
+          institution: profile.institution,
+          department: profile.department || '',
+          designation: profile.designation || '',
+          career_stage: profile.designation || '',
+          employment_type: profile.employment_type || '',
+          date_of_birth: profile.date_of_birth || '',
+          superannuation_year: profile.superannuation_year ? Number(profile.superannuation_year) : null,
+          state: profile.state || '',
+          phd_year: profile.phd_year ? Number(profile.phd_year) : null,
+          institution_type: profile.institution_type || '',
+          citizenship_status: profile.citizenship_status || '',
+          min_relevance_band: minBand,
+          deadline_alert_window_days: alertWindow,
+          research_keywords: keywords,
+          profile_text: profile.profile_text,
+          profile_terms: profile.profile_terms || []
+        })
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = body?.error?.message || body?.message || `HTTP ${res.status}`;
+        setSaveMessage({ ok: false, text: `Not saved: ${detail}` });
+        return;
+      }
+      setProfile((prev: any) => ({ ...prev, id: body?.data?.profile_id || prev.id, research_keywords: keywords }));
+      setSaveMessage({ ok: true, text: 'Saved. Scores are recalculated on the next scan.' });
+    } catch (err: any) {
+      setSaveMessage({ ok: false, text: `Not saved: ${err.message}` });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const addTerm = () => {
@@ -139,7 +205,7 @@ export default function ProfilePage() {
   if (loading) {
     return (
       <div className="p-16 text-center font-data-mono-sm text-data-mono-sm text-on-surface-variant">
-        SYNCHRONIZING CALIBRATION HEURISTICS...
+        Loading your profile...
       </div>
     );
   }
@@ -154,13 +220,12 @@ export default function ProfilePage() {
             <span>Calibration Console // Engine Heuristics &amp; Weights</span>
           </div>
           <div className="font-data-mono-sm text-data-mono-sm text-on-surface-variant flex items-center gap-space-sm sm:gap-space-md flex-wrap">
-            <span>MODEL: VECTOR-EMBED-v4.2</span>
-            <span className="text-secondary font-bold">STATE: SYNCHRONIZED</span>
+            <span>{profile.id ? 'Profile saved' : 'New profile: not saved yet'}</span>
           </div>
         </div>
         <h1 className="font-headline-xl text-headline-xl text-on-surface tracking-tight">Faculty Calibration &amp; Scoring Heuristics</h1>
         <p className="font-body-md text-body-md text-on-surface-variant max-w-2xl">
-          Adjust semantic parameters, lexical term weights, and scoring thresholds. Changes directly recalculate relevance vectors across all ingested solicitations in the active observation radar.
+          Your research interests decide which calls are shown to you and how they are ranked. The eligibility details let the radar flag calls you cannot apply for (age limits, regular posts, region-only calls). Leave a field empty if you prefer; those calls are then marked for manual review.
         </p>
       </div>
 
@@ -208,7 +273,7 @@ export default function ProfilePage() {
       <section className="bg-surface-container-low p-space-md sm:p-space-xl flex flex-col gap-space-md sm:gap-space-lg border border-surface-container">
         <div className="flex items-center justify-between pb-space-xs">
           <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">Section 01 // Identity &amp; Primary Record</span>
-          <span className="font-data-mono-md text-data-mono-md text-primary-container">#9104-ASTRO</span>
+          <span className="font-data-mono-md text-data-mono-md text-primary-container">{profile.id ? '' : 'Start here'}</span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-space-md sm:gap-space-xl">
           {/* Faculty Name */}
@@ -217,7 +282,8 @@ export default function ProfilePage() {
             <input
               className="bg-transparent font-headline-md text-headline-md text-on-surface py-space-xs focus:outline-none focus:text-primary transition-colors cursor-text"
               type="text"
-              value={profile.full_name || 'Dr. Vibha'}
+              placeholder="Your name"
+              value={profile.full_name || ''}
               onChange={(e) => setProfile({ ...profile, full_name: e.target.value })}
             />
             <span className="h-px bg-outline-variant group-focus-within:bg-primary-container transition-colors"></span>
@@ -228,7 +294,8 @@ export default function ProfilePage() {
             <input
               className="bg-transparent font-headline-md text-headline-md text-on-surface py-space-xs focus:outline-none focus:text-primary transition-colors cursor-text"
               type="text"
-              value={profile.institution || 'COEP Technological University'}
+              placeholder="Institution"
+              value={profile.institution || ''}
               onChange={(e) => setProfile({ ...profile, institution: e.target.value })}
             />
             <span className="h-px bg-outline-variant group-focus-within:bg-primary-container transition-colors"></span>
@@ -239,76 +306,125 @@ export default function ProfilePage() {
             <input
               className="bg-transparent font-headline-md text-headline-md text-on-surface py-space-xs focus:outline-none focus:text-primary transition-colors cursor-text"
               type="text"
-              value={profile.department || 'Dept. of Computer Engineering'}
+              placeholder="Department"
+              value={profile.department || ''}
               onChange={(e) => setProfile({ ...profile, department: e.target.value })}
             />
             <span className="h-px bg-outline-variant group-focus-within:bg-primary-container transition-colors"></span>
           </div>
         </div>
 
-        {/* Section 01B: Compliance & Gatekeeper Credentials */}
+        {/* Section 01B: Eligibility details */}
         <div className="border-t border-surface-container pt-space-md">
           <div className="mb-space-sm">
-            <span className="font-label-caps text-label-caps text-primary uppercase tracking-wider">Compliance &amp; Gatekeeper Vector</span>
-            <p className="text-on-surface-variant text-xs font-mono">Parameters evaluated by EligibilityAgent to verify early-career tenure clock, citizenship restrictions, and institutional quotas.</p>
+            <span className="font-label-caps text-label-caps text-primary uppercase tracking-wider">Eligibility details</span>
+            <p className="text-on-surface-variant text-xs font-mono">Used to check restrictions stated in each call: nationality, age limit, years to superannuation, regular post, region-only calls and years since PhD.</p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-space-md sm:gap-space-lg">
-            {/* Career Stage */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-space-md sm:gap-space-lg">
             <div className="flex flex-col gap-space-2xs">
-              <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">Career Stage</label>
+              <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">Designation</label>
               <select
                 className="bg-surface-container font-mono text-sm text-on-surface p-2 border border-surface-container-high focus:outline-none focus:border-primary rounded"
-                value={profile.career_stage || 'Assistant Professor'}
-                onChange={(e) => setProfile({ ...profile, career_stage: e.target.value })}
+                value={profile.designation || ''}
+                onChange={(e) => setProfile({ ...profile, designation: e.target.value })}
               >
-                <option value="Assistant Professor">Assistant Professor (Tenure-Track)</option>
-                <option value="Associate Professor">Associate Professor (Tenured)</option>
-                <option value="Full Professor">Full Professor (Tenured)</option>
-                <option value="Postdoctoral Researcher">Postdoctoral Researcher</option>
-                <option value="Research Scientist">Research Scientist</option>
+                <option value="">Not set</option>
+                {DESIGNATIONS.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
               </select>
             </div>
-            {/* PhD Award Year */}
             <div className="flex flex-col gap-space-2xs">
-              <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">PhD Award Year</label>
+              <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">Position</label>
+              <select
+                className="bg-surface-container font-mono text-sm text-on-surface p-2 border border-surface-container-high focus:outline-none focus:border-primary rounded"
+                value={profile.employment_type || ''}
+                onChange={(e) => setProfile({ ...profile, employment_type: e.target.value })}
+              >
+                <option value="">Not set</option>
+                <option value="regular">Regular / permanent</option>
+                <option value="contractual">Contractual / ad hoc</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-space-2xs">
+              <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">Institution type</label>
+              <select
+                className="bg-surface-container font-mono text-sm text-on-surface p-2 border border-surface-container-high focus:outline-none focus:border-primary rounded"
+                value={profile.institution_type || ''}
+                onChange={(e) => setProfile({ ...profile, institution_type: e.target.value })}
+              >
+                <option value="">Not set</option>
+                {INSTITUTION_TYPES.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-space-2xs">
+              <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">Citizenship</label>
+              <select
+                className="bg-surface-container font-mono text-sm text-on-surface p-2 border border-surface-container-high focus:outline-none focus:border-primary rounded"
+                value={profile.citizenship_status || ''}
+                onChange={(e) => setProfile({ ...profile, citizenship_status: e.target.value })}
+              >
+                <option value="">Not set</option>
+                {CITIZENSHIP.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-space-2xs">
+              <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">State / UT of institution</label>
+              <select
+                className="bg-surface-container font-mono text-sm text-on-surface p-2 border border-surface-container-high focus:outline-none focus:border-primary rounded"
+                value={profile.state || ''}
+                onChange={(e) => setProfile({ ...profile, state: e.target.value })}
+              >
+                <option value="">Not set</option>
+                {STATES.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col gap-space-2xs">
+              <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">Date of birth</label>
+              <input
+                className="bg-surface-container font-mono text-sm text-on-surface p-2 border border-surface-container-high focus:outline-none focus:border-primary rounded"
+                type="date"
+                value={profile.date_of_birth || ''}
+                onChange={(e) => setProfile({ ...profile, date_of_birth: e.target.value })}
+              />
+            </div>
+            <div className="flex flex-col gap-space-2xs">
+              <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">PhD year</label>
               <input
                 className="bg-surface-container font-mono text-sm text-on-surface p-2 border border-surface-container-high focus:outline-none focus:border-primary rounded"
                 type="number"
-                min={1970}
-                max={2030}
-                value={profile.phd_year || 2021}
-                onChange={(e) => setProfile({ ...profile, phd_year: parseInt(e.target.value) || 2021 })}
+                min={1950}
+                max={new Date().getFullYear()}
+                placeholder="e.g. 2015"
+                value={profile.phd_year ?? ''}
+                onChange={(e) => setProfile({ ...profile, phd_year: e.target.value ? parseInt(e.target.value, 10) : null })}
               />
             </div>
-            {/* Institution Classification */}
             <div className="flex flex-col gap-space-2xs">
-              <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">Institution Type</label>
-              <select
+              <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">Superannuation (retirement) year</label>
+              <input
                 className="bg-surface-container font-mono text-sm text-on-surface p-2 border border-surface-container-high focus:outline-none focus:border-primary rounded"
-                value={profile.institution_type || 'R1 Doctoral University (IHE)'}
-                onChange={(e) => setProfile({ ...profile, institution_type: e.target.value })}
-              >
-                <option value="R1 Doctoral University (IHE)">R1 Doctoral University (IHE)</option>
-                <option value="R2 Doctoral University">R2 Doctoral University</option>
-                <option value="Master's College/University">Master&apos;s College/University</option>
-                <option value="Primarily Undergraduate Institution (PUI)">Primarily Undergraduate Institution (PUI)</option>
-                <option value="National Laboratory / Research Institute">National Laboratory / Research Institute</option>
-              </select>
-            </div>
-            {/* Citizenship Status */}
-            <div className="flex flex-col gap-space-2xs">
-              <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">Citizenship / Clearance</label>
-              <select
-                className="bg-surface-container font-mono text-sm text-on-surface p-2 border border-surface-container-high focus:outline-none focus:border-primary rounded"
-                value={profile.citizenship_status || 'US Citizen or Permanent Resident'}
-                onChange={(e) => setProfile({ ...profile, citizenship_status: e.target.value })}
-              >
-                <option value="US Citizen or Permanent Resident">US Citizen or Permanent Resident</option>
-                <option value="Indian Citizen (National / OCI)">Indian Citizen (National / OCI)</option>
-                <option value="Permanent Resident (Green Card)">Permanent Resident (Green Card)</option>
-                <option value="Foreign National (Visa Eligible)">Foreign National (Visa Eligible)</option>
-                <option value="Active Security Clearance (DoD / DARPA)">Active Security Clearance (DoD / DARPA)</option>
-              </select>
+                type="number"
+                min={new Date().getFullYear()}
+                max={2100}
+                placeholder="e.g. 2045"
+                value={profile.superannuation_year ?? ''}
+                onChange={(e) => setProfile({ ...profile, superannuation_year: e.target.value ? parseInt(e.target.value, 10) : null })}
+              />
             </div>
           </div>
         </div>
@@ -321,14 +437,26 @@ export default function ProfilePage() {
           <span className="font-data-mono-sm text-data-mono-sm text-primary">VECTOR CORRELATOR: ACTIVE</span>
         </div>
         <div className="flex flex-col gap-space-xs">
-          <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">Research Persona Abstract</label>
-          <p className="font-body-sm text-body-sm text-on-surface-variant">Used by the scoring engine to calculate semantic topic similarity via bi-encoder sentence transformers.</p>
+          <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">Research keywords</label>
+          <p className="font-body-sm text-body-sm text-on-surface-variant">Comma-separated. Each keyword is searched for calls for papers, so be specific (e.g. &quot;graph neural networks&quot; rather than &quot;AI&quot;).</p>
+          <input
+            className="w-full bg-surface-container-lowest p-space-sm font-body-md text-body-md text-on-surface border border-outline-variant focus:outline-none focus:border-primary"
+            type="text"
+            placeholder="e.g. graph neural networks, fraud detection, edge AI"
+            value={keywordsText}
+            onChange={(e) => setKeywordsText(e.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-space-xs">
+          <label className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">Research summary</label>
+          <p className="font-body-sm text-body-sm text-on-surface-variant">A few sentences about your research. Calls are ranked by how similar their text is to this summary.</p>
         </div>
         <div className="relative group">
           <textarea
             className="w-full bg-surface-container-lowest p-space-md font-body-md text-body-md text-on-surface border border-outline-variant focus:outline-none focus:border-primary transition-colors leading-relaxed"
             rows={4}
-            value={profile.profile_text}
+            placeholder="e.g. I work on graph neural networks for detecting financial fraud, with a focus on explainability and deployment on edge devices."
+            value={profile.profile_text || ''}
             onChange={(e) => setProfile({ ...profile, profile_text: e.target.value })}
           />
           <div className="absolute inset-x-0 bottom-0 h-0.5 bg-outline-variant group-focus-within:bg-primary-container transition-colors"></div>
@@ -338,7 +466,7 @@ export default function ProfilePage() {
             <span className="material-symbols-outlined text-[14px] text-secondary">memory</span>
             Vector re-indexing: continuous
           </span>
-          <span className="text-on-surface-variant">Embedding depth: 1536-dim</span>
+          <span className="text-on-surface-variant">Embedding: all-MiniLM-L6-v2 (384-dim)</span>
         </div>
       </section>
 
@@ -496,7 +624,7 @@ export default function ProfilePage() {
               <span className="font-data-mono-lg text-data-mono-lg text-primary bg-surface-container px-space-sm py-0.5">{minBand.toUpperCase()}</span>
             </div>
             <p className="font-body-sm text-body-sm text-on-surface-variant">
-              Lower tier opportunities will be archived into the background repository and omitted from priority radar telemetry.
+              Digests include new calls at this band or above. HIGH sends only the closest matches; WATCH sends more.
             </p>
             {/* Precision Discrete Selector */}
             <div className="grid grid-cols-4 gap-space-2xs pt-space-xs font-data-mono-sm text-data-mono-sm">
@@ -524,7 +652,7 @@ export default function ProfilePage() {
               <span className="font-data-mono-lg text-data-mono-lg text-secondary bg-surface-container px-space-sm py-0.5">{alertWindow} DAYS</span>
             </div>
             <p className="font-body-sm text-body-sm text-on-surface-variant">
-              Solicitations with closing windows beyond this temporal horizon are tracked silently without generating active telemetry alerts.
+              Deadlines within this many days are highlighted in your deadlines view. Urgent alerts are always sent 3 days before a deadline of a call you saved or that scored highly.
             </p>
             {/* Stepper Options */}
             <div className="grid grid-cols-4 gap-space-2xs pt-space-xs font-data-mono-sm text-data-mono-sm">
@@ -547,9 +675,10 @@ export default function ProfilePage() {
 
       {/* Bottom Actions Toolbar */}
       <div className="flex items-center justify-between pt-space-md pb-space-2xl">
-        <div className="flex items-center gap-space-sm font-data-mono-sm text-data-mono-sm text-on-surface-variant">
-          <span className="w-1.5 h-1.5 bg-secondary inline-block"></span>
-          <span>Unsaved parameter changes pending engine submission.</span>
+        <div className="flex items-center gap-space-sm font-data-mono-sm text-data-mono-sm" role="status" aria-live="polite">
+          {saveMessage && (
+            <span className={saveMessage.ok ? 'text-secondary' : 'text-error'}>{saveMessage.text}</span>
+          )}
         </div>
         <div className="flex items-center gap-space-lg">
           <button
@@ -566,7 +695,7 @@ export default function ProfilePage() {
             onClick={handleSave}
           >
             <span className="material-symbols-outlined text-[16px]">tune</span>
-            <span>{saving ? 'Saving...' : 'Save Profile Calibration'}</span>
+            <span>{saving ? 'Saving...' : 'Save profile'}</span>
           </button>
         </div>
       </div>

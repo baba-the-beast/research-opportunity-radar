@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
 import { getRequestSupabase, hasUserAccount, requireUserAccount } from '@/lib/routeContext';
 import { authenticateRequest } from '@/lib/auth';
-import { consumeRateLimit, getClientIp } from '@/lib/rateLimit';
+import { consumeRateLimit, rateLimitKey } from '@/lib/rateLimit';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { z } from 'zod';
+import { DEFAULT_SOURCES, SOURCE_IDS } from '@/lib/sources';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,8 +16,9 @@ const settingsSchema = z.object({
   // Chats are linked only through the bot (/api/telegram/webhook) so users can't point alerts at
   // someone else's chat; the settings API may only disconnect.
   telegram_chat_id: z.null().optional(),
+  // Digests go out after each scheduled scan (twice a week); 'daily' is kept for older rows
   digest_frequency: z.enum(['daily', 'weekly', 'never']).optional(),
-  auto_summarize: z.boolean().optional()
+  preferred_sources: z.array(z.enum(SOURCE_IDS)).min(1).max(SOURCE_IDS.length).optional()
 });
 
 const DEFAULT_SETTINGS = {
@@ -26,7 +28,7 @@ const DEFAULT_SETTINGS = {
   telegram_alerts: false,
   telegram_chat_id: null,
   digest_frequency: 'weekly',
-  auto_summarize: true
+  preferred_sources: DEFAULT_SOURCES
 };
 
 export async function GET(req: NextRequest) {
@@ -52,7 +54,8 @@ export async function GET(req: NextRequest) {
       return createErrorResponse('DATABASE_ERROR', error.message, 500, req);
     }
 
-    return createSuccessResponse(prefs || { user_id: auth.user.id, ...DEFAULT_SETTINGS }, req);
+    // Rows created before preferred_sources existed have no value: show the defaults
+    return createSuccessResponse({ ...DEFAULT_SETTINGS, user_id: auth.user.id, ...(prefs || {}), preferred_sources: prefs?.preferred_sources?.length ? prefs.preferred_sources : DEFAULT_SOURCES }, req);
   } catch (err: any) {
     return createErrorResponse('INTERNAL_SERVER_ERROR', err.message, 500, req);
   }
@@ -70,7 +73,7 @@ export async function PATCH(req: NextRequest) {
       return noAccount;
     }
 
-    const ip = getClientIp(req);
+    const ip = rateLimitKey(req, auth.user);
     const rateCheck = await consumeRateLimit(`settings_${ip}`, 20, 60000);
     if (!rateCheck.allowed) {
       return createErrorResponse('RATE_LIMIT_EXCEEDED', 'Too many requests.', 429, req);
@@ -105,7 +108,7 @@ export async function PATCH(req: NextRequest) {
       await supabase.from('user_activity').insert({
         user_id: auth.user.id,
         event_type: 'preferences_update',
-        title: 'Updated Observatory Preferences',
+        title: 'Updated preferences',
         description: `Preferences modified: ${Object.keys(parsed.data).join(', ')}`,
         metadata: parsed.data
       });

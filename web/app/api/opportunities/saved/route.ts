@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getRequestSupabase, hasUserAccount, requireUserAccount, UUID_PATTERN } from '@/lib/routeContext';
 import { authenticateRequest } from '@/lib/auth';
-import { consumeRateLimit, getClientIp } from '@/lib/rateLimit';
+import { consumeRateLimit, rateLimitKey } from '@/lib/rateLimit';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { z } from 'zod';
 
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
       return noAccount;
     }
 
-    const ip = getClientIp(req);
+    const ip = rateLimitKey(req, auth.user);
     const rateCheck = await consumeRateLimit(`save_${ip}`, 30, 60000);
     if (!rateCheck.allowed) {
       return createErrorResponse('RATE_LIMIT_EXCEEDED', 'Too many requests.', 429, req);

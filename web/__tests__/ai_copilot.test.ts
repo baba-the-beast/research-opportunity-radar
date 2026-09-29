@@ -7,6 +7,7 @@ const fakeSupabase = (() => {
     const mock: any = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
+      neq: vi.fn().mockReturnThis(),
       or: vi.fn().mockReturnThis(),
       order: vi.fn().mockReturnThis(),
       limit: vi.fn().mockImplementation(() => {
@@ -21,6 +22,20 @@ const fakeSupabase = (() => {
                 agency_or_publisher: 'NSF',
                 opportunity_deadlines: [{ deadline_date: '2026-11-15', confidence: 'confirmed' }],
                 opportunity_sources: [{ source_url: 'https://nsf.gov/funding/opp-1' }]
+              }
+            ]
+          });
+        }
+        if (tableName === 'scoring_log') {
+          return Promise.resolve({
+            data: [
+              {
+                final_score: 82.4,
+                band: 'high',
+                matched_terms: ['Autonomous Systems'],
+                negative_matches: [],
+                components: { topic_similarity: 71, method_match: -1, eligibility_report: { status: 'ELIGIBLE', summary: 'ok', action_items: [] } },
+                scored_at: '2026-09-29T03:20:00Z'
               }
             ]
           });
@@ -104,6 +119,11 @@ describe('AI Research Copilot Tests', () => {
     expect(result.text).toContain('Recommendation Rationale Analysis');
     expect(result.text).toContain('Thematic Fit');
     expect(result.executedTools.some((t) => t.name === 'getWhyRecommended')).toBe(true);
+    // The rationale comes from the pipeline's real score, with not-applicable components left out
+    const why = result.executedTools.find((t) => t.name === 'getWhyRecommended')!.result;
+    expect(why.final_score).toBe(82);
+    expect(why.matched_keywords).toEqual(['Autonomous Systems']);
+    expect(why.components).toEqual({ topic_similarity: 71 });
   });
 });
 

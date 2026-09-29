@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { getOwnProfileId, getRequestSupabase, requireUserAccount, UUID_PATTERN } from '@/lib/routeContext';
 import { authenticateRequest, authorizeRole } from '@/lib/auth';
-import { consumeRateLimit, getClientIp } from '@/lib/rateLimit';
+import { consumeRateLimit, rateLimitKey } from '@/lib/rateLimit';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { z } from 'zod';
 
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     // 3. Sanitized Rate Limiting
-    const ip = getClientIp(req);
+    const ip = rateLimitKey(req, auth.user);
     const rateCheck = await consumeRateLimit(`status_${ip}`, 20, 60000);
     if (!rateCheck.allowed) {
       return createErrorResponse(

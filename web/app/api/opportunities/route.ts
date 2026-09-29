@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authenticateRequest } from '@/lib/auth';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { getOwnProfileId, getRequestSupabase, UUID_PATTERN } from '@/lib/routeContext';
+import { daysUntil, istDate } from '@/lib/dates';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,10 +19,13 @@ function parseCursor(raw: string | null): { ts: string; id?: string } | null | '
   return { ts, id };
 }
 
-function earliestUpcoming(deadlines: any[]): any | null {
-  const today = new Date().toISOString().slice(0, 10);
-  const sorted = [...deadlines].sort((a, b) => String(a.deadline_date).localeCompare(String(b.deadline_date)));
-  return sorted.find((d) => d.deadline_date >= today) || sorted[sorted.length - 1] || null;
+/** The next deadline on or after today (IST); if all have passed, the last one (so the UI can say "closed on"). */
+function nextDeadline(deadlines: any[], today: string): { deadline: any | null; expired: boolean } {
+  const dated = deadlines.filter((d) => d.deadline_date);
+  const sorted = [...dated].sort((a, b) => String(a.deadline_date).localeCompare(String(b.deadline_date)));
+  const upcoming = sorted.find((d) => d.deadline_date >= today);
+  if (upcoming) return { deadline: upcoming, expired: false };
+  return { deadline: sorted[sorted.length - 1] || null, expired: sorted.length > 0 };
 }
 
 export async function GET(req: NextRequest) {
@@ -41,6 +45,9 @@ export async function GET(req: NextRequest) {
     const kindFilter = searchParams.get('kind');
     const savedOnly = searchParams.get('saved') === 'true';
     const statusFilter = searchParams.get('status');
+    // Closed calls (every deadline passed) are hidden unless asked for
+    const includeClosed = searchParams.get('include_closed') === 'true';
+    const search = (searchParams.get('q') || '').trim().slice(0, 100);
     const hasStatusFilter = Boolean(statusFilter && statusFilter !== 'all');
 
     const supabase = getRequestSupabase(auth.user);
@@ -93,6 +100,14 @@ export async function GET(req: NextRequest) {
     if (kindFilter && kindFilter !== 'all') {
       query = query.eq('kind', kindFilter);
     }
+    if (!includeClosed) {
+      query = query.neq('status', 'closed');
+    }
+    if (search) {
+      // PostgREST ilike pattern; strip characters that have meaning in the filter syntax
+      const safe = search.replace(/[%_,()*\\]/g, ' ');
+      query = query.or(`title.ilike.%${safe}%,summary.ilike.%${safe}%,agency_or_publisher.ilike.%${safe}%`);
+    }
 
     if (stateJoin === 'inner') {
       query = query.eq('user_opportunity_state.user_id', userId!);
@@ -131,10 +146,11 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const today = istDate();
     const formatted = pageRows.map((row: any) => {
       const src = row.opportunity_sources?.[0];
       const scoring = row.scoring_log?.[0];
-      const nextDl = earliestUpcoming(row.opportunity_deadlines || []);
+      const { deadline: nextDl, expired } = nextDeadline(row.opportunity_deadlines || [], today);
       const userState = userStatesMap[row.id];
       const personalScore = userState?.personal_score ?? scoring?.final_score ?? null;
 
@@ -147,7 +163,12 @@ export async function GET(req: NextRequest) {
         venue_name: row.venue_name,
         primary_source_name: src?.sources?.name || row.agency_or_publisher || 'Primary Source',
         primary_source_url: src?.source_url || (row.doi ? `https://doi.org/${row.doi}` : ''),
-        next_deadline: nextDl ? { deadline_date: nextDl.deadline_date, confidence: nextDl.confidence } : null,
+        next_deadline: nextDl
+          ? { deadline_date: nextDl.deadline_date, confidence: nextDl.confidence, days_left: daysUntil(nextDl.deadline_date, today) }
+          : null,
+        // Lifecycle of the call itself (open / forecasted / closed / unknown = no published deadline)
+        lifecycle_status: expired ? 'closed' : row.status,
+        is_expired: expired || row.status === 'closed',
         // null = not yet scored for this user (new profile awaiting the next pipeline run)
         final_score: personalScore === null ? null : Number(personalScore),
         band: scoring?.band ?? 'unscored',

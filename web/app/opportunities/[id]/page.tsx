@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { formatIstDateTime } from '@/lib/dates';
 
 interface ScoreExplanation {
   final_score: number | null; // null until the pipeline scores this opportunity for the user
@@ -51,6 +52,7 @@ interface OpportunityDetail {
   venue_name?: string;
   doi?: string;
   status: string;
+  lifecycle_status?: string;
   discovered_at: string;
   score_explanation: ScoreExplanation;
   deadlines: DeadlineItem[];
@@ -159,10 +161,10 @@ export default function OpportunityDetailPage({ params }: { params: { id: string
   const scoreLabel = finalScore === null ? '—' : Math.round(finalScore);
   const band = opp.score_explanation?.band ?? 'watch';
 
-  const normalizeScore = (val: number | undefined): number => {
-    if (val === undefined || val === null) return 50;
-    return val <= 1 ? Math.round(val * 100) : Math.round(val);
-  };
+  // Components are 0-100; -1 (or missing) means "not used": the profile has no terms of that type
+  const componentScore = (val: number | undefined | null): number | null =>
+    val === undefined || val === null || val < 0 ? null : Math.round(val);
+  const normalizeScore = (val: number | undefined | null): number => componentScore(val) ?? 0;
 
   const primarySrc = opp.sources && opp.sources.length > 0 ? opp.sources[0] : null;
   const primarySourceUrl = primarySrc?.source_url || (opp.doi ? `https://doi.org/${opp.doi}` : '#');
@@ -232,6 +234,17 @@ export default function OpportunityDetailPage({ params }: { params: { id: string
                   {opp.title}
                 </h1>
 
+                {opp.lifecycle_status === 'closed' && (
+                  <div className="p-space-sm bg-surface-container border border-outline-variant font-mono text-xs text-on-surface-variant" role="note">
+                    This call has closed: its deadline has passed. It is kept for reference.
+                  </div>
+                )}
+                {opp.lifecycle_status === 'unknown' && opp.kind === 'funding' && (
+                  <div className="p-space-sm bg-surface-container border border-outline-variant font-mono text-xs text-on-surface-variant" role="note">
+                    The agency has not published a deadline for this call. Check the official page before planning.
+                  </div>
+                )}
+
                 {(opp.kind === 'award' || primarySourceName?.toLowerCase().includes('award') || opp.agency_or_publisher?.toLowerCase().includes('award') || opp.metadata?.origin === 'nsf_awards_api') && (
                   <div className="p-space-sm bg-amber-500/10 border border-amber-500/30 font-mono text-xs text-amber-200 flex items-start gap-2">
                     <span className="material-symbols-outlined text-sm text-amber-400 mt-0.5">info</span>
@@ -263,7 +276,7 @@ export default function OpportunityDetailPage({ params }: { params: { id: string
                     )}
                   </div>
                   <span className="text-on-surface-variant text-[11px]">
-                    Verified live {opp.discovered_at ? new Date(opp.discovered_at).toLocaleString() : 'in current cycle'}
+                    Found {opp.discovered_at ? formatIstDateTime(opp.discovered_at) : 'in the latest scan'}
                   </span>
                 </div>
               </div>
@@ -316,37 +329,37 @@ export default function OpportunityDetailPage({ params }: { params: { id: string
                     {
                       label: 'Topic Similarity',
                       weight: '35%',
-                      val: normalizeScore(components.topic_similarity),
+                      val: componentScore(components.topic_similarity),
                       desc: 'Dense vector resonance (all-MiniLM-L6-v2) between abstract and faculty profile.'
                     },
                     {
                       label: 'Exact Term Match',
                       weight: '20%',
-                      val: normalizeScore(components.exact_term_match),
+                      val: componentScore(components.exact_term_match),
                       desc: 'Lexical keyword overlap across positive profile research vocabulary.'
                     },
                     {
                       label: 'Method Match',
                       weight: '10%',
-                      val: normalizeScore(components.method_match),
+                      val: componentScore(components.method_match),
                       desc: 'Methodological synergy (experimental, algorithms, hardware platforms).'
                     },
                     {
                       label: 'Application Match',
                       weight: '10%',
-                      val: normalizeScore(components.application_match),
+                      val: componentScore(components.application_match),
                       desc: 'Application domain alignment with laboratory target areas.'
                     },
                     {
                       label: 'Venue / Funder Fit',
                       weight: '10%',
-                      val: normalizeScore(components.venue_or_funder_fit ?? components.venue_funder_fit),
+                      val: componentScore(components.venue_or_funder_fit ?? components.venue_funder_fit),
                       desc: 'Publishing venue reputation or agency funding alignment.'
                     },
                     {
                       label: 'Recency',
                       weight: '5%',
-                      val: normalizeScore(components.recency),
+                      val: componentScore(components.recency),
                       desc: 'Freshness penalty decay ensuring newly announced calls rank higher.'
                     }
                   ].map(({ label, weight, val, desc }) => (
@@ -357,13 +370,13 @@ export default function OpportunityDetailPage({ params }: { params: { id: string
                           <span className="text-outline text-[11px]">[{weight}]</span>
                         </div>
                         <span className="text-secondary font-bold font-mono">
-                          {val}%
+                          {val === null ? 'not used' : `${val}%`}
                         </span>
                       </div>
                       <div className="w-full bg-surface-container h-1.5 my-1">
                         <div
                           className="bg-secondary h-1.5 transition-all"
-                          style={{ width: `${Math.min(100, Math.max(0, val))}%` }}
+                          style={{ width: `${Math.min(100, Math.max(0, val ?? 0))}%` }}
                         ></div>
                       </div>
                       <span className="text-outline text-[11px] font-mono leading-tight">{desc}</span>
@@ -677,7 +690,7 @@ export default function OpportunityDetailPage({ params }: { params: { id: string
                   </div>
                   <div className="flex items-center justify-between pt-space-xs border-t border-surface-container font-data-mono-sm text-[11px] sm:text-data-mono-sm text-on-surface-variant">
                     <span>
-                      SEEN: {src.first_seen_at ? new Date(src.first_seen_at).toLocaleDateString() : 'Live cycle'}
+                      SEEN: {src.first_seen_at ? formatIstDateTime(src.first_seen_at) : 'latest scan'}
                     </span>
                     <span className="text-secondary font-bold">✓ Direct Ingest</span>
                   </div>
@@ -785,7 +798,7 @@ export default function OpportunityDetailPage({ params }: { params: { id: string
                 <div className="p-space-sm sm:p-space-md flex flex-wrap items-center justify-between gap-space-sm font-data-mono-sm sm:font-data-mono-md text-xs sm:text-data-mono-md">
                   <div className="flex items-center gap-space-sm sm:gap-space-md flex-wrap">
                     <span className="text-on-surface-variant">
-                      {opp.discovered_at ? new Date(opp.discovered_at).toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : 'Current Run'}
+                      {opp.discovered_at ? formatIstDateTime(opp.discovered_at) : 'latest scan'}
                     </span>
                     <span className="text-on-surface font-bold">SCORE: {scoreLabel}</span>
                     <span className="text-secondary font-bold">BAND: {band.toUpperCase()}</span>

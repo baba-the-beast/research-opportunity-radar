@@ -80,6 +80,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         venue_name: row.venue_name,
         doi: row.doi,
         status: userStatus,
+        // The call itself: open / forecasted / closed / unknown (no published deadline)
+        lifecycle_status: row.status,
         discovered_at: row.discovered_at,
         deadlines: row.opportunity_deadlines || [],
         sources: (row.opportunity_sources || []).map((s: any) => ({

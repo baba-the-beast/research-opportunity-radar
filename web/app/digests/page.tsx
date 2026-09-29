@@ -2,415 +2,147 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { formatDeadline, formatIstDateTime } from '@/lib/dates';
 
-interface DigestCycle {
+interface DigestItem {
   id: string;
-  cycleNumber: number;
-  dates: string;
-  status: 'Active Window' | 'Archived';
-  summary: string;
-  topMatchTitle: string;
-  topMatchScore: number;
-  executiveSummary: string;
-  signals: {
-    number: string;
-    kind: string;
-    badge: string;
-    badgeClass: string;
-    title: string;
-    desc: string;
-    metricLabel: string;
-    metricValue: string;
-    affinityScore: number;
-    timeline: string;
-    timelineClass?: string;
-  }[];
-  actions: {
-    title: string;
-    desc: string;
-    icon: string;
-  }[];
-  labReadiness: {
-    budget: string;
-    letters: string;
-    postdoc: string;
-  };
+  title: string;
+  kind: string;
+  agency: string;
+  url: string | null;
+  score: number;
+  band: string;
+  matched_terms: string[];
+  deadline: { date: string; days_left: number } | null;
+  in_digest: boolean;
+}
+
+interface DigestData {
+  run: { finished_at: string | null; status: string; opportunities_found: number; opportunities_new: number } | null;
+  min_band?: string;
+  min_score?: number;
+  items: DigestItem[];
+  markdown: string;
+  needs_profile?: boolean;
 }
 
 export default function DigestsPage() {
-  const [cycles, setCycles] = useState<DigestCycle[]>([]);
-  const [openCycle, setOpenCycle] = useState<string>('');
-  const [liveDigest, setLiveDigest] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
+  const [digest, setDigest] = useState<DigestData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     fetch('/api/digest/latest')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data && data.markdown) {
-          setLiveDigest(data);
-        }
+      .then(async (res) => {
+        const body = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(body?.error?.message || `HTTP ${res.status}`);
+        setDigest(body?.data ?? null);
       })
-      .catch(() => {});
+      .catch((err) => setError(`Could not load your digest: ${err.message}`))
+      .finally(() => setLoading(false));
   }, []);
 
-  const toggleCycle = (id: string) => {
-    setOpenCycle((prev) => (prev === id ? '' : id));
+  const copyMarkdown = async () => {
+    if (!digest?.markdown) return;
+    try {
+      await navigator.clipboard.writeText(digest.markdown);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('Copy failed: your browser blocked clipboard access.');
+    }
   };
 
-  const copyMarkdown = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const items = (digest?.items || []).filter((i) => showAll || i.in_digest);
 
   return (
-    <div className="flex flex-col w-full">
-      <div className="w-full px-space-md sm:px-space-xl py-space-md sm:py-space-xl flex flex-col gap-space-md sm:gap-space-xl">
-        {/* Header Block */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between pb-space-md sm:pb-space-lg gap-space-md border-b border-surface-container">
-          <div className="flex flex-col gap-space-xs max-w-2xl">
-            <div className="flex items-center gap-space-sm flex-wrap">
-              <span className="font-label-caps text-label-caps text-primary uppercase">
-                ARCHIVAL SYNTHESIS // DISPATCH FEED
-              </span>
-              <span className="text-on-surface-variant font-data-mono-sm text-data-mono-sm">·</span>
-              <span className="font-data-mono-sm text-data-mono-sm text-secondary font-bold">
-                TELEMETRY RIG-9
-              </span>
-            </div>
-            <h1 className="font-headline-lg sm:font-headline-xl text-headline-lg sm:text-headline-xl text-on-surface tracking-tight">
-              Weekly Intelligence Digests
-            </h1>
-            <p className="font-body-sm sm:font-body-md text-body-sm sm:text-body-md text-on-surface-variant">
-              Automated synthesis reports delivered every Monday at 06:00 UTC based on telemetry filters and faculty research vectors.
-            </p>
-          </div>
+    <div className="w-full max-w-4xl mx-auto px-space-md sm:px-space-xl py-space-md sm:py-space-xl space-y-space-lg">
+      <div className="flex flex-col gap-space-xs border-b border-surface-container pb-space-md">
+        <span className="font-label-caps text-label-caps text-on-surface-variant tracking-widest uppercase">Digest</span>
+        <h1 className="font-headline-lg text-headline-lg text-on-surface tracking-tight">Your latest digest</h1>
+        <p className="font-body-md text-body-md text-on-surface-variant">
+          Scans run on Monday and Thursday mornings (IST). After each scan, new calls that match your profile are sent to the
+          channels chosen in <Link href="/settings" className="text-primary underline">Settings</Link>.
+          {digest?.min_band && (
+            <>
+              {' '}
+              Your filters: band <strong>{digest.min_band}</strong> or above, score at least <strong>{digest.min_score}</strong>{' '}
+              (<Link href="/profile" className="text-primary underline">change</Link>).
+            </>
+          )}
+        </p>
+      </div>
 
-          <div className="flex flex-wrap items-center gap-space-xs sm:gap-space-md bg-surface-container px-space-md py-space-sm rounded border border-surface-container-high">
-            <div className="flex items-center gap-space-xs font-data-mono-sm text-data-mono-sm text-on-surface-variant">
-              <span>TOTAL ARCHIVED:</span>
-              <span className="text-primary font-bold">24 WEEKS</span>
-            </div>
-            <span className="text-outline-variant font-data-mono-sm text-data-mono-sm hidden sm:inline">/</span>
-            <div className="flex items-center gap-space-xs font-data-mono-sm text-data-mono-sm">
-              <span className="w-1.5 h-1.5 rounded-full bg-secondary inline-block"></span>
-              <span className="text-secondary font-bold">INGESTION MIRROR ACTIVE</span>
-            </div>
-          </div>
-        </div>
-
-        {/* 4 Metric Cards: 2x2 on mobile, 4 across on desktop */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-space-xs sm:gap-space-md">
-          <div className="bg-surface-container p-space-sm sm:p-space-md flex flex-col gap-space-2xs border border-surface-container-high">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px] sm:text-xs">
-              Aggregated Signals
+      {loading ? (
+        <p className="font-data-mono-sm text-data-mono-sm text-on-surface-variant">Loading...</p>
+      ) : error ? (
+        <div className="p-space-md border border-error text-error bg-error/10 font-data-mono-sm text-data-mono-sm">{error}</div>
+      ) : !digest?.run ? (
+        <p className="font-body-md text-body-md text-on-surface-variant">No scan has finished yet. Your first digest arrives after the next scheduled scan.</p>
+      ) : digest.needs_profile ? (
+        <p className="font-body-md text-body-md text-on-surface-variant">
+          <Link href="/profile" className="text-primary underline">Set up your profile</Link> so calls can be matched to your research.
+        </p>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-space-sm font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+            <span>
+              Scan of {digest.run.finished_at ? formatIstDateTime(digest.run.finished_at) : 'unknown time'}: {digest.run.opportunities_found} calls
+              checked, {digest.run.opportunities_new} new
+              {digest.run.status === 'partial_failure' && ' (some sources were unavailable)'}
             </span>
-            <div className="flex flex-col sm:flex-row sm:items-baseline justify-between mt-space-xs font-mono gap-1">
-              <span className="font-data-mono-md sm:font-data-mono-lg text-data-mono-md sm:text-data-mono-lg text-primary font-bold">142</span>
-              <span className="font-data-mono-sm text-[10px] sm:text-data-mono-sm text-secondary font-bold">
-                +12 this cycle
-              </span>
-            </div>
-          </div>
-
-          <div className="bg-surface-container p-space-sm sm:p-space-md flex flex-col gap-space-2xs border border-surface-container-high">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px] sm:text-xs">
-              Mean Affinity Score
-            </span>
-            <div className="flex flex-col sm:flex-row sm:items-baseline justify-between mt-space-xs font-mono gap-1">
-              <span className="font-data-mono-md sm:font-data-mono-lg text-data-mono-md sm:text-data-mono-lg text-on-surface font-bold">78.4</span>
-              <span className="font-data-mono-sm text-[10px] sm:text-data-mono-sm text-on-surface-variant">
-                SIGMA 4.2
-              </span>
-            </div>
-          </div>
-
-          <div className="bg-surface-container p-space-sm sm:p-space-md flex flex-col gap-space-2xs border border-surface-container-high">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px] sm:text-xs">
-              Critical Windows
-            </span>
-            <div className="flex flex-col sm:flex-row sm:items-baseline justify-between mt-space-xs font-mono gap-1">
-              <span className="font-data-mono-md sm:font-data-mono-lg text-data-mono-md sm:text-data-mono-lg text-rust font-bold">
-                03 SOLS
-              </span>
-              <span className="font-data-mono-sm text-[10px] sm:text-data-mono-sm text-rust font-bold">&lt; 7 DAYS</span>
-            </div>
-          </div>
-
-          <div className="bg-surface-container p-space-sm sm:p-space-md flex flex-col gap-space-2xs border border-surface-container-high">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px] sm:text-xs">
-              Archival Format
-            </span>
-            <div className="flex flex-col sm:flex-row sm:items-baseline justify-between mt-space-xs font-mono gap-1">
-              <span className="font-data-mono-md sm:font-data-mono-lg text-data-mono-md sm:text-data-mono-lg text-secondary font-bold truncate">
-                MD // BIBTEX
-              </span>
-              <span className="font-data-mono-sm text-[10px] sm:text-data-mono-sm text-on-surface-variant">
-                RFC-822
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Live Digest Callout if Available */}
-        {liveDigest && (
-          <div className="bg-surface-container-low border border-primary/40 p-space-lg flex flex-col gap-space-sm">
-            <div className="flex items-center justify-between">
-              <span className="font-label-caps text-label-caps text-primary uppercase font-bold">
-                Live Orchestrator Latest Run Output
-              </span>
-              <button
-                onClick={() => copyMarkdown(liveDigest.markdown)}
-                className="font-data-mono-sm text-data-mono-sm text-brass underline hover:text-primary-fixed"
-              >
-                {copied ? 'Copied!' : 'Copy Live Markdown'}
+            <div className="flex items-center gap-space-md">
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} className="accent-primary" />
+                Show calls below my filters
+              </label>
+              <button type="button" onClick={copyMarkdown} className="text-primary hover:underline">
+                {copied ? 'Copied' : 'Copy as text'}
               </button>
             </div>
-            <pre className="font-mono text-xs text-on-surface whitespace-pre-wrap leading-relaxed bg-surface-container-lowest p-space-md border border-surface-container max-h-60 overflow-y-auto">
-              {liveDigest.markdown}
-            </pre>
-          </div>
-        )}
-
-        {/* Observatory Chronology Log (Accordion) */}
-        <div className="flex flex-col gap-space-md">
-          <div className="flex items-center justify-between px-space-sm border-b border-surface-container pb-2">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase">
-              Observatory Chronology Log
-            </span>
-            <span className="font-data-mono-sm text-data-mono-sm text-on-surface-variant">
-              INTERVAL: T-24 CYCLES
-            </span>
           </div>
 
-          <div className="flex flex-col gap-space-md" id="digest-accordion-group">
-            {cycles.length === 0 ? (
-              <div className="p-space-2xl text-center font-data-mono-sm text-data-mono-sm text-on-surface-variant bg-surface-container-low border border-surface-container rounded">
-                NO ARCHIVED DIGEST CYCLES RECORDED IN SUPABASE LEDGER.
-                <p className="mt-2 text-outline text-xs">Run a pipeline cycle or trigger a scan to archive executive summaries.</p>
-              </div>
-            ) : (
-              cycles.map((cycle) => {
-              const isOpen = openCycle === cycle.id;
-
-              return (
-                <div
-                  key={cycle.id}
-                  className="bg-surface-container rounded transition-all duration-200 border border-surface-container-high overflow-hidden"
+          {items.length === 0 ? (
+            <p className="font-body-md text-body-md text-on-surface-variant bg-surface-container-low border border-surface-container p-space-md">
+              No new calls passed your filters in this scan.
+            </p>
+          ) : (
+            <ol className="space-y-space-sm">
+              {items.map((item) => (
+                <li
+                  key={item.id}
+                  className={`bg-surface-container-low border border-surface-container p-space-md flex flex-col gap-space-2xs ${item.in_digest ? '' : 'opacity-70'}`}
                 >
-                  {/* Accordion Row Header */}
-                  <div
-                    onClick={() => toggleCycle(cycle.id)}
-                    className="p-space-md sm:p-space-lg flex flex-col md:flex-row md:items-center justify-between gap-space-sm sm:gap-space-md cursor-pointer select-none bg-surface-container hover:bg-surface-container-high transition-colors"
-                  >
-                    <div className="flex flex-col gap-space-2xs">
-                      <div className="flex items-center gap-space-sm flex-wrap">
-                        <span className="font-data-mono-sm sm:font-data-mono-md text-data-mono-sm sm:text-data-mono-md font-bold text-primary tracking-wider font-mono">
-                          {cycle.dates}{' // '}CYCLE {cycle.cycleNumber}
-                        </span>
-                        <span
-                          className={`font-data-mono-sm text-[10px] sm:text-data-mono-sm px-space-xs py-space-2xs uppercase ${
-                            cycle.status === 'Active Window'
-                              ? 'bg-secondary-container/40 text-secondary font-bold'
-                              : 'bg-surface-container-high text-on-surface-variant'
-                          }`}
-                        >
-                          {cycle.status}
-                        </span>
-                      </div>
-                      <p className="font-body-sm text-body-sm text-on-surface-variant mt-space-2xs">
-                        {cycle.summary} (
-                        <span className="font-data-mono-sm text-data-mono-sm text-primary font-bold font-mono">
-                          {cycle.topMatchScore}
-                        </span>
-                        )
-                      </p>
-                    </div>
-
-                    <div className="flex items-center justify-between md:justify-end w-full md:w-auto gap-space-md mt-space-xs md:mt-0">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          copyMarkdown(cycle.executiveSummary);
-                        }}
-                        className="font-data-mono-sm text-xs sm:text-data-mono-sm text-brass underline hover:text-primary-fixed tracking-wider uppercase font-bold"
-                      >
-                        Export Markdown / BibTeX
-                      </button>
-                      <span className="material-symbols-outlined text-primary text-[20px] transition-transform duration-200">
-                        {isOpen ? 'expand_less' : 'expand_more'}
-                      </span>
-                    </div>
+                  <div className="flex flex-wrap items-center gap-space-sm font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+                    <span className="text-secondary font-bold">Score {item.score}</span>
+                    <span className="uppercase">{item.band}</span>
+                    <span>{item.agency}</span>
+                    {!item.in_digest && <span>(below your filters)</span>}
                   </div>
-
-                  {/* Accordion Content Body */}
-                  {isOpen && (
-                    <div className="px-space-md sm:px-space-lg pb-space-lg sm:pb-space-xl pt-space-xs flex flex-col gap-space-lg sm:gap-space-xl bg-surface-container-lowest border-t border-surface-container">
-                      {/* Executive Summary */}
-                      <div className="flex flex-col gap-space-md pt-space-md">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                          <h2 className="font-headline-md sm:font-headline-lg text-headline-md sm:text-headline-lg text-on-surface">
-                            Executive Summary &amp; High-Affinity Signals
-                          </h2>
-                          <span className="font-data-mono-sm text-data-mono-sm text-on-surface-variant font-mono">
-                            GENERATED {cycle.dates.split('—')[0].trim()} 06:00:12 UTC
-                          </span>
-                        </div>
-                        <p className="font-body-md text-body-md text-on-surface-variant max-w-4xl leading-relaxed">
-                          {cycle.executiveSummary}
-                        </p>
-                      </div>
-
-                      {/* Signal Cards */}
-                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-space-md">
-                        {cycle.signals.map((sig, i) => (
-                          <div
-                            key={i}
-                            className="bg-surface-container p-space-lg flex flex-col justify-between gap-space-md relative overflow-hidden border border-surface-container-high"
-                          >
-                            <div className="flex flex-col gap-space-sm">
-                              <div className="flex items-center justify-between">
-                                <span className="font-label-caps text-label-caps text-secondary uppercase tracking-widest">
-                                  Signal {sig.number}{' // '}{sig.kind}
-                                </span>
-                                <span
-                                  className={`font-data-mono-sm text-data-mono-sm px-space-xs py-space-2xs uppercase font-bold ${sig.badgeClass}`}
-                                >
-                                  {sig.badge}
-                                </span>
-                              </div>
-                              <h3 className="font-headline-sm text-headline-sm text-on-surface">
-                                {sig.title}
-                              </h3>
-                              <p className="font-body-sm text-body-sm text-on-surface-variant">
-                                {sig.desc}
-                              </p>
-                            </div>
-
-                            <div className="flex flex-col gap-space-xs pt-space-md bg-surface-container-low p-space-sm rounded border border-surface-container font-mono">
-                              <div className="flex items-center justify-between font-data-mono-sm text-data-mono-sm">
-                                <span className="text-on-surface-variant">AFFINITY SCORE</span>
-                                <span className="text-primary font-bold">{sig.affinityScore} / 100</span>
-                              </div>
-                              <div className="flex items-center justify-between font-data-mono-sm text-data-mono-sm">
-                                <span className="text-on-surface-variant">{sig.metricLabel}</span>
-                                <span
-                                  className={`font-bold uppercase ${
-                                    sig.timelineClass || 'text-on-surface'
-                                  }`}
-                                >
-                                  {sig.metricValue}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Action Items & Recommended Protocols */}
-                      <div className="bg-surface-container p-space-lg rounded flex flex-col gap-space-md border border-surface-container-high">
-                        <div className="flex items-center justify-between">
-                          <h3 className="font-headline-md text-headline-md text-on-surface">
-                            Action Items &amp; Recommended Protocols
-                          </h3>
-                          <span className="font-label-caps text-label-caps text-secondary uppercase tracking-widest">
-                            FACULTY PROTOCOL: VIBHA-CORE
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-space-lg">
-                          <div className="flex flex-col gap-space-sm">
-                            {cycle.actions.map((act, i) => (
-                              <div key={i} className="flex items-start gap-space-sm">
-                                <span className="material-symbols-outlined text-primary text-[18px] mt-0.5">
-                                  {act.icon}
-                                </span>
-                                <div className="flex flex-col gap-space-2xs">
-                                  <span className="font-body-md text-body-md font-bold text-on-surface">
-                                    {act.title}
-                                  </span>
-                                  <p className="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
-                                    {act.desc}
-                                  </p>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-
-                          <div className="flex flex-col gap-space-sm bg-surface-container-low p-space-md rounded border border-surface-container">
-                            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase font-bold">
-                              Affiliated Laboratory Readiness
-                            </span>
-                            <div className="flex flex-col gap-space-xs mt-space-2xs font-mono">
-                              <div className="flex items-center justify-between font-data-mono-sm text-data-mono-sm">
-                                <span className="text-on-surface-variant">
-                                  Budget &amp; Facilities Narrative:
-                                </span>
-                                <span className="text-secondary font-bold">
-                                  {cycle.labReadiness.budget}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between font-data-mono-sm text-data-mono-sm">
-                                <span className="text-on-surface-variant">
-                                  Letters of Collaboration:
-                                </span>
-                                <span className="text-tertiary font-bold">
-                                  {cycle.labReadiness.letters}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between font-data-mono-sm text-data-mono-sm">
-                                <span className="text-on-surface-variant">
-                                  Postdoc Resource Allocation:
-                                </span>
-                                <span className="text-on-surface font-bold">
-                                  {cycle.labReadiness.postdoc}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-space-sm mt-space-sm pt-space-sm border-t border-surface-container">
-                              <a
-                                href="/api/deadlines"
-                                target="_blank"
-                                className="bg-primary text-on-primary font-data-mono-sm text-data-mono-sm px-space-md py-space-xs rounded font-bold uppercase hover:bg-primary-fixed transition-colors text-center justify-center"
-                              >
-                                Export Full TeX Bundle
-                              </a>
-                              <button
-                                onClick={() =>
-                                  copyMarkdown(
-                                    `# Research Opportunity Radar Digest — Cycle ${cycle.cycleNumber}\n\n${cycle.executiveSummary}`
-                                  )
-                                }
-                                className="bg-transparent text-on-surface font-data-mono-sm text-data-mono-sm px-space-md py-space-xs rounded uppercase hover:bg-surface-container-highest transition-colors border border-surface-container text-center justify-center"
-                              >
-                                Copy Raw Markdown
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            }))}
-          </div>
-        </div>
-
-        {/* Terminal Endpoint Footer Bar */}
-        <div className="bg-surface-container-low p-space-sm sm:p-space-md flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-space-sm sm:gap-space-md rounded border border-surface-container">
-          <div className="flex items-center gap-space-sm font-data-mono-sm text-[11px] sm:text-data-mono-sm text-on-surface-variant font-mono truncate">
-            <span className="material-symbols-outlined text-[16px] text-primary shrink-0">terminal</span>
-            <span className="truncate">INDEX ENDPOINT: ror://archive/digests/stream?cycles=39-43</span>
-          </div>
-          <button className="bg-surface-container hover:bg-surface-container-high text-on-surface font-data-mono-sm text-data-mono-sm px-space-md py-space-xs rounded uppercase transition-colors border border-surface-container-high w-full sm:w-auto text-center shrink-0">
-            Load Previous 20 Cycles
-          </button>
-        </div>
-      </div>
+                  <Link href={`/opportunities/${item.id}`} className="font-body-lg text-body-lg text-on-surface font-semibold hover:text-primary">
+                    {item.title}
+                  </Link>
+                  <div className="flex flex-wrap items-center justify-between gap-2 font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+                    <span>
+                      {item.deadline
+                        ? `Due ${formatDeadline(item.deadline.date)} (${item.deadline.days_left} days)`
+                        : 'Deadline not published'}
+                      {item.matched_terms.length > 0 && ` · matches ${item.matched_terms.slice(0, 3).join(', ')}`}
+                    </span>
+                    {item.url && (
+                      <a href={item.url} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                        Official page
+                      </a>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </>
+      )}
     </div>
   );
 }
-

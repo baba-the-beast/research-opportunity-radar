@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import { consumeRateLimit, getClientIp } from '@/lib/rateLimit';
+import { consumeRateLimit, rateLimitKey } from '@/lib/rateLimit';
 import { authenticateRequest, authorizeRole } from '@/lib/auth';
 import { getActivePipelineLock } from '@/lib/pipelineLock';
 import { createErrorResponse } from '@/lib/apiResponse';
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
     }
 
     // 2. Sanitized IP Rate limit check (max 5 triggered runs per 10 minutes)
-    const ip = getClientIp(req);
+    const ip = rateLimitKey(req, auth.user);
     const rateCheck = await consumeRateLimit(`stream_${ip}`, 5, 600000);
     if (!rateCheck.allowed) {
       return createErrorResponse(

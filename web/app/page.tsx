@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { formatDeadline, formatIstDateTime } from '@/lib/dates';
+import { getSupabaseBrowserClient } from '@/lib/supabaseBrowserClient';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 
@@ -20,14 +22,31 @@ interface OpportunitySummary {
   venue_name: string;
   primary_source_name: string;
   primary_source_url: string;
-  next_deadline: { deadline_date: string; confidence: string } | null;
+  next_deadline: { deadline_date: string; confidence: string; days_left: number } | null;
+  lifecycle_status?: string; // open | forecasted | closed | unknown (no published deadline)
+  is_expired?: boolean;
   final_score: number | null; // null until the pipeline scores this opportunity for the user
   band: string;
   matched_terms: string[];
   status: string;
   saved?: boolean;
-  external_id?: string;
-  eligibility_verdict?: string;
+}
+
+interface PipelineRun {
+  id: string;
+  status: string;
+  started_at: string;
+  finished_at: string | null;
+  opportunities_found: number;
+  opportunities_new: number;
+  error_count: number;
+}
+
+interface MyProfile {
+  full_name: string;
+  institution: string;
+  department: string;
+  research_keywords: string[];
 }
 
 interface AgentTelemetryLog {
@@ -42,22 +61,38 @@ interface AgentTelemetryLog {
 
 const INITIAL_LOGS: AgentTelemetryLog[] = [
   {
-    timestamp: '2026-01-01T00:00:00.000Z',
-    agent: 'Orchestrator',
+    timestamp: new Date(0).toISOString(),
+    agent: 'Radar',
     phase: 'SYSTEM',
     level: 'INFO',
     stepIndex: 1,
-    message: 'Observatory telemetry matrix calibrated. Standing multi-agent watch loop online.'
-  },
-  {
-    timestamp: '2026-01-01T00:00:00.000Z',
-    agent: 'FacultyMemoryStore',
-    phase: 'PROFILE',
-    level: 'INFO',
-    stepIndex: 1,
-    message: 'Investigator node #VIBHA-COEP active. 5 weighted descriptor vectors mounted.'
+    message: 'Scans run automatically on Monday and Thursday mornings (IST). New matches arrive in your digest.'
   }
 ];
+
+const RESCAN_POLL_MS = 15_000;
+const RESCAN_MAX_WAIT_MS = 30 * 60_000;
+
+/** Deadline badge text and tone from the API's IST-based days_left. */
+function deadlineBadge(opp: OpportunitySummary): { text: string; tone: 'urgent' | 'normal' | 'muted' } {
+  if (opp.is_expired && opp.next_deadline) {
+    return { text: `Closed ${formatDeadline(opp.next_deadline.deadline_date)}`, tone: 'muted' };
+  }
+  if (!opp.next_deadline) {
+    return { text: opp.lifecycle_status === 'open' ? 'Open all year' : 'Deadline not published', tone: 'muted' };
+  }
+  const { days_left: days, deadline_date: date, confidence } = opp.next_deadline;
+  const when = days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`;
+  const approx = confidence === 'probable' ? ' (from call document)' : '';
+  return { text: `Due ${formatDeadline(date)}, ${when}${approx}`, tone: days <= 7 ? 'urgent' : 'normal' };
+}
+
+function kindLabel(opp: OpportunitySummary): string {
+  if (opp.kind === 'journal') return 'Journal call for papers';
+  if (opp.kind === 'venue') return 'Conference call for papers';
+  if (opp.lifecycle_status === 'forecasted') return 'Funding call — opens soon';
+  return 'Funding call';
+}
 
 export default function DashboardPage() {
   const [opportunities, setOpportunities] = useState<OpportunitySummary[]>([]);
@@ -70,22 +105,17 @@ export default function DashboardPage() {
   });
   const [filterKind, setFilterKind] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'score' | 'deadline'>('score');
-  const [dryRun, setDryRun] = useState(false);
+  const [isOperator, setIsOperator] = useState(false);
+  const [lastRun, setLastRun] = useState<PipelineRun | null>(null);
+  const [me, setMe] = useState<MyProfile | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [rescanTriggered, setRescanTriggered] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [consoleOpen, setConsoleOpen] = useState(true);
   const [activeStep, setActiveStep] = useState(1);
   const [activePhase, setActivePhase] = useState('IDLE');
   const [logs, setLogs] = useState<AgentTelemetryLog[]>(INITIAL_LOGS);
-  const [keywords, setKeywords] = useState<string[]>([
-    'Edge AI',
-    'Sensor Fusion',
-    'Autonomous Systems',
-    'Embedded ML',
-    'Distributed Robotics'
-  ]);
-  const [newKeyword, setNewKeyword] = useState('');
-  const [showAddKeyword, setShowAddKeyword] = useState(false);
   const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
   const [liteMode, setLiteMode] = useState(false);
   const [showSlowConnBanner, setShowSlowConnBanner] = useState(false);
@@ -104,133 +134,102 @@ export default function DashboardPage() {
   }, []);
 
 
-  useEffect(() => {
-    fetch('/api/opportunities')
+  const loadOpportunities = async (cursor?: string) => {
+    const params = new URLSearchParams({ limit: '30' });
+    if (cursor) params.set('cursor', cursor);
+    const res = await fetch(`/api/opportunities?${params}`);
+    const body = await res.json();
+    const page = body?.data;
+    const items: OpportunitySummary[] = Array.isArray(page?.data) ? page.data : Array.isArray(page) ? page : [];
+    setNextCursor(page?.pagination?.next_cursor ?? null);
+    setOpportunities((prev) => (cursor ? [...prev, ...items] : items));
+  };
+
+  const loadLastRun = () =>
+    fetch('/api/pipeline/status')
       .then((res) => res.json())
-      .then((data) => {
-        const items = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
-        setOpportunities(items);
-        setLoading(false);
+      .then((body) => {
+        setLastRun(body?.data ?? null);
+        return (body?.data ?? null) as PipelineRun | null;
       })
-      .catch(() => {
-        setOpportunities([]);
-        setLoading(false);
-      });
+      .catch(() => null);
+
+  useEffect(() => {
+    loadOpportunities()
+      .catch(() => setOpportunities([]))
+      .finally(() => setLoading(false));
+    loadLastRun();
+    fetch('/api/profile')
+      .then((res) => res.json())
+      .then((body) => {
+        const prof = body?.data;
+        if (prof) setMe({ full_name: prof.full_name, institution: prof.institution, department: prof.department, research_keywords: prof.research_keywords || [] });
+      })
+      .catch(() => {});
+    try {
+      getSupabaseBrowserClient()
+        .auth.getUser()
+        .then(({ data: { user } }) => {
+          const role = (user?.app_metadata as any)?.role;
+          setIsOperator(role === 'operator' || role === 'admin');
+        });
+    } catch {
+      // Supabase not configured: no operator controls
+    }
   }, []);
 
+  const loadMore = async () => {
+    if (!nextCursor) return;
+    setLoadingMore(true);
+    try {
+      await loadOpportunities(nextCursor);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const log = (level: string, message: string, phase = 'SCAN') =>
+    setLogs((prev) => [...prev, { timestamp: new Date().toISOString(), agent: 'Radar', phase, level, stepIndex: 1, message }]);
+
+  /** Start a scan on GitHub Actions (operators only) and poll run_log until it finishes. */
   const triggerRescan = async () => {
     if (isStreaming) return;
     setRescanTriggered(true);
     setIsStreaming(true);
     setConsoleOpen(true);
-    setActivePhase('INIT');
-    setShowSlowConnBanner(false);
-
-    // Idle timeout: abort only if no data (events or the server's 15s heartbeat) arrives for 45s.
-    // A full pipeline run takes minutes, so this must reset on every chunk, not cap the whole run.
-    const IDLE_TIMEOUT_MS = 45_000;
-    const controller = new AbortController();
-    let abortTimer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
-    const resetIdleTimer = () => {
-      clearTimeout(abortTimer);
-      abortTimer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
-    };
-    // Show slow-connection feedback banner after 5s without any SSE data
-    const slowBannerTimer = setTimeout(() => setShowSlowConnBanner(true), 5_000);
-
+    setActivePhase('DISPATCH');
+    const previousRunId = lastRun?.id;
     try {
-      const response = await fetch(`/api/pipeline/stream?run=true&dry_run=${dryRun}`, {
-        signal: controller.signal
-      });
-      if (!response.ok) {
-        // 409 (run already active), 401/403, 429 come back as JSON, not an event stream
-        const errBody = await response.json().catch(() => null);
-        setLogs((prev) => [...prev, {
-          timestamp: new Date().toISOString(),
-          agent: 'Observatory',
-          phase: 'ERROR',
-          level: 'ERROR',
-          stepIndex: 99,
-          message: errBody?.error?.message || `Rescan request failed (HTTP ${response.status}).`
-        }]);
+      const res = await fetch('/api/pipeline/trigger', { method: 'POST' });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        log('ERROR', body?.error?.message || `Could not start the scan (HTTP ${res.status}).`, 'ERROR');
         return;
       }
-      if (!response.body) throw new Error('ReadableStream not supported');
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let firstChunkReceived = false;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        resetIdleTimer();
-
-        if (!firstChunkReceived) {
-          firstChunkReceived = true;
-          clearTimeout(slowBannerTimer);
-          setShowSlowConnBanner(false);
+      log('INFO', 'Scan started on GitHub Actions. This usually takes 5-15 minutes; you can leave this page.');
+      const started = Date.now();
+      while (Date.now() - started < RESCAN_MAX_WAIT_MS) {
+        await new Promise((resolve) => setTimeout(resolve, RESCAN_POLL_MS));
+        const run = await loadLastRun();
+        if (!run || run.id === previousRunId) continue;
+        if (run.status === 'running') {
+          setActivePhase('RUNNING');
+          continue;
         }
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n\n');
-        buffer = lines.pop() || '';
-
-        for (const block of lines) {
-          const trimmed = block.trim();
-          if (trimmed.startsWith('data: ')) {
-            try {
-              const event: AgentTelemetryLog = JSON.parse(trimmed.replace('data: ', ''));
-              setLogs((prev) => [...prev, event]);
-              if (event.phase) setActivePhase(event.phase);
-              if (event.stepIndex) setActiveStep(event.stepIndex);
-
-              if (event.phase === 'COMPLETE') {
-                fetch('/api/opportunities')
-                  .then((res) => res.json())
-                  .then((fresh) => {
-                    const freshItems = Array.isArray(fresh) ? fresh : (Array.isArray(fresh?.data) ? fresh.data : []);
-                    if (freshItems.length > 0) {
-                      setOpportunities(freshItems);
-                    }
-                  })
-                  .catch(() => {});
-              }
-            } catch (e) {
-              console.error('SSE parse error', e);
-            }
-          }
-        }
+        const summary = `${run.opportunities_found} calls checked, ${run.opportunities_new} new`;
+        log(run.status === 'success' ? 'SUCCESS' : 'WARN',
+          run.status === 'success' ? `Scan finished: ${summary}.` : `Scan finished with problems (${run.error_count} issues): ${summary}.`, 'COMPLETE');
+        setActivePhase('COMPLETE');
+        await loadOpportunities();
+        return;
       }
+      log('WARN', 'The scan is taking longer than usual. Check the Actions tab on GitHub, or refresh later.', 'TIMEOUT');
     } catch (err: any) {
-      if (err?.name === 'AbortError') {
-        setLogs((prev) => [...prev, {
-          timestamp: new Date().toISOString(),
-          agent: 'Observatory',
-          phase: 'TIMEOUT',
-          level: 'WARN',
-          stepIndex: 99,
-          message: 'Lost contact with the radar scan (no data for 45 seconds). The pipeline keeps running on the server — refresh in a few minutes to see new opportunities.'
-        }]);
-      } else {
-        console.error('Streaming error', err);
-      }
+      log('ERROR', `Could not start the scan: ${err.message}`, 'ERROR');
     } finally {
-      clearTimeout(abortTimer);
-      clearTimeout(slowBannerTimer);
-      setShowSlowConnBanner(false);
       setIsStreaming(false);
       setRescanTriggered(false);
     }
-  };
-
-
-  const handleAddKeyword = () => {
-    if (!newKeyword.trim()) return;
-    setKeywords([...keywords, newKeyword.trim()]);
-    setNewKeyword('');
-    setShowAddKeyword(false);
   };
 
   const [savedOnly, setSavedOnly] = useState(false);
@@ -256,10 +255,6 @@ export default function DashboardPage() {
     }
   };
 
-  const removeKeyword = (kw: string) => {
-    setKeywords(keywords.filter((k) => k !== kw));
-  };
-
   const toggleBand = (b: string) => {
     setFilterBands((prev) => ({ ...prev, [b]: !prev[b] }));
   };
@@ -274,6 +269,11 @@ export default function DashboardPage() {
       if (!b.next_deadline?.deadline_date) return -1;
       return a.next_deadline.deadline_date.localeCompare(b.next_deadline.deadline_date);
     });
+
+  const upcoming = opportunities
+    .filter((o) => o.next_deadline && !o.is_expired && o.next_deadline.days_left >= 0)
+    .sort((a, b) => a.next_deadline!.days_left - b.next_deadline!.days_left)
+    .slice(0, 6);
 
   const countByBand = (b: string) => opportunities.filter((o) => o.band === b).length;
 
@@ -314,43 +314,36 @@ export default function DashboardPage() {
         <div className="flex items-center gap-space-sm sm:gap-space-lg flex-wrap">
           <div className="flex items-center gap-space-xs font-label-caps text-label-caps text-on-surface-variant">
             <span className="w-2 h-2 bg-primary-container inline-block"></span>
-            <span className="tracking-widest uppercase text-primary">TELEMETRY MATRIX: ACTIVE SCAN</span>
+            <span className="tracking-widest uppercase text-primary">Opportunity radar</span>
           </div>
-          <span className="font-data-mono-sm text-data-mono-sm text-outline hidden sm:inline">EPOCH // 2026.Q3</span>
-          <span className="font-data-mono-sm text-data-mono-sm text-outline">SOURCE NODES: 9 INTEGRATED</span>
+          <span className="font-data-mono-sm text-data-mono-sm text-outline">
+            {lastRun?.finished_at
+              ? `Last scan: ${formatIstDateTime(lastRun.finished_at)}${lastRun.status === 'partial_failure' ? ' (some sources unavailable)' : ''}`
+              : lastRun?.status === 'running'
+                ? 'Scan in progress...'
+                : 'No scan yet'}
+          </span>
         </div>
         <div className="flex items-center gap-space-sm sm:gap-space-md font-data-mono-sm text-data-mono-sm flex-wrap">
-          <span className="text-on-surface-variant hidden md:inline">
-            AFFINITY ENGINE: <span className="text-secondary font-bold">K-NEAREST EMBEDDINGS (V3.8)</span>
-          </span>
-          <label className="flex items-center gap-1.5 cursor-pointer text-on-surface-variant hover:text-on-surface select-none font-data-mono-sm text-data-mono-sm">
-            <input
-              type="checkbox"
-              checked={dryRun}
-              onChange={(e) => setDryRun(e.target.checked)}
+          {isOperator && (
+            <button
+              onClick={triggerRescan}
               disabled={isStreaming}
-              className="accent-primary w-3.5 h-3.5 cursor-pointer"
-            />
-            <span className="tracking-wider uppercase">DRY RUN</span>
-          </label>
-          <div className="h-3 w-px bg-surface-container-high hidden sm:block"></div>
-          <button
-            onClick={triggerRescan}
-            disabled={isStreaming}
-            className="text-on-primary bg-primary-container px-space-md py-space-2xs font-label-caps text-label-caps tracking-wider uppercase hover:bg-primary transition-colors flex items-center gap-1 disabled:opacity-75 cursor-pointer"
-          >
-            {isStreaming ? (
-              <>
-                <span className="material-symbols-outlined text-[13px] animate-spin">sync</span>
-                <span>Streaming Agents...</span>
-              </>
-            ) : (
-              <>
-                <span className="material-symbols-outlined text-[13px]">radar</span>
-                <span>Rescan Corpus</span>
-              </>
-            )}
-          </button>
+              className="text-on-primary bg-primary-container px-space-md py-space-2xs font-label-caps text-label-caps tracking-wider uppercase hover:bg-primary transition-colors flex items-center gap-1 disabled:opacity-75 cursor-pointer"
+            >
+              {isStreaming ? (
+                <>
+                  <span className="material-symbols-outlined text-[13px] animate-spin">sync</span>
+                  <span>Scan running...</span>
+                </>
+              ) : (
+                <>
+                  <span className="material-symbols-outlined text-[13px]">radar</span>
+                  <span>Scan now</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
@@ -462,84 +455,42 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 w-full min-h-[calc(100vh-8.5rem)]">
         {/* Left Rail: Fixed Faculty Profile & Filter Vector */}
         <section className="lg:col-span-3 bg-surface-container-lowest p-space-md sm:p-space-lg flex flex-col gap-space-md sm:gap-space-lg lg:gap-space-xl border-b lg:border-b-0 lg:border-r border-surface-container">
-          {/* Investigator Node / Faculty Dossier Header Card */}
+          {/* Your profile */}
           <div className="flex items-start justify-between gap-space-sm">
             <div className="flex flex-col min-w-0">
-              <div className="flex items-center gap-space-xs flex-wrap">
-                <span className="font-data-mono-sm text-data-mono-sm text-primary uppercase tracking-wider">
-                  PI Dossier · Ref #VIBHA-COEP
-                </span>
-                <span className="px-1 py-0.5 bg-surface-container font-data-mono-sm text-data-mono-sm text-secondary font-bold">
-                  ACTIVE SCAN
-                </span>
-              </div>
+              <span className="font-data-mono-sm text-data-mono-sm text-primary uppercase tracking-wider">Your profile</span>
               <h2 className="font-headline-md text-headline-md text-on-surface font-bold leading-tight mt-0.5">
-                Prof. Vibha
+                {me?.full_name || 'Set up your profile'}
               </h2>
               <p className="font-body-sm text-body-sm text-on-surface-variant leading-tight mt-0.5">
-                Dept. of Computer Science &amp; Cyber-Physical Systems · COEP Technological University
+                {me?.institution
+                  ? [me.department, me.institution].filter(Boolean).join(' · ')
+                  : 'Add your research interests so calls can be matched and ranked for you.'}
               </p>
             </div>
-            <div className="shrink-0 flex flex-col items-end">
-              <span className="font-data-mono-sm text-data-mono-sm text-on-surface-variant uppercase">Index Score</span>
-              <span className="font-data-mono-lg text-data-mono-lg text-primary leading-none mt-0.5 font-bold">98.4</span>
-            </div>
+            <Link href="/profile" className="shrink-0 font-data-mono-sm text-data-mono-sm text-primary hover:underline">
+              Edit
+            </Link>
           </div>
 
-          {/* Weighted Descriptors Chips (Horizontal Scroller on Mobile) */}
           <div className="flex flex-col gap-space-xs">
-            <div className="flex items-center justify-between pb-space-2xs">
-              <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">
-                Weighted Descriptors ({keywords.length})
-              </span>
-              <button
-                onClick={() => setShowAddKeyword(!showAddKeyword)}
-                className="font-data-mono-sm text-data-mono-sm text-primary hover:underline"
-              >
-                + Add Vector
-              </button>
-            </div>
-
-            {showAddKeyword && (
-              <div className="flex gap-1 mb-2">
-                <input
-                  type="text"
-                  value={newKeyword}
-                  onChange={(e) => setNewKeyword(e.target.value)}
-                  placeholder="New keyword..."
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddKeyword()}
-                  className="bg-surface-container-low px-2 py-1 text-xs text-on-surface border border-surface-container flex-1 focus:outline-none focus:border-primary"
-                />
-                <button
-                  onClick={handleAddKeyword}
-                  className="bg-primary text-on-primary px-2 py-1 text-xs font-mono font-bold"
-                >
-                  ADD
-                </button>
-              </div>
-            )}
-
+            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">
+              Research keywords ({me?.research_keywords.length ?? 0})
+            </span>
             <div className="flex items-center gap-space-xs overflow-x-auto no-scrollbar py-0.5 -mx-space-md px-space-md lg:mx-0 lg:px-0 lg:flex-wrap" id="keyword-cluster">
-              {keywords.map((kw) => (
-                <div
+              {(me?.research_keywords || []).map((kw) => (
+                <span
                   key={kw}
-                  className="shrink-0 flex items-center gap-space-xs bg-surface-container-low px-space-sm py-space-2xs font-data-mono-sm text-data-mono-sm text-on-surface border border-surface-container"
+                  className="shrink-0 bg-surface-container-low px-space-sm py-space-2xs font-data-mono-sm text-data-mono-sm text-on-surface border border-surface-container"
                 >
-                  <span>{kw}</span>
-                  <span
-                    onClick={() => removeKeyword(kw)}
-                    className="text-outline hover:text-error cursor-pointer ml-1"
-                  >
-                    ×
-                  </span>
-                </div>
+                  {kw}
+                </span>
               ))}
-              <button
-                onClick={() => setShowAddKeyword(!showAddKeyword)}
-                className="shrink-0 px-2 py-1 bg-surface-container-high text-primary font-data-mono-sm text-data-mono-sm flex items-center gap-1 border border-surface-container"
-              >
-                <span className="material-symbols-outlined text-[11px]">add</span> EDIT FOCUS
-              </button>
+              {me && me.research_keywords.length === 0 && (
+                <Link href="/profile" className="font-data-mono-sm text-data-mono-sm text-primary hover:underline">
+                  Add keywords
+                </Link>
+              )}
             </div>
           </div>
 
@@ -692,18 +643,17 @@ export default function DashboardPage() {
                 <span className="material-symbols-outlined text-2xl text-primary animate-spin mb-2 block">
                   radar
                 </span>
-                SWEEPING ACTIVE REPOSITORIES...
+                Loading calls...
               </div>
             ) : filteredOpps.length === 0 ? (
               <div className="p-space-2xl text-center font-data-mono-sm text-data-mono-sm text-on-surface-variant">
-                NO OPPORTUNITIES MATCH CURRENT FILTER CUTOFFS.
+                {opportunities.length === 0
+                  ? 'No open calls yet. They appear after the next scan (Monday and Thursday mornings, IST).'
+                  : 'No calls match the current filters.'}
               </div>
             ) : (
               filteredOpps.map((opp) => {
-                const isUnder7Days =
-                  opp.next_deadline &&
-                  (opp.next_deadline.deadline_date.includes('12') ||
-                    opp.next_deadline.deadline_date.includes('2025-10-12'));
+                const badge = deadlineBadge(opp);
                 const isHighOrStrong = opp.band === 'high' || opp.band === 'strong';
 
                 return (
@@ -714,49 +664,18 @@ export default function DashboardPage() {
                     <div className="flex items-start justify-between gap-space-md">
                       <div className="flex flex-col gap-space-2xs min-w-0 flex-1">
                         <div className="flex items-center gap-space-sm flex-wrap">
-                          {opp.kind === 'award' || opp.primary_source_name?.toLowerCase().includes('award') || opp.agency_or_publisher?.toLowerCase().includes('award') ? (
-                            <span className="px-space-xs py-space-2xs font-data-mono-sm text-data-mono-sm uppercase tracking-widest font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                              ACTIVE PROGRAM — AWARDED FUNDING HISTORY
-                            </span>
-                          ) : (
-                            <span
-                              className={`px-space-xs py-space-2xs font-data-mono-sm text-data-mono-sm uppercase tracking-widest font-bold ${
-                                opp.kind === 'journal'
-                                  ? 'bg-secondary-container/40 text-secondary border border-secondary/30'
-                                  : opp.kind === 'funding'
-                                  ? 'bg-error-container/40 text-error border border-error/30'
-                                  : 'bg-surface-container-highest text-on-surface'
-                              }`}
-                            >
-                              {opp.kind === 'journal'
-                                ? 'SPECIAL ISSUE'
-                                : opp.kind === 'funding'
-                                ? opp.next_deadline
-                                  ? `OPEN CALL — DEADLINE [${opp.next_deadline.deadline_date}]`
-                                  : 'OPEN CALL — SOLICITATION'
-                                : 'CONFERENCE CFP'}
-                            </span>
-                          )}
-                          <span className="font-data-mono-sm text-data-mono-sm text-outline">
-                            {opp.external_id || opp.agency_or_publisher}
+                          <span
+                            className={`px-space-xs py-space-2xs font-data-mono-sm text-data-mono-sm uppercase tracking-widest font-bold ${
+                              opp.kind === 'funding'
+                                ? 'bg-error-container/40 text-error border border-error/30'
+                                : 'bg-secondary-container/40 text-secondary border border-secondary/30'
+                            }`}
+                          >
+                            {kindLabel(opp)}
                           </span>
-                          {opp.eligibility_verdict && (
-                            <span
-                              className={`px-space-xs py-space-2xs font-data-mono-sm text-data-mono-sm uppercase tracking-wider font-bold border ${
-                                opp.eligibility_verdict === 'ELIGIBLE'
-                                  ? 'bg-secondary-container/40 text-secondary border-secondary/30'
-                                  : opp.eligibility_verdict.includes('WARNING')
-                                  ? 'bg-primary-container/40 text-primary border-primary/30'
-                                  : 'bg-error-container/40 text-error border-error/30'
-                              }`}
-                            >
-                              {opp.eligibility_verdict === 'ELIGIBLE'
-                                ? '✓ ELIGIBLE'
-                                : opp.eligibility_verdict.includes('WARNING')
-                                ? '⚠ LIMITED SUBMISSION'
-                                : '✕ NOT ELIGIBLE'}
-                            </span>
-                          )}
+                          <span className="font-data-mono-sm text-data-mono-sm text-outline">
+                            {opp.agency_or_publisher || opp.venue_name || opp.primary_source_name}
+                          </span>
                         </div>
 
                         <Link href={`/opportunities/${opp.id}`}>
@@ -824,31 +743,23 @@ export default function DashboardPage() {
                           onClick={(e) => e.stopPropagation()}
                           className="text-brass underline underline-offset-4 hover:text-primary-fixed"
                         >
-                          Citation Link
+                          Official page
                         </a>
                       </div>
 
                       <div>
-                        {opp.next_deadline ? (
-                          isUnder7Days ? (
-                            <div className="flex items-center gap-space-xs font-data-mono-sm text-data-mono-sm text-rust bg-error-container/40 px-space-xs py-space-2xs font-bold">
-                              <span className="material-symbols-outlined text-[14px]">timer</span>
-                              <span className="tracking-wider uppercase">8 DAYS REMAINING</span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-space-xs font-data-mono-sm text-data-mono-sm text-brass">
-                              <span className="material-symbols-outlined text-[14px]">event</span>
-                              <span className="tracking-wider uppercase">
-                                {opp.next_deadline.deadline_date} (34 DAYS LEFT)
-                              </span>
-                            </div>
-                          )
-                        ) : (
-                          <div className="flex items-center gap-space-xs font-data-mono-sm text-data-mono-sm text-outline">
-                            <span className="material-symbols-outlined text-[14px]">all_inclusive</span>
-                            <span className="uppercase tracking-wider">ROLLING SUBMISSION</span>
-                          </div>
-                        )}
+                        <div
+                          className={`flex items-center gap-space-xs font-data-mono-sm text-data-mono-sm px-space-xs py-space-2xs ${
+                            badge.tone === 'urgent'
+                              ? 'text-rust bg-error-container/40 font-bold'
+                              : badge.tone === 'normal'
+                                ? 'text-brass'
+                                : 'text-outline'
+                          }`}
+                        >
+                          <span className="material-symbols-outlined text-[14px]">{badge.tone === 'urgent' ? 'timer' : 'event'}</span>
+                          <span className="tracking-wider">{badge.text}</span>
+                        </div>
                       </div>
                     </div>
 
@@ -902,143 +813,70 @@ export default function DashboardPage() {
           </div>
 
           <div className="p-space-md sm:p-space-lg bg-surface-container-lowest mt-auto flex flex-wrap items-center justify-between gap-space-sm border-t border-surface-container">
-            <div className="flex items-center gap-space-md font-data-mono-sm text-data-mono-sm text-on-surface-variant flex-wrap">
-              <span>RESONANCE WINDOW: 180 DAYS</span>
-              <span className="text-outline">·</span>
-              <span>AUTOSCAN RATE: 12H</span>
-            </div>
-            <div className="flex items-center gap-space-xs font-data-mono-sm text-data-mono-sm">
-              <span className="text-outline">EXPORT DATA:</span>
-              <a href="/api/deadlines" target="_blank" className="text-primary hover:underline uppercase">
-                BibTeX
-              </a>
-              <span className="text-outline">/</span>
-              <a href="/api/deadlines" target="_blank" className="text-primary hover:underline uppercase">
-                CSV
-              </a>
-            </div>
+            <span className="font-data-mono-sm text-data-mono-sm text-on-surface-variant">
+              Showing {filteredOpps.length} of {opportunities.length} loaded calls
+            </span>
+            {nextCursor && (
+              <button
+                type="button"
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="font-data-mono-sm text-data-mono-sm text-primary hover:underline disabled:opacity-60"
+              >
+                {loadingMore ? 'Loading...' : 'Load more'}
+              </button>
+            )}
           </div>
         </section>
 
-        {/* Right Rail: Chronological Horizon Timeline */}
+        {/* Right Rail: upcoming deadlines among the loaded calls */}
         <section className="lg:col-span-3 bg-surface-container-lowest p-space-md sm:p-space-lg flex flex-col gap-space-md sm:gap-space-lg border-t lg:border-t-0 border-surface-container">
           <div className="flex flex-col gap-space-xs pb-space-xs border-b border-surface-container">
-            <div className="flex items-center justify-between">
-              <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">
-                Chronological Horizon
-              </span>
-              <span className="font-data-mono-sm text-data-mono-sm text-secondary font-bold">ACTIVE CLOCK</span>
-            </div>
-            <span className="font-data-mono-sm text-data-mono-sm text-outline">ASCENDING BY CLOSE DATE</span>
+            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">Next deadlines</span>
+            <span className="font-data-mono-sm text-data-mono-sm text-outline">Soonest first, India time</span>
           </div>
 
-          <div className="relative flex flex-col pl-space-lg">
-            <div className="absolute left-2 top-2 bottom-2 w-px bg-surface-container-highest"></div>
-            <div className="flex flex-col gap-space-xl relative">
-              {/* Event 1: Critical Horizon */}
-              <div className="relative flex flex-col gap-space-2xs">
-                <div className="absolute -left-[27px] top-1 w-3 h-3 bg-error ring-4 ring-surface-container-lowest"></div>
-                <div className="flex items-center justify-between">
-                  <span className="font-data-mono-sm text-data-mono-sm text-error font-bold">2025.10.12</span>
-                  <span className="font-data-mono-sm text-data-mono-sm text-error bg-error-container/30 px-space-2xs font-bold">
-                    T-8 DAYS
-                  </span>
-                </div>
-                <Link href="/deadlines">
-                  <h4 className="font-headline-sm text-headline-sm text-on-surface hover:text-primary transition-colors leading-tight">
-                    NSF CPS Frontier Research
-                  </h4>
-                </Link>
-                <p className="font-body-sm text-body-sm text-on-surface-variant">
-                  Full Proposal Submission Deadline (5:00 PM Submitter&apos;s Local Time)
-                </p>
-                <div className="flex items-center gap-space-sm font-data-mono-sm text-data-mono-sm text-outline pt-space-2xs">
-                  <span>FUNDING: $1.2M - $3.0M</span>
-                </div>
-              </div>
-
-              {/* Event 2: Watching Horizon */}
-              <div className="relative flex flex-col gap-space-2xs">
-                <div className="absolute -left-[27px] top-1 w-3 h-3 bg-primary ring-4 ring-surface-container-lowest"></div>
-                <div className="flex items-center justify-between">
-                  <span className="font-data-mono-sm text-data-mono-sm text-primary font-bold">2025.10.24</span>
-                  <span className="font-data-mono-sm text-data-mono-sm text-primary bg-surface-container px-space-2xs">
-                    T-34 DAYS
-                  </span>
-                </div>
-                <Link href="/deadlines">
-                  <h4 className="font-headline-sm text-headline-sm text-on-surface hover:text-primary transition-colors leading-tight">
-                    ACM/IEEE ICCPS 2025
-                  </h4>
-                </Link>
-                <p className="font-body-sm text-body-sm text-on-surface-variant">
-                  Technical Paper Submission Closes (Anywhere on Earth AOE)
-                </p>
-                <div className="flex items-center gap-space-sm font-data-mono-sm text-data-mono-sm text-outline pt-space-2xs">
-                  <span>LOCATION: IRVINE, CA</span>
-                </div>
-              </div>
-
-              {/* Event 3: Internal Milestone */}
-              <div className="relative flex flex-col gap-space-2xs">
-                <div className="absolute -left-[27px] top-1 w-3 h-3 bg-secondary ring-4 ring-surface-container-lowest"></div>
-                <div className="flex items-center justify-between">
-                  <span className="font-data-mono-sm text-data-mono-sm text-secondary font-bold">2025.11.28</span>
-                  <span className="font-data-mono-sm text-data-mono-sm text-on-surface-variant bg-surface-container px-space-2xs">
-                    INTERNAL
-                  </span>
-                </div>
-                <Link href="/deadlines">
-                  <h4 className="font-headline-sm text-headline-sm text-on-surface hover:text-primary transition-colors leading-tight">
-                    IEEE TCPS Edge Issue Check
-                  </h4>
-                </Link>
-                <p className="font-body-sm text-body-sm text-on-surface-variant">
-                  University Pre-submission Cleared for OpenAlex Indexed Topics
-                </p>
-                <div className="flex items-center gap-space-sm font-data-mono-sm text-data-mono-sm text-outline pt-space-2xs">
-                  <span>FACULTY REF: #VIBHA-COEP</span>
-                </div>
-              </div>
-
-              {/* Event 4: Long Horizon */}
-              <div className="relative flex flex-col gap-space-2xs">
-                <div className="absolute -left-[27px] top-1 w-3 h-3 bg-outline ring-4 ring-surface-container-lowest"></div>
-                <div className="flex items-center justify-between">
-                  <span className="font-data-mono-sm text-data-mono-sm text-outline font-bold">2026.01.20</span>
-                  <span className="font-data-mono-sm text-data-mono-sm text-outline bg-surface-container px-space-2xs">
-                    T-133 DAYS
-                  </span>
-                </div>
-                <h4 className="font-headline-sm text-headline-sm text-on-surface leading-tight">
-                  DARPA Sensor Networks Cutoff
-                </h4>
-                <p className="font-body-sm text-body-sm text-on-surface-variant">
-                  Phase-1 Executive Summary & White Paper Submission Window
-                </p>
-                <div className="flex items-center gap-space-sm font-data-mono-sm text-data-mono-sm text-outline pt-space-2xs">
-                  <span>SOLICITATION: RA-24-03</span>
-                </div>
+          {upcoming.length === 0 ? (
+            <p className="font-body-sm text-body-sm text-on-surface-variant">No upcoming deadlines among the loaded calls.</p>
+          ) : (
+            <div className="relative flex flex-col pl-space-lg">
+              <div className="absolute left-2 top-2 bottom-2 w-px bg-surface-container-highest"></div>
+              <div className="flex flex-col gap-space-xl relative">
+                {upcoming.map((opp) => {
+                  const days = opp.next_deadline!.days_left;
+                  const urgent = days <= 7;
+                  return (
+                    <div key={opp.id} className="relative flex flex-col gap-space-2xs">
+                      <div className={`absolute -left-[27px] top-1 w-3 h-3 ring-4 ring-surface-container-lowest ${urgent ? 'bg-error' : 'bg-primary'}`}></div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`font-data-mono-sm text-data-mono-sm font-bold ${urgent ? 'text-error' : 'text-primary'}`}>
+                          {formatDeadline(opp.next_deadline!.deadline_date)}
+                        </span>
+                        <span className={`font-data-mono-sm text-data-mono-sm px-space-2xs ${urgent ? 'text-error bg-error-container/30 font-bold' : 'text-on-surface-variant bg-surface-container'}`}>
+                          {days === 0 ? 'today' : `${days} day${days === 1 ? '' : 's'}`}
+                        </span>
+                      </div>
+                      <Link href={`/opportunities/${opp.id}`}>
+                        <h4 className="font-headline-sm text-headline-sm text-on-surface hover:text-primary transition-colors leading-tight">
+                          {opp.title}
+                        </h4>
+                      </Link>
+                      <p className="font-body-sm text-body-sm text-on-surface-variant">
+                        {opp.agency_or_publisher || opp.venue_name || opp.primary_source_name}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Calendar Sync Bridge Box */}
-          <div className="mt-auto p-space-md bg-surface-container-low flex flex-col gap-space-xs border border-surface-container">
-            <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-widest">
-              Calendar Sync Bridge
-            </span>
-            <p className="font-body-sm text-body-sm text-outline">
-              Synchronizing with Institutional Exchange Server & ORCID profile feed.
-            </p>
-            <a
-              href="/api/deadlines"
-              target="_blank"
-              className="w-full mt-space-2xs bg-surface-container-highest hover:bg-surface-container text-on-surface py-space-xs font-data-mono-sm text-data-mono-sm uppercase text-center transition-colors block border border-surface-container"
-            >
-              Export .ICS Calendar Feed
-            </a>
-          </div>
+          <Link
+            href="/deadlines"
+            className="mt-auto w-full bg-surface-container-highest hover:bg-surface-container text-on-surface py-space-xs font-data-mono-sm text-data-mono-sm uppercase text-center transition-colors block border border-surface-container"
+          >
+            All deadlines
+          </Link>
         </section>
       </div>
 

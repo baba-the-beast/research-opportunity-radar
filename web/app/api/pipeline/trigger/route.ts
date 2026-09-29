@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authenticateRequest, authorizeRole } from '@/lib/auth';
-import { consumeRateLimit, getClientIp } from '@/lib/rateLimit';
+import { consumeRateLimit, rateLimitKey } from '@/lib/rateLimit';
 import { getActivePipelineLock } from '@/lib/pipelineLock';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Sanitized Rate limiting check (max 5 triggers per 10 minutes)
-    const ip = getClientIp(req);
+    const ip = rateLimitKey(req, auth.user);
     const rateCheck = await consumeRateLimit(`trigger_${ip}`, 5, 600000);
     if (!rateCheck.allowed) {
       return createErrorResponse(
@@ -72,12 +72,20 @@ export async function POST(req: NextRequest) {
         'Accept': 'application/vnd.github+json',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ ref: 'main' })
+      // Branch whose pipeline.yml runs; override with GITHUB_REF for a staging branch
+      body: JSON.stringify({ ref: process.env.GITHUB_REF || 'main' })
     });
 
     if (!res.ok) {
       const errText = await res.text();
-      return createErrorResponse('GITHUB_API_ERROR', `GitHub API call failed (${res.status}): ${errText}`, res.status, req);
+      // GitHub's 401/404 describe our token/repo config, not the caller's request: report a 502
+      const hint =
+        res.status === 401 || res.status === 403
+          ? 'check that GITHUB_PAT is valid and has Actions: write on the repository'
+          : res.status === 404
+            ? 'check GITHUB_REPO (owner/repo) and that .github/workflows/pipeline.yml exists on the branch'
+            : errText.slice(0, 200);
+      return createErrorResponse('GITHUB_API_ERROR', `Could not start the scan (GitHub ${res.status}): ${hint}`, 502, req);
     }
 
     return createSuccessResponse(

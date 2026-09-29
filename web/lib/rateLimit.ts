@@ -68,10 +68,20 @@ export function getClientIp(req: Request): string {
 }
 
 function isValidIp(ip: string): boolean {
-  // Simple IPv4 and IPv6 format validator
   const ipv4Pattern = /^(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
-  const ipv6Pattern = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::$|^::1$/;
-  return ipv4Pattern.test(ip) || ipv6Pattern.test(ip);
+  if (ipv4Pattern.test(ip)) return true;
+  // IPv6, including compressed forms (2001:db8::1): hex groups, at most one "::", 2-7 colons
+  if (ip.length > 39 || !/^[0-9a-fA-F:]+$/.test(ip) || (ip.match(/::/g) || []).length > 1) return false;
+  const colons = (ip.match(/:/g) || []).length;
+  return colons >= 2 && colons <= 7 && ip.split(':').every((g) => g.length <= 4);
+}
+
+/**
+ * Rate-limit bucket for a request: the signed-in user's id when there is one (headers such as
+ * X-Forwarded-For can be set by the client, so an IP key can be dodged or shared), else the IP.
+ */
+export function rateLimitKey(req: Request, user?: { id?: string | null } | null): string {
+  return user?.id ? `user:${user.id}` : `ip:${getClientIp(req)}`;
 }
 
 /**
