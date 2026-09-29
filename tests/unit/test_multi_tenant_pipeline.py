@@ -321,8 +321,9 @@ def test_urgent_alert_not_recorded_when_every_channel_fails(monkeypatch):
 def _ics_for(rows, monkeypatch):
     from radar.calendar import ics_builder
     client = MagicMock()
-    client.table.return_value.select.return_value.eq.return_value.execute.return_value.data = rows
+    client.table.return_value.select.return_value.in_.return_value.execute.return_value.data = rows
     monkeypatch.setattr(db, "get_client", lambda: client)
+    monkeypatch.setattr(ics_builder, "today_ist", lambda: date(2026, 9, 29))
     return ics_builder.generate_ics_content()
 
 

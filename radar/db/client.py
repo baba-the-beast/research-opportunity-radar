@@ -1,6 +1,6 @@
 """Supabase database client wrapper and queries."""
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from postgrest.exceptions import APIError
@@ -91,6 +91,9 @@ class _InMemoryTable:
     def lte(self, col: str, val: Any):
         return self._filter(lambda r: r.get(col) is not None and str(r.get(col)) <= str(val))
 
+    def gte(self, col: str, val: Any):
+        return self._filter(lambda r: r.get(col) is not None and str(r.get(col)) >= str(val))
+
     def gt(self, col: str, val: Any):
         return self._filter(lambda r: r.get(col) is not None and str(r.get(col)) > str(val))
 
@@ -169,17 +172,7 @@ def finish_run_log(run_id: str, status: str, found: int = 0, new: int = 0, error
 def start_source_run(run_id: str, source_name: str) -> str:
     client = get_client()
     # lookup or seed source
-    src_res = client.table("sources").select("id").eq("name", source_name).execute()
-    if src_res.data:
-        source_id = src_res.data[0]["id"]
-    else:
-        new_src = client.table("sources").insert({
-            "name": source_name,
-            "source_type": "api",
-            "base_url": "https://api.example.com",
-            "health_status": "healthy"
-        }).execute()
-        source_id = new_src.data[0]["id"]
+    source_id = _get_source_id(client, source_name)
 
     res = client.table("source_runs").insert({
         "run_id": run_id,
@@ -202,48 +195,11 @@ def finish_source_run(source_run_id: str, status: str, request_count: int = 0, i
         "latency_ms": latency_ms
     }).eq("id", source_run_id).execute()
 
-def load_recent_opportunities(limit: int = 500) -> list[Opportunity]:
-    client = get_client()
-    res = client.table("opportunities").select("*, opportunity_deadlines(*), opportunity_sources(*)").order("discovered_at", desc=True).limit(limit).execute()
-    result: list[Opportunity] = []
-    for row in res.data or []:
-        opp = Opportunity(
-            id=row["id"],
-            kind=row["kind"],
-            title=row["title"],
-            summary=row.get("summary"),
-            agency_or_publisher=row.get("agency_or_publisher"),
-            venue_name=row.get("venue_name"),
-            doi=row.get("doi"),
-            status=row.get("status", "unknown"),
-            fingerprint=row["fingerprint"],
-            metadata=row.get("metadata") or {}
-        )
-        for dl in row.get("opportunity_deadlines") or []:
-            opp.deadlines.append(OpportunityDeadline(
-                id=dl["id"],
-                deadline_type=dl["deadline_type"],
-                deadline_date=datetime.strptime(dl["deadline_date"], "%Y-%m-%d").date() if dl.get("deadline_date") else None,
-                timezone=dl.get("timezone", "Asia/Kolkata"),
-                confidence=dl.get("confidence", "unknown"),
-                raw_text=dl.get("raw_text")
-            ))
-        for src in row.get("opportunity_sources") or []:
-            opp.sources.append(OpportunitySource(
-                source_id=src["source_id"],
-                source_name="",  # filled when queried
-                source_url=src["source_url"],
-                external_id=src.get("external_id")
-            ))
-        result.append(opp)
-    return result
+_OPPORTUNITY_SELECT = "*, opportunity_deadlines(*), opportunity_sources(*, sources(name))"
 
-def get_opportunity(opportunity_id: str) -> Opportunity:
-    client = get_client()
-    res = client.table("opportunities").select("*, opportunity_deadlines(*), opportunity_sources(*)").eq("id", opportunity_id).execute()
-    if not res.data:
-        raise ValueError(f"Opportunity {opportunity_id} not found.")
-    row = res.data[0]
+
+def _row_to_opportunity(row: dict[str, Any]) -> Opportunity:
+    discovered_raw = row.get("discovered_at")
     opp = Opportunity(
         id=row["id"],
         kind=row["kind"],
@@ -253,8 +209,10 @@ def get_opportunity(opportunity_id: str) -> Opportunity:
         venue_name=row.get("venue_name"),
         doi=row.get("doi"),
         status=row.get("status", "unknown"),
-        fingerprint=row["fingerprint"],
-        metadata=row.get("metadata") or {}
+        fingerprint=row.get("fingerprint"),
+        discovered_at=datetime.fromisoformat(discovered_raw.replace("Z", "+00:00")) if isinstance(discovered_raw, str) else discovered_raw,
+        metadata=row.get("metadata") or {},
+        is_new=False,
     )
     for dl in row.get("opportunity_deadlines") or []:
         opp.deadlines.append(OpportunityDeadline(
@@ -268,84 +226,173 @@ def get_opportunity(opportunity_id: str) -> Opportunity:
     for src in row.get("opportunity_sources") or []:
         opp.sources.append(OpportunitySource(
             source_id=src["source_id"],
-            source_name="",
+            source_name=((src.get("sources") or {}).get("name")) or "",
             source_url=src["source_url"],
             external_id=src.get("external_id")
         ))
+    if opp.sources:
+        # Dedup stages 2 and 4 compare these against new candidates
+        opp.source_name = opp.sources[0].source_name or None
+        opp.source_url = opp.sources[0].source_url
+        opp.external_id = next((s.external_id for s in opp.sources if s.external_id), None)
     return opp
+
+
+def load_recent_opportunities(limit: int = 500) -> list[Opportunity]:
+    client = get_client()
+    res = client.table("opportunities").select(_OPPORTUNITY_SELECT).order("discovered_at", desc=True).limit(limit).execute()
+    return [_row_to_opportunity(row) for row in res.data or []]
+
+
+def get_opportunity(opportunity_id: str) -> Opportunity:
+    client = get_client()
+    res = client.table("opportunities").select(_OPPORTUNITY_SELECT).eq("id", opportunity_id).execute()
+    if not res.data:
+        raise ValueError(f"Opportunity {opportunity_id} not found.")
+    return _row_to_opportunity(res.data[0])
+
+
+def load_opportunities_by_ids(ids: list[str], chunk_size: int = 200) -> list[Opportunity]:
+    client = get_client()
+    result: list[Opportunity] = []
+    for i in range(0, len(ids), chunk_size):
+        res = client.table("opportunities").select(_OPPORTUNITY_SELECT).in_("id", ids[i:i + chunk_size]).execute()
+        result.extend(_row_to_opportunity(row) for row in res.data or [])
+    return result
+
+
+def existing_ids_by_fingerprint(fingerprints: list[str], chunk_size: int = 200) -> dict[str, str]:
+    """fingerprint -> opportunity id for fingerprints already stored (any age, unlike the recent window)."""
+    client = get_client()
+    found: dict[str, str] = {}
+    unique = [fp for fp in dict.fromkeys(fingerprints) if fp]
+    for i in range(0, len(unique), chunk_size):
+        res = client.table("opportunities").select("id, fingerprint").in_("fingerprint", unique[i:i + chunk_size]).execute()
+        found.update({row["fingerprint"]: row["id"] for row in res.data or []})
+    return found
+
+
+def load_opportunities_with_deadlines_between(start: date, end: date) -> list[Opportunity]:
+    """Opportunities with a deadline in [start, end], whatever their discovery date."""
+    client = get_client()
+    res = (
+        client.table("opportunity_deadlines").select("opportunity_id")
+        .gte("deadline_date", start.isoformat()).lte("deadline_date", end.isoformat()).execute()
+    )
+    ids = list(dict.fromkeys(row["opportunity_id"] for row in res.data or []))
+    return load_opportunities_by_ids(ids) if ids else []
+
 
 def _get_source_id(client: Client, source_name: str) -> str:
     res = client.table("sources").select("id").eq("name", source_name).execute()
     if res.data:
         return res.data[0]["id"]
+    base_url, source_type = _KNOWN_SOURCES.get(source_name, ("unknown", "api"))
     new_src = client.table("sources").insert({
         "name": source_name,
-        "source_type": "api",
-        "base_url": "https://api.example.com",
-        "health_status": "healthy"
+        "source_type": source_type,
+        "base_url": base_url,
+        "health_status": "unknown"
     }).execute()
     return new_src.data[0]["id"]
 
-def upsert_opportunities(accepted: list[tuple[Opportunity, str]], provenance_updates: list[tuple[str, str, str]]) -> int:
+
+_KNOWN_SOURCES: dict[str, tuple[str, str]] = {
+    "ANRF": ("https://anrfonline.in", "agency_page"),
+    "DST": ("https://dst.gov.in", "agency_page"),
+    "DBT": ("https://dbt.gov.in", "agency_page"),
+    "ICMR": ("https://www.icmr.gov.in", "agency_page"),
+    "WikiCFP": ("http://www.wikicfp.com", "agency_page"),
+    "Grants.gov": ("https://www.grants.gov", "api"),
+    "NSF Solicitations Feed": ("https://www.nsf.gov", "api"),
+    "funding_deadline_scan": ("https://anrfonline.in", "agency_page"),
+    "autonomous_discovery_agent": ("http://www.wikicfp.com", "agency_page"),
+}
+
+def upsert_opportunities(
+    accepted: list[tuple[Opportunity, str]],
+    provenance_updates: list[tuple[str, str, str]],
+    errors: list[str] | None = None,
+) -> int:
+    """Write accepted opportunities (row, source link, deadlines, scores). Each item is written on its
+    own: one bad row is reported in ``errors`` and skipped instead of aborting the run before alerts."""
     client = get_client()
     new_count = 0
+    source_ids: dict[str, str] = {}
+
+    def source_id_for(name: str) -> str:
+        if name not in source_ids:
+            source_ids[name] = _get_source_id(client, name)
+        return source_ids[name]
 
     # Apply provenance updates first for matching existing items
     for opp_id, source_name, source_url in provenance_updates:
-        source_id = _get_source_id(client, source_name)
-        client.table("opportunity_sources").upsert({
-            "opportunity_id": opp_id,
-            "source_id": source_id,
-            "source_url": source_url,
-            "last_seen_at": datetime.now(UTC).isoformat()
-        }, on_conflict="opportunity_id, source_id").execute()
+        try:
+            client.table("opportunity_sources").upsert({
+                "opportunity_id": opp_id,
+                "source_id": source_id_for(source_name),
+                "source_url": source_url,
+                "last_seen_at": datetime.now(UTC).isoformat()
+            }, on_conflict="opportunity_id, source_id").execute()
+        except Exception as e:
+            _record_write_error(errors, f"provenance update for {opp_id}", e)
 
     for opp, _reason in accepted:
-        # Check if already present by fingerprint before upserting
-        existing = client.table("opportunities").select("id").eq("fingerprint", opp.fingerprint).execute()
-        is_already_present = bool(existing.data)
+        try:
+            if _upsert_one(client, opp, source_id_for):
+                new_count += 1
+        except Exception as e:
+            _record_write_error(errors, f"'{opp.title[:60]}'", e)
+    return new_count
 
-        # Upsert main opportunity row on fingerprint
-        opp_row = {
-            "kind": opp.kind,
-            "title": opp.title,
-            "summary": opp.summary,
-            "agency_or_publisher": opp.agency_or_publisher,
-            "venue_name": opp.venue_name,
-            "doi": opp.doi,
-            "status": opp.status,
-            "fingerprint": opp.fingerprint,
-            "metadata": opp.metadata or {}
-        }
-        if opp.embedding:
-            opp_row["embedding"] = opp.embedding
 
-        res = client.table("opportunities").upsert(opp_row, on_conflict="fingerprint").execute()
-        if not res.data:
-            continue
-        inserted_id = res.data[0]["id"]
-        opp.id = inserted_id
-        if not is_already_present:
-            new_count += 1
+def _record_write_error(errors: list[str] | None, what: str, exc: Exception) -> None:
+    message = f"Database write failed for {what}: {sanitize_log_text(str(exc))[:200]}"
+    logger.error(message, source_name="database", error_category="database_error")
+    if errors is not None:
+        errors.append(message)
 
-        # Insert opportunity sources
-        source_name = opp.primary_source_name or "Unknown"
-        source_url = opp.primary_source_url or "https://example.com"
-        source_id = _get_source_id(client, source_name)
+
+def _upsert_one(client: Any, opp: Opportunity, source_id_for: Any) -> bool:
+    """Write one opportunity. Returns True if it was not stored before."""
+    existing = client.table("opportunities").select("id").eq("fingerprint", opp.fingerprint).execute()
+    is_already_present = bool(existing.data)
+
+    opp_row = {
+        "kind": opp.kind,
+        "title": opp.title,
+        "summary": opp.summary,
+        "agency_or_publisher": opp.agency_or_publisher,
+        "venue_name": opp.venue_name,
+        "doi": opp.doi,
+        "status": opp.status,
+        "fingerprint": opp.fingerprint,
+        "metadata": opp.metadata or {}
+    }
+    if opp.embedding:
+        opp_row["embedding"] = opp.embedding
+
+    res = client.table("opportunities").upsert(opp_row, on_conflict="fingerprint").execute()
+    if not res.data:
+        raise RuntimeError("upsert returned no row")
+    inserted_id = res.data[0]["id"]
+    opp.id = inserted_id
+
+    if opp.primary_source_url:
         client.table("opportunity_sources").upsert({
             "opportunity_id": inserted_id,
-            "source_id": source_id,
+            "source_id": source_id_for(opp.primary_source_name or "Unknown"),
             "external_id": opp.external_id,
-            "source_url": source_url,
+            "source_url": opp.primary_source_url,
             "last_seen_at": datetime.now(UTC).isoformat()
         }, on_conflict="opportunity_id, source_id").execute()
 
-        _replace_deadlines(client, inserted_id, opp.deadlines)
+    _replace_deadlines(client, inserted_id, opp.deadlines)
 
-        # One scoring_log row per faculty profile scored this run
-        insert_scores(inserted_id, opp.profile_scores)
+    # One scoring_log row per faculty profile scored this run
+    insert_scores(inserted_id, opp.profile_scores)
+    return not is_already_present
 
-    return new_count
 
 def _replace_deadlines(client: Any, opportunity_id: str, deadlines: list[OpportunityDeadline]) -> None:
     """Store the deadlines the source publishes now, dropping ones it no longer lists (e.g. an extended
@@ -370,6 +417,76 @@ def _replace_deadlines(client: Any, opportunity_id: str, deadlines: list[Opportu
         }
         for dl in dated
     ], on_conflict="opportunity_id, deadline_type, deadline_date").execute()
+
+
+def refresh_stored_calls(refreshes: list[tuple[str, Opportunity]], errors: list[str] | None = None) -> None:
+    """Update deadlines and status of already-stored calls that were seen again this run."""
+    client = get_client()
+    for opportunity_id, seen in refreshes:
+        try:
+            _replace_deadlines(client, opportunity_id, seen.deadlines)
+            if seen.status in ("open", "forecasted", "closed"):
+                client.table("opportunities").update({"status": seen.status}).eq("id", opportunity_id).execute()
+        except Exception as e:
+            _record_write_error(errors, f"deadline refresh of {opportunity_id}", e)
+
+
+def unalerted_opportunity_ids(faculty_id: str, opportunity_ids: list[str], alert_type: str) -> set[str]:
+    """The subset of opportunity_ids this faculty member has not yet been alerted about."""
+    if not opportunity_ids:
+        return set()
+    client = get_client()
+    res = (
+        client.table("alerts_sent").select("opportunity_id")
+        .eq("faculty_id", faculty_id).eq("alert_type", alert_type).in_("opportunity_id", opportunity_ids).execute()
+    )
+    return set(opportunity_ids) - {row["opportunity_id"] for row in res.data or []}
+
+
+def record_alerts(faculty_id: str, opportunity_ids: list[str], alert_type: str, channel: str) -> None:
+    if not opportunity_ids:
+        return
+    client = get_client()
+    now = datetime.now(UTC).isoformat()
+    try:
+        client.table("alerts_sent").insert([
+            {
+                "opportunity_id": opp_id,
+                "faculty_id": faculty_id,
+                "channel": channel,
+                "alert_type": alert_type,
+                "dedupe_key": f"{faculty_id}:{opp_id}:{alert_type}",
+                "sent_at": now,
+            }
+            for opp_id in opportunity_ids
+        ]).execute()
+    except Exception as e:  # the alert went out; failing to log it must not fail the run
+        logger.error(f"Could not record alerts: {e}", source_name="alerts", error_category="database_error")
+
+
+def close_expired_opportunities(today: date) -> int:
+    """Mark open/forecasted/unknown opportunities closed once every deadline they have is past."""
+    client = get_client()
+    past = client.table("opportunity_deadlines").select("opportunity_id").lt("deadline_date", today.isoformat()).execute()
+    candidates = list({row["opportunity_id"] for row in past.data or []})
+    if not candidates:
+        return 0
+    still_open: set[str] = set()
+    for i in range(0, len(candidates), 200):
+        res = (
+            client.table("opportunity_deadlines").select("opportunity_id")
+            .in_("opportunity_id", candidates[i:i + 200]).gte("deadline_date", today.isoformat()).execute()
+        )
+        still_open.update(row["opportunity_id"] for row in res.data or [])
+    expired = [opp_id for opp_id in candidates if opp_id not in still_open]
+    closed = 0
+    for i in range(0, len(expired), 200):
+        res = (
+            client.table("opportunities").update({"status": ARCHIVED_STATUS})
+            .in_("id", expired[i:i + 200]).neq("status", ARCHIVED_STATUS).execute()
+        )
+        closed += len(res.data or [])
+    return closed
 
 
 def insert_scores(opportunity_id: str, profile_scores: dict[str, ScoreResult]) -> None:
@@ -411,7 +528,9 @@ def load_alertable_opportunity_ids(faculty_id: str, user_id: str | None) -> set[
     # profile edit that rescored something down to "watch" stops its urgent alerts
     scored = (
         client.table("scoring_log").select("opportunity_id, band, scored_at")
-        .eq("faculty_id", faculty_id).order("scored_at", desc=True).execute()
+        .eq("faculty_id", faculty_id)
+        .gte("scored_at", (datetime.now(UTC) - timedelta(days=365)).isoformat())
+        .order("scored_at", desc=True).limit(5000).execute()
     )
     latest_band: dict[str, str] = {}
     for row in sorted(scored.data or [], key=lambda r: str(r.get("scored_at") or ""), reverse=True):

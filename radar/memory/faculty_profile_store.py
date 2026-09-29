@@ -1,5 +1,6 @@
 """Faculty profile store module."""
 
+from radar import config
 from radar.db import client as db_client
 from radar.models import FacultyProfile, ProfileTerm
 from radar.scoring import component_scorer
@@ -72,11 +73,12 @@ def save_profile_embedding(profile: FacultyProfile) -> None:
 
 
 def get_all_profiles() -> list[FacultyProfile]:
-    """Every faculty profile, oldest first. Seeds the default MVP profile when the table is empty."""
+    """Every faculty profile, oldest first. The demo profile is seeded only into the in-memory dev
+    database; a real database with no profiles yet simply has nobody to scan for."""
     client = db_client.get_client()
     res = client.table("faculty_profile").select("*").order("created_at").execute()
     rows = res.data or []
-    if not rows:
+    if not rows and config.ALLOW_IN_MEMORY_DB:
         rows = client.table("faculty_profile").insert(dict(_DEFAULT_PROFILE)).execute().data
     return [_row_to_profile(row) for row in rows]
 
@@ -111,8 +113,9 @@ def get_profile_terms(profile_id: str) -> list[ProfileTerm]:
             polarity=r.get("polarity", "positive"),
             source=r.get("source", "manual")
         ))
-    if not result:
-        # Seed default profile terms
+    if not result and config.ALLOW_IN_MEMORY_DB:
+        # Demo terms for the in-memory dev database only. A real user without terms is scored on
+        # their profile text and keywords; writing someone else's topics into it would be wrong.
         defaults = [
             ("graph neural networks", "topic", 1.0, "positive"),
             ("fraud detection", "topic", 1.0, "positive"),

@@ -1,9 +1,14 @@
 """iCalendar (.ics) feed generator and Supabase storage uploader."""
+import hashlib
 from datetime import datetime
 
 from ics import Calendar, Event
 
 from radar.db import client as db_client
+from radar.deadlines.deadline_engine import today_ist
+from radar.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 DEFAULT_TZ = "Asia/Kolkata"  # schema default for opportunity_deadlines.timezone
 _TZ_NAMES = {"Asia/Kolkata": "IST — Indian Standard Time"}
@@ -15,8 +20,9 @@ def _tz_label(tz: str) -> str:
 
 def generate_ics_content() -> str:
     client = db_client.get_client()
-    res = client.table("opportunity_deadlines").select("*, opportunities(title, kind, doi, opportunity_sources(source_url))").eq("confidence", "confirmed").execute()
+    res = client.table("opportunity_deadlines").select("*, opportunities(title, kind, doi, opportunity_sources(source_url))").in_("confidence", ["confirmed", "probable"]).execute()
 
+    today = today_ist()
     cal = Calendar()
     timezones: set[str] = set()
 
@@ -30,23 +36,30 @@ def generate_ics_content() -> str:
         except ValueError:
             continue
 
+        if dl_date < today:
+            continue  # past deadlines only clutter subscribers' calendars
+
         opp = row.get("opportunities") or {}
         title = opp.get("title", "Research Deadline")
         sources = opp.get("opportunity_sources") or []
-        url = sources[0].get("source_url") if sources else "https://example.com"
+        url = sources[0].get("source_url") if sources else None
         tz = row.get("timezone") or DEFAULT_TZ
         timezones.add(tz)
 
         event = Event()
+        # Stable UID: calendar apps update the same event on every regeneration instead of duplicating it
+        key = row.get("opportunity_id") or hashlib.sha1(f"{title}|{deadline_date_str}".encode()).hexdigest()[:16]
+        event.uid = f"{key}-{row.get('deadline_type', 'submission')}@research-opportunity-radar"
         event.name = f"[{row.get('deadline_type', 'submission').upper()}] {title}"
         event.begin = dl_date.isoformat()
         event.make_all_day()
         event.description = (
             f"Research Opportunity Deadline ({row.get('deadline_type')})\n"
             f"Timezone: {_tz_label(tz)}\n"
-            f"Citation URL: {url}"
+            + (f"Call details: {url}" if url else "")
         )
-        event.url = url
+        if url:
+            event.url = url
         cal.events.add(event)
 
     # X-WR-TIMEZONE tells Google Calendar, Apple Calendar and Outlook which zone to show all-day
@@ -89,5 +102,5 @@ def regenerate_and_upload() -> str | None:
         )
         return client.storage.from_(bucket_name).get_public_url(file_path)
     except Exception as e:
-        print(f"Failed to upload ICS feed to Supabase Storage: {e}")
-        return None
+        logger.error(f"Failed to upload ICS feed to Supabase Storage: {e}", source_name="calendar", error_category="calendar_error")
+        raise

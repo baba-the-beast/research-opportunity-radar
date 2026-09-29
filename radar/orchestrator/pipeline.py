@@ -1,7 +1,7 @@
 """Pipeline orchestrator implementing Watch -> Score -> Validate -> Alert standing loop."""
 import dataclasses
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from radar import config
@@ -9,6 +9,7 @@ from radar.agents.discovery_agent import DiscoveryAgent
 from radar.agents.eligibility_agent import EligibilityAgent
 from radar.calendar import ics_builder
 from radar.db import client as db
+from radar.deadlines.deadline_engine import today_ist
 from radar.dedup import fingerprint
 from radar.governance import rules as governance
 from radar.logging_config import get_logger
@@ -21,12 +22,15 @@ from radar.tools.funding_deadline_scan import funding_deadline_scan
 
 logger = get_logger(__name__)
 
-def should_alert(score_result) -> bool:
+_BAND_RANK = {"not_eligible": -1, "low": 0, "watch": 1, "strong": 2, "high": 3}
+URGENT_WINDOW_DAYS = 3
+
+
+def should_alert(score_result, min_band: str = "high") -> bool:
+    """Alert when the score's band reaches the faculty member's chosen minimum band."""
     if not score_result:
         return False
-    if score_result.band == "high":
-        return True
-    return False
+    return _BAND_RANK.get(score_result.band, -1) >= _BAND_RANK.get(min_band, _BAND_RANK["high"])
 
 MAX_SCAN_KEYWORDS = 30
 # One source name for every keyword search. sources/source_runs are readable by all signed-in users
@@ -137,6 +141,12 @@ def run_pipeline(
 
     try:
         profiles = faculty_profile_store.get_all_profiles()
+        if not profiles:
+            logger.info("No faculty profiles yet; nothing to scan for.", run_id=run_id, source_name="orchestrator")
+            summary.status = "success"
+            summary.finished_at = datetime.now(UTC)
+            db.finish_run_log(run_id, status="success", errors=["No faculty profiles yet"])
+            return summary
         terms_by_profile = {p.id: faculty_profile_store.get_profile_terms(p.id) for p in profiles}
         scan_keywords = _union_keywords(profiles)
         # One merged profile drives source discovery so each source is queried once per run,
@@ -213,17 +223,26 @@ def run_pipeline(
         existing = db.load_recent_opportunities()
         to_score: list[Opportunity] = []
         provenance_updates: list[tuple[str, str, str]] = []
+        refreshed_calls: list[tuple[str, Opportunity]] = []  # (stored id, re-seen candidate)
 
         for cand in found:
             cand.fingerprint = fingerprint.compute_fingerprint(
                 cand.kind, cand.title, cand.agency_or_publisher,
                 cand.doi or cand.external_id or cand.primary_source_url
             )
+        # Items stored before the recent window still count as seen (exact fingerprint match)
+        stored_ids = db.existing_ids_by_fingerprint([c.fingerprint for c in found if c.fingerprint])
+
+        for cand in found:
             match = fingerprint.find_existing_match(cand, existing)
-            if match:
+            match_id = match.id if match else stored_ids.get(cand.fingerprint or "")
+            if match or match_id:
                 cand.is_new = False
-                if match.id and cand.primary_source_name and cand.primary_source_url:
-                    provenance_updates.append((match.id, cand.primary_source_name, cand.primary_source_url))
+                if match_id and cand.primary_source_name and cand.primary_source_url:
+                    provenance_updates.append((match_id, cand.primary_source_name, cand.primary_source_url))
+                if match_id and any(d.deadline_date for d in cand.deadlines):
+                    # Agencies extend deadlines; keep the stored call's dates and status current
+                    refreshed_calls.append((match_id, cand))
             else:
                 cand.is_new = True
                 to_score.append(cand)
@@ -277,8 +296,15 @@ def run_pipeline(
             })
 
         # WRITE TO DB
-        if not dry_run:
-            new_count = db.upsert_opportunities(accepted, provenance_updates)
+        if lease.lost:
+            # Another run may hold the lock now; writing alongside it would interleave two catalogs
+            msg = "Pipeline lease lost before writing; results of this run were discarded."
+            logger.error(msg, run_id=run_id, source_name="orchestrator", error_category="lock_lost")
+            summary.errors.append(msg)
+            new_count = 0
+        elif not dry_run:
+            new_count = db.upsert_opportunities(accepted, provenance_updates, errors=summary.errors)
+            db.refresh_stored_calls(refreshed_calls, errors=summary.errors)
         else:
             new_count = len([o for o, _ in accepted if o.is_new])
             logger.info(
@@ -334,8 +360,13 @@ def run_pipeline(
         should_send_alerts = not dry_run and not suppress_alerts and not lease.lost
         new_accepted = [o for o, _ in accepted if o.is_new]
         urgent_alerts: list[dict[str, Any]] = []
-        # Loaded once for every profile's deadline sentinel (previously one 500-row scan per user)
-        recent_catalog = db.load_recent_opportunities(limit=500) if not lease.lost else []
+        # Every opportunity with a deadline in the sentinel window, however long ago it was found
+        # (the old "500 most recent" catalog let saved calls fall out of alerting)
+        today = today_ist()
+        due_soon = (
+            db.load_opportunities_with_deadlines_between(today, today + timedelta(days=URGENT_WINDOW_DAYS))
+            if not lease.lost else []
+        )
         for profile in profiles if not lease.lost else []:
             # Isolated per profile: one user's bad preferences or a failed lookup must not stop
             # digests and deadline alerts for everyone after them.
@@ -343,14 +374,21 @@ def run_pipeline(
                 target = recipients.resolve_target(profile)
                 to_alert = [
                     o for o in new_accepted
-                    if should_alert(o.profile_scores.get(profile.id))
+                    if should_alert(o.profile_scores.get(profile.id), profile.min_relevance_band)
                     and o.profile_scores[profile.id].final_score >= target.min_score
                 ]
+                if to_alert and should_send_alerts and target.digest_enabled:
+                    # Skip anything this faculty was already sent (e.g. a re-run after a crash)
+                    unsent = db.unalerted_opportunity_ids(profile.id, [o.id for o in to_alert if o.id], "new_high_relevance")
+                    to_alert = [o for o in to_alert if o.id in unsent]
                 if to_alert and should_send_alerts and target.digest_enabled:
                     digest_md = digest_builder.build(
                         to_alert, failed_sources=_public_source_failures(failed_sources), faculty_id=profile.id
                     )
-                    summary.errors.extend(recipients.dispatch(target, "Weekly Research Opportunity Digest", digest_md))
+                    send_errors = recipients.dispatch(target, "Research Opportunity Digest", digest_md)
+                    summary.errors.extend(send_errors)
+                    if target.enabled_channels and len(send_errors) < target.enabled_channels:
+                        db.record_alerts(profile.id, [o.id for o in to_alert if o.id], "new_high_relevance", target.channel)
 
                 # URGENT DEADLINE SENTINEL (<= 72 hours) for what this faculty tracks or scored highly
                 alertable_ids = None
@@ -361,7 +399,7 @@ def run_pipeline(
                     dry_run=(dry_run or suppress_alerts),
                     target=target,
                     opportunity_ids=alertable_ids,
-                    opportunities=recent_catalog,
+                    opportunities=due_soon,
                     errors=summary.errors,
                 ))
             except Exception as e:
@@ -369,7 +407,7 @@ def run_pipeline(
                              source_name="alerts", error_category="alert_error")
                 summary.errors.append(f"Alert error for profile {profile.id}: {e}")
 
-        if new_accepted and should_send_alerts:
+        if (new_accepted or refreshed_calls) and should_send_alerts:
             try:
                 ics_builder.regenerate_and_upload()
             except Exception as e:
@@ -386,12 +424,12 @@ def run_pipeline(
                 "timestamp": datetime.now(UTC).isoformat()
             })
 
-        # ARCHIVE STALE DEADLINES (>90 days past)
-        if not dry_run:
+        # CLOSE calls whose deadlines have all passed, and archive long-closed ones
+        if not dry_run and not lease.lost:
             try:
-                archived = db.archive_stale_opportunities(older_than_days=90)
+                closed = db.close_expired_opportunities(today_ist())
                 logger.info(
-                    f"Archival policy executed: {archived} stale opportunities (>90 days past deadline) moved to 'archived'.",
+                    f"Marked {closed} opportunities closed (every deadline has passed).",
                     run_id=run_id,
                     source_name="orchestrator"
                 )
@@ -401,14 +439,14 @@ def run_pipeline(
                         "phase": "ARCHIVE",
                         "level": "INFO",
                         "stepIndex": 4,
-                        "message": f"Archival policy executed: {archived} stale opportunities archived.",
+                        "message": f"Closed {closed} expired opportunities.",
                         "timestamp": datetime.now(UTC).isoformat()
                     })
             except Exception as e:
                 logger.error(f"Archival policy execution failed: {e}", run_id=run_id, source_name="orchestrator", error_category="database_error")
                 summary.errors.append(f"Archival error: {e}")
         else:
-            logger.info("[DRY RUN] Stale opportunities archival check skipped in dry-run mode.", run_id=run_id, source_name="orchestrator")
+            logger.info("Closing expired opportunities skipped (dry run or lease lost).", run_id=run_id, source_name="orchestrator")
 
         status = "success" if not summary.errors else "partial_failure"
         summary.status = status
@@ -467,6 +505,11 @@ if __name__ == "__main__":
     try:
         res = run_pipeline(dry_run=dry, suppress_alerts=suppress, telemetry_callback=callback)
         print(f"Pipeline finished with status '{res.status}', found: {res.opportunities_found}, new: {res.opportunities_new}", flush=True)
+        if res.status != "success":
+            # Non-zero so the scheduled workflow's failure alert fires for partial failures too
+            for err in res.errors[:10]:
+                print(f"  - {err}", file=sys.stderr, flush=True)
+            sys.exit(2)
     except config.ConfigurationError as ce:
         print(f"\n{ce}\n", file=sys.stderr, flush=True)
         sys.exit(1)

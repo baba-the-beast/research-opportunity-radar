@@ -5,6 +5,7 @@ from typing import Any
 
 from radar import config
 from radar.db import client as db
+from radar.deadlines.deadline_engine import today_ist
 from radar.models import Opportunity
 from radar.notify import recipients
 
@@ -29,7 +30,7 @@ def check_and_send_urgent_deadline_alerts(
     opportunities: pre-loaded catalog, so a multi-profile run loads it once instead of per faculty.
     errors: delivery failures are appended here (the pipeline passes its run summary).
     """
-    today = reference_date or datetime.now(UTC).date()
+    today = reference_date or today_ist()
     client = db.get_client()
 
     # Resolve faculty_id if not explicitly provided
@@ -89,7 +90,7 @@ def check_and_send_urgent_deadline_alerts(
                     "deadline_date": dl.deadline_date.isoformat(),
                     "deadline_type": dl.deadline_type,
                     "days_left": days_left,
-                    "url": opp.primary_source_url or "https://radar.observatory.internal",
+                    "url": opp.primary_source_url or "",
                     "dedupe_key": dedupe_key
                 }
 
