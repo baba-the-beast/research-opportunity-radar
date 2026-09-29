@@ -7,122 +7,125 @@
 
 ## Overview
 
-The **Research Opportunity Radar** monitors global academic repositories and funding bodies (OpenAlex, Crossref, Semantic Scholar, Grants.gov, NSF, WikiCFP, ICMR, DBT India, and DST-SERB). It filters, scores, and evaluates opportunities against a faculty member's active research profile, ensuring no critical call for proposals or journal special issue is missed.
+Research Opportunity Radar finds funding calls and calls for papers for faculty in India, ranks them
+against each person's research profile, checks the eligibility rules stated in each call, and sends
+digests and 3-day deadline warnings by email or Telegram.
 
-### Key Pillars
-- **Strictly Authentic Feeds**: Zero mock personas or simulated telemetry. All data is harvested from live HTTP APIs, XML feeds, and agency scrapers.
-- **Explainable 6-Component Resonance**: Dense vector similarity (all-MiniLM-L6-v2) combined with lexical domain dictionaries, methodology alignment, funder track records, and publication freshness.
-- **Closed-Loop Feedback Reinforcement**: Researcher dismissal actions automatically extract negative tuning signals, penalizing future irrelevant candidates by up to 35 points.
-- **Automated Eligibility Gatekeeper**: Evaluates tenure clock windows, academic rank, institutional classification (R1/IHE), and citizenship/security restrictions against raw RFP text.
-- **Urgent 72-Hour Deadline Sentinel**: Multi-channel alerts (Telegram & Brevo transactional email) triggered within 3 days of submission close, backed by persistent deduplication memory.
-- **Observatory Instrument UI**: Bespoke dark-theme Next.js 14 console with real-time SSE telemetry streams and deep component score inspectability.
+- **Sources**: ANRF, DST, DBT and ICMR/DHR calls; conference and journal calls for papers (WikiCFP);
+  optionally Grants.gov and NSF. Details are read from each call's PDF.
+- **Scoring**: similarity to the researcher's summary plus their own terms, deadline and recency
+  (see *Scoring & Eligibility*); every component is shown on the opportunity page.
+- **Eligibility**: nationality, age limit, years to superannuation, regular post, region-only calls
+  and years since PhD, quoted from the call; anything uncertain is flagged for manual review.
+- **Alerts**: digest after each scan (Monday and Thursday mornings IST) with each user's band and
+  minimum score; deadline warnings 3 days before the deadline of calls a user saved or that scored highly.
+- **Multi-user**: Supabase auth with row-level security; each user's profile, scores, eligibility and
+  tracking state are private.
 
 ---
 
-## Architecture & Multi-Agent Pipeline
+## Pipeline
 
 ```mermaid
 flowchart TD
-    subgraph External Sources
-        OA[OpenAlex API]
-        CR[Crossref API]
-        S2[Semantic Scholar]
-        GG[Grants.gov API]
-        NSF[NSF Solicitations RSS]
-        WCFP[WikiCFP Scraper]
-        IND[ICMR / DBT / DST Adapters]
+    subgraph Sources
+        IND[ANRF / DST / DBT / ICMR adapters]
+        WCFP[WikiCFP search per keyword]
+        US[Grants.gov / NSF - opt-in]
     end
 
-    subgraph "Radar Pipeline Orchestrator (Watch -> Score -> Validate -> Alert)"
-        DISC[Discovery Agent]
-        JW[journal_watch]
-        FDS[funding_deadline_scan]
-        
-        DEDUP[Fingerprint Dedup Hierarchy]
-        SCORE[Scoring Agent & 6-Component Engine]
-        FEEDBACK[Feedback Loop Adjuster]
-        GATE[Eligibility Gatekeeper Agent]
-        GOV[Governance Admission Filter]
-        
-        DB[(Supabase / In-Memory Store)]
-        
-        ALERT[Digest Builder & Telegram / Brevo]
-        SENTINEL[72-Hour Urgent Deadline Sentinel]
-        ICS[iCalendar .ics Generator]
+    subgraph "radar.orchestrator.pipeline (GitHub Actions, Mon + Thu)"
+        FDS[funding_deadline_scan: dates, lifecycle, drop closed / result notices]
+        DISC[DiscoveryAgent: calls for papers]
+        DEDUP[Dedup: fingerprint, DOI / URL, fuzzy title]
+        PDF[Call PDF details: summary, eligibility, budget, deadline]
+        SCORE[Per-profile scoring]
+        GATE[Per-profile eligibility]
+        DB[(Supabase)]
+        ALERT[Digests + 3-day deadline alerts]
+        CLOSE[Close expired calls]
     end
 
-    subgraph "Observatory Interface"
-        NEXT[Next.js 14 App Router]
-        SSE[Real-Time Telemetry Stream]
-        DOSSIER[Opportunity Detail & Compliance Dossier]
-    end
-
-    OA --> JW
-    CR --> JW
-    S2 --> JW
-    GG --> FDS
     IND --> FDS
-    NSF --> DISC
+    US --> FDS
     WCFP --> DISC
-
-    JW --> DEDUP
     FDS --> DEDUP
     DISC --> DEDUP
-
-    DEDUP --> SCORE
-    FEEDBACK -.-> SCORE
-    SCORE --> GATE
-    GATE --> GOV
-    GOV --> DB
-
+    DEDUP -->|new| PDF --> SCORE --> GATE --> DB
+    DEDUP -->|seen again: refresh deadlines| DB
     DB --> ALERT
-    DB --> SENTINEL
-    DB --> ICS
-
-    DB --> NEXT
-    DEDUP -. Telemetry .-> SSE
-    SCORE -. Telemetry .-> SSE
-    GATE -. Telemetry .-> SSE
-    NEXT --> DOSSIER
+    DB --> CLOSE
+    DB --> WEB[Next.js dashboard]
 ```
 
 ---
 
-## Active Data Sources & Master Verification Matrix
+## Data Sources
 
-The observatory monitors 10 integrated academic and funding source nodes. All sources are continuously audited for robots.txt / ToS compliance and live data integrity.
+Indian agencies and calls for papers are on by default. Each user picks their sources in **Settings**
+(`user_preferences.preferred_sources`); every scan fetches the union of what users chose, and each
+digest only includes the user's own sources. US sources are opt-in.
 
-| Source Name | Endpoint / Modality | Rate Limit & Auth | Compliance & robots.txt | Last Verified Date | Verification Details |
-|---|---|---|---|---|---|
-| **OpenAlex** | `https://api.openalex.org/works` (REST API) | 5 req/sec · API Key / Polite Mailto | Compliant (Official Terms of Use) | 2026-09-11 | Returns concept-filtered literature and journal special issues. |
-| **Crossref** | `https://api.crossref.org/works` (REST API) | 5 req/sec · Polite `mailto` | Compliant (Public Metadata Service) | 2026-09-11 | DOI validation, publisher attribution, and metadata extraction. |
-| **Semantic Scholar** | `https://api.semanticscholar.org/graph/v1` (REST) | 1 req/sec · Free / API Key | Compliant (Official Public API) | 2026-09-11 | Citation graphs and paper recommendations; graceful 429 backoff. |
-| **Grants.gov** | `https://api.grants.gov/v1/api/opportunities` (REST) | 3 req/sec · None (Public API) | Compliant (US Govt Open Data) | 2026-09-11 | Federal agency research solicitations (NIH, NSF, DOD, DOE). |
-| **NSF RSS** | `https://www.nsf.gov/rss/rss_www_funding.xml` (RSS) | 2 req/sec · Honest User-Agent | `robots.txt` 100% Permitted (0 disallows on `/rss/`) | 2026-09-11 | Real-time NSF open solicitations and deadlines. Verified against full 97-line ruleset. |
-| **arXiv API** | `http://export.arxiv.org/api/query` (REST/XML) | 1 req/3 sec · Polite User-Agent | Compliant (arXiv API Terms of Access) | 2026-09-11 | Emerging computer science and AI preprints for trending literature watch. |
-| **WikiCFP** | `http://www.wikicfp.com/cfp/servlet/tool.search` (HTML) | 2 req/sec · Honest User-Agent | `robots.txt` 100% Permitted (`Disallow:` none) | 2026-09-11 | Active autonomous conference & special issue discovery via research keywords. |
-| **ICMR** | `https://www.icmr.gov.in/call-for-proposals` (HTML) | 2 req/sec · Honest User-Agent | `robots.txt` 100% Permitted (`Allow: /`) | 2026-09-11 | Health & biomedical calls parsed from live DOM table (`td[1]` title, `td[2]` deadline). |
-| **DBT India** | `https://dbt.gov.in/data-view?name=call-for-proposals` (JSON) | 2 req/sec · Honest User-Agent | `robots.txt` 100% Permitted (`Disallow:` none) | 2026-09-11 | Reverse-engineered Inertia SPA JSON feed; parses 14 active biotechnology calls. |
-| **DST-SERB** | `https://dst.gov.in/call-for-proposals` (HTML) | 2 req/sec · Honest User-Agent | `robots.txt` Returns HTTP 404 (Permitted per RFC 9309) | 2026-09-11 | Extramural funding & core research grant notices. |
+| Source | Endpoint | What is read | Default |
+|---|---|---|---|
+| **ANRF** (formerly SERB) | `anrfonline.in/.../jssrc/schemeinterval.js` (+ `schemeintervalnew.js`) | Scheme name, opening and closing date, scheme page; all-year schemes (ITS, seminars) | on |
+| **DST** | `dst.gov.in/call-for-proposals` (Drupal table) | Title, call page, PDF, start/end date. An empty listing means no open calls | on |
+| **DBT** | `dbt.gov.in/data-view?name=call-for-proposals` (JSON) | Title, PDF, start/end date (`dd-mm-yyyy`) | on |
+| **ICMR / DHR** | `www.icmr.gov.in/call-for-proposals` (table) | Title, last date, apply link, document; "Results:" notices are dropped | on |
+| **WikiCFP** | `wikicfp.com/cfp/servlet/tool.search?q=<keyword>` | Conference / journal special-issue calls with a future paper deadline, one search per research keyword (max 12) | on |
+| **Grants.gov** | `api.grants.gov/v1/api/search2` | US federal grants (mostly need a US institution) | opt-in |
+| **NSF** | `nsf.gov/rss/rss_www_funding.xml` | NSF solicitations mentioning a profile keyword | opt-in |
+
+For every **new** funding call the pipeline downloads its PDF (10 MB cap) and keeps a summary, the
+eligibility section, the budget and, if the listing had none, the stated last date
+(`radar/sources/pdf_details.py`).
+
+Dates: Indian sources are read day-first (`27-04-2026`, `31.10.2026`, `Oct. 31, 2026`, `31st October 2026`);
+US sources month-first. Calls whose deadline has passed and result notices are never stored as open,
+and stored calls are marked `closed` once every deadline passes. All "today" / "days left" logic uses
+India time.
+
+Several gov.in sites send incomplete TLS certificate chains; the missing intermediates are bundled in
+`radar/sources/certs/extra_intermediates.pem` (TLS is always verified). If a site renews onto a new
+intermediate and starts failing with a TLS error, fetch its "CA Issuers" certificate
+(`openssl s_client -connect host:443 -showcerts`, then the AIA URL) and append it there.
+
+Published papers (OpenAlex / Crossref / Semantic Scholar) are **not** opportunities; they are only
+used by the MCP `journal_watch` literature tool.
+
+Check every source against the live sites at any time:
+
+```bash
+python scripts/probe_sources.py          # calls found, how many have deadlines, errors
+python scripts/probe_sources.py --pdfs   # also read call PDFs
+```
 
 ---
 
-## Explainable Scoring & Feedback Loop
+## Scoring & Eligibility
 
-The resonance engine computes a deterministic 0–100 score across 6 weighted dimensions:
+Each opportunity gets a 0–100 score per faculty member (`radar/scoring/component_scorer.py`, `component-v2`):
 
-$$	ext{Base Score} = 0.35 \cdot S_{	ext{topic}} + 0.20 \cdot S_{	ext{exact}} + 0.10 \cdot S_{	ext{method}} + 0.10 \cdot S_{	ext{app}} + 0.10 \cdot S_{	ext{venue}} + 0.05 \cdot S_{	ext{recency}} + 0.10 \cdot S_{	ext{actionability}}$$
+| Component | Weight | Meaning |
+|---|---|---|
+| Topic similarity | 45% | Cosine between the call text and the research summary (`all-MiniLM-L6-v2`), mapped 0.10→0, 0.60→100 |
+| Your terms | 30% | Topic/method/application terms found (whole words) in the call; saturating: one match ≈ 70, two ≈ 90 |
+| Deadline | 15% | ≤7 days 100, ≤30 days 80, ≤90 days 60, later 40; ×0.8 for dates read from the document; all-year calls 50 |
+| Funder / venue fit | 5% | Only if the profile lists venue/funding-theme terms |
+| Recency | 5% | Newly found calls rank slightly higher |
 
-$$	ext{Final Score} = \max(0, \min(100, 	ext{Base Score} - 	ext{Negative Term Penalty} - 	ext{Feedback Penalty}))$$
+Components that don't apply (no terms of that kind, embedding model unavailable) are left out and
+the weights renormalised. Negative terms and "not relevant" feedback subtract up to 25 and 35 points.
+Bands: high ≥ 80, strong ≥ 65, watch ≥ 50. Digests include new calls at or above the user's band
+(Profile) and minimum score (Settings).
 
-- **Topic Similarity (35%)**: Cosine similarity between opportunity embeddings and faculty profile embeddings (`all-MiniLM-L6-v2`).
-- **Exact Term Match (20%)**: Weighted keyword matching against faculty profile research vocabulary.
-- **Method Match (10%)**: Overlap with methodology terms (e.g., formal verification, edge inference).
-- **Application Match (10%)**: Domain alignment (e.g., cyber-physical systems, autonomous vehicles).
-- **Venue / Funder Fit (10%)**: Publication reputation and agency funding track record.
-- **Recency (5%)**: Freshness decay prioritizing newly announced calls.
-- **Deadline Actionability (10%)**: Feasibility window (0 unless deadline confidence is confirmed).
-- **Faculty Feedback Discount (up to -35 pts)**: Automatic penalty applied when opportunities match terms previously marked `dismissed` by the researcher.
+The eligibility check (`radar/agents/eligibility_agent.py`) reads the call's text and PDF excerpts
+for restrictions Indian calls usually state: Indian nationals only (OCI → manual review), age limits
+(with the common 5-year relaxation band), years before superannuation, regular positions,
+North-Eastern-Region-only calls, years since PhD and early-career schemes, plus limited submissions
+and cost sharing; U.S.-person restrictions apply to US calls. Every excerpt is quoted from the call.
+Missing call text or profile fields produce **NEEDS_MANUAL_REVIEW** with an action item, never a
+silent pass. Calls for papers are not checked.
 
 ---
 
@@ -135,7 +138,7 @@ $$	ext{Final Score} = \max(0, \min(100, 	ext{Base Score} - 	ext{Negative Term Pe
 
 ### 1. Clone & Configure Environment
 ```bash
-git clone https://github.com/your-org/research-opportunity-radar.git
+git clone https://github.com/baba-the-beast/research-opportunity-radar.git
 cd research-opportunity-radar
 
 # Copy backend environment template
@@ -176,12 +179,18 @@ python -m radar.orchestrator.pipeline --dry-run --stream
 python -m radar.orchestrator.pipeline
 ```
 
-### 5. Launch the Observatory Dashboard
+The pipeline exits with code 2 when the run finished but something failed (e.g. a source was
+unreachable), so the scheduled workflow's failure alert fires. It runs from
+`.github/workflows/pipeline.yml` every Monday and Thursday at 03:17 UTC (08:47 IST); operators can
+also press **Scan now** on the dashboard, which dispatches the same workflow (needs `GITHUB_PAT`,
+`GITHUB_REPO` and the `operator` role in the user's `app_metadata`).
+
+### 5. Launch the Dashboard
 ```bash
 cd web
 npm run dev
 ```
-Open [http://localhost:3000](http://localhost:3000) to view the active radar stream. Use the **"Import from ORCID"** interface on `/profile` to pre-fill researcher metadata and candidate topic/venue terms with one click.
+Open [http://localhost:3000](http://localhost:3000). New users start on an empty profile: add research keywords, a short research summary and the eligibility details on `/profile` (or import from ORCID), and pick sources in `/settings`.
 
 ---
 
@@ -213,14 +222,11 @@ cd web && npm run build && npm run start
 python -m radar.orchestrator.pipeline
 ```
 
-### Path B: Decoupled Service Architecture
-For serverless hosting where Next.js runs on Vercel:
-1. Deploy `mcp_server.py` or a lightweight FastAPI wrapper on a container runner (Fly.io/Cloud Run).
-2. Configure `web/app/api/pipeline/stream/route.ts` to reverse-proxy SSE event streams via HTTP directly from the Python backend service.
-
-> [!WARNING]
-> **In-Memory Rate Limiter Single-Instance Scope**:
-> The built-in sliding-window rate limiter (`web/lib/rateLimit.ts`) operates entirely in process memory. This design is strictly scoped to single-instance deployments (such as a single Docker container or standalone Node.js process). If deploying across multiple horizontal instances, container replicas, or serverless functions (e.g., Vercel / AWS Lambda), the memory map must be migrated to a shared distributed store (such as Redis or Upstash via `@upstash/ratelimit`).
+### Path B: Web on Vercel/Render, pipeline on GitHub Actions
+The dashboard never needs to run Python: scans run in GitHub Actions (`pipeline.yml`), and the
+**Scan now** button dispatches that workflow. The legacy `/api/pipeline/stream` route (which spawns
+Python inside the web container) only works in the Docker image. Set `UPSTASH_REDIS_REST_URL` /
+`UPSTASH_REDIS_REST_TOKEN` when running more than one web instance so rate limits are shared.
 
 ---
 
@@ -243,9 +249,9 @@ To test database schema migrations, scoring threshold tunings, or new agency scr
    # Ingest into staging database without broadcasting public alerts
    python -m radar.orchestrator.pipeline --suppress-alerts
    ```
-4. **90-Day Stale Deadline Archival**:
-   - Deadlines older than 90 days are automatically archived (`status = 'archived'`) by `archive_stale_opportunities()`.
-   - Fingerprint deduplication keys are preserved permanently, preventing historical calls from resurfacing as new items.
+4. **Expired calls**:
+   - Each run marks opportunities `closed` once every deadline has passed (`close_expired_opportunities()`); the dashboard hides them by default.
+   - Fingerprints are kept, so a closed call never resurfaces as new; a call seen again gets its deadlines refreshed (extensions).
 
 ---
 
@@ -284,6 +290,8 @@ The schema lives in ordered, re-runnable migrations under `supabase/migrations/`
 | `20260901000200_rls_policies.sql` | RLS for the core tables |
 | `20260928000000_tenant_isolation_fixes.sql` | Owner-only reads, per-faculty scores, chat session ownership, `alerts_sent` RLS |
 | `20260929000000_scrub_keyword_sources_and_run_errors.sql` | Removes research keywords from `sources` names and redacts bot tokens / keyword labels already stored in `run_log.errors` |
+| `20260929000100_telegram_link_codes.sql` | One-time codes for "Connect Telegram" |
+| `20261001000000_india_profile_and_sources.sql` | Eligibility fields (designation, regular post, date of birth, superannuation year, state), `preferred_sources`, neutral profile defaults; removes `2099-12-31` placeholder deadlines and closes stored papers / expired calls |
 
 New project: `supabase link --project-ref <ref> && supabase db push`.
 
@@ -330,7 +338,7 @@ All state-modifying Next.js API routes are protected against abuse and unauthori
 
 - **Authentication (`web/lib/auth.ts`)**: Every route calls `authenticateRequest`, which accepts a Supabase session JWT or the operator `RADAR_API_SECRET` (constant-time comparison; `Authorization: Bearer <secret>` or `x-radar-secret: <secret>`). Roles come only from server-controlled `app_metadata.role`. In production a missing configuration fails closed (401/503); the anonymous operator fallback exists only in `NODE_ENV` development/test.
 - **Tenant isolation**: Route handlers query with the caller's own JWT (`web/lib/routeContext.ts`) so Postgres RLS applies; the service-role client is reserved for operator identities and the pipeline. The Copilot's tools run with the same user-scoped client.
-- **Rate Limiting (`web/lib/rateLimit.ts`)**: Fixed-window limits, shared across instances via Upstash Redis when `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` are set (falls back to in-memory per process). Applied per IP and, for the Copilot, per user:
+- **Rate Limiting (`web/lib/rateLimit.ts`)**: Fixed-window limits, shared across instances via Upstash Redis when `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` are set (falls back to in-memory per process). Keyed by the signed-in user (IP only for anonymous calls; the Copilot also has a per-IP limit):
   - `GET /api/pipeline/stream?run=true` (5 executions per 10 minutes)
   - `POST /api/pipeline/trigger` (5 trigger dispatches per 10 minutes)
   - `POST /api/profile` (10 updates per minute)
@@ -367,20 +375,15 @@ For full setup instructions (configuring `RENDER_APP_URL`), operational commands
 
 ## Known Limitations
 
-This section documents operational realities, heuristic boundaries, and accepted architectural trade-offs:
-
-1. **Third-Party HTML Scraping Resiliency**:
-   - **WikiCFP**: Dependent on the third-party site remaining compliant with robots.txt (`Disallow: none`) and preserving its search result HTML layout.
-   - **ICMR & DBT India**: State agency HTML/JSON endpoints are reverse-engineered from their current DOM/API structure. If the Ministry modifies page hierarchies, adapters will require parser adjustments.
-   - **DST-SERB**: The DST portal currently returns HTTP 404 on `robots.txt`, which is treated as allowed per RFC 9309 §2.3.1.2.
-2. **In-Memory Rate Limiter Single-Instance Scope**:
-   - The sliding-window rate limiter stores hit counts in a process-local memory Map. For horizontal clustering or serverless environments (e.g., Vercel), it must be migrated to a shared distributed store (such as Redis or Upstash).
-3. **Federal Grant Citizenship Gating Heuristics**:
-   - Solicitations with only brief titles or missing guideline text cannot be certified for international investigators without reviewing the official RFP document. The system flags these as `NEEDS_MANUAL_REVIEW` (confidence 0.60) rather than making an ungrounded binary determination.
-4. **SBIR/STTR & Cost-Sharing Verification**:
-   - Evaluated based on the faculty profile's institutional classification (e.g., Higher Education Institution vs Small Business) and explicit announcement keywords, rather than automated financial ledger audits.
-5. **SentenceTransformer Cold-Start Offline Handling**:
-   - In air-gapped or network-restricted environments, loading `sentence-transformers/all-MiniLM-L6-v2` will fail if HuggingFace Hub is unreachable and weights are not locally cached. The system alerts via Telegram and logs `CRITICAL` errors while operating in degraded mock vector mode.
-6. **Single-Tenant / Semi-Private Dashboard Model**:
-   - Dashboard endpoints (`/api/pipeline/stream`, `/api/profile`, `/api/opportunities/[id]/status`) are called directly by the browser UI and are protected by per-IP rate limiting and strict schema validation. They intentionally do not expose shared secret tokens in client bundles (which would leak secrets to browser visitors). For multi-tenant or untrusted public hosting, full user authentication (e.g. Supabase Auth session tokens) must be layered in before opening access beyond single-user / trusted intranet deployments.
-
+1. **Agency pages change.** ANRF, DST, DBT and ICMR adapters parse the sites' current layouts (saved
+   fixtures in `tests/fixtures/`). A redesign shows up as a failed source in the run log and digest
+   footer; `python scripts/probe_sources.py` pinpoints it.
+2. **More Indian agencies to add.** CSIR, UGC, BIRAC, MeitY, DRDO and ISRO RESPOND are not scraped yet.
+3. **PDF extraction is heuristic.** Scanned (image-only) call documents yield no text; eligibility
+   for those calls is flagged for manual review.
+4. **WikiCFP relevance.** Its keyword search is broad; low-relevance CFPs are ranked down, not removed.
+5. **Admin RLS clause.** Some RLS policies test a top-level `role = 'admin'` JWT claim, which Supabase
+   never issues; the clause is inert (admins use the service key). It should be rewritten to read
+   `app_metadata.role` when those policies are next revised.
+6. **Embedding model download.** The first run downloads `all-MiniLM-L6-v2` (~90 MB) from Hugging
+   Face; without it scoring runs in degraded mode (terms, deadline and recency only).

@@ -15,7 +15,7 @@ VARIABLES = [
     ("SUPABASE_URL", True, "Database", "Supabase REST & Auth API URL"),
     ("SUPABASE_SERVICE_ROLE_KEY", True, "Database", "Supabase Service Role Secret Key"),
     ("ALLOW_IN_MEMORY_DB", False, "Database", "Permit ephemeral in-memory storage"),
-    ("OPENALEX_API_KEY", True, "Academic Sources", "OpenAlex API Key or Polite Mailto"),
+    ("OPENALEX_API_KEY", False, "Academic Sources", "OpenAlex API key (optional; MCP literature tool)"),
     ("CROSSREF_MAILTO", False, "Academic Sources", "Crossref polite pool contact email"),
     ("SEMANTIC_SCHOLAR_API_KEY", False, "Academic Sources", "Semantic Scholar Graph API Key"),
     ("TELEGRAM_BOT_TOKEN", False, "Alerts", "Telegram Bot API Token"),

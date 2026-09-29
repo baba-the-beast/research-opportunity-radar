@@ -18,22 +18,23 @@ Configure these environment variables in your hosting provider's dashboard or co
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Recommended | Shared rate limiting across instances and restarts. Without them limits are per process. |
 | `GEMINI_API_KEY` / `OPENAI_API_KEY` | Optional | AI Copilot providers (offline heuristic engine otherwise). Model ids via `GEMINI_MODEL` / `OPENAI_MODEL`. |
 | `ALLOW_IN_MEMORY_DB` | **YES** | Set to `0` in production so opportunities and run logs persist directly to Supabase. |
-| `OPENALEX_API_KEY` | **YES** | OpenAlex API Key or polite-pool institutional email address from https://openalex.org. |
-| `CROSSREF_MAILTO` | Recommended | Contact email for polite-pool Crossref metadata extraction. |
+| `CROSSREF_MAILTO` | Recommended | Your email; polite-pool access to OpenAlex/Crossref (MCP literature tool). No key is needed for the agency sources or WikiCFP. |
+| `OPENALEX_API_KEY` | Optional | OpenAlex key or email; falls back to `CROSSREF_MAILTO`. |
 | `TELEGRAM_BOT_TOKEN` | Optional | Telegram Bot API token from @BotFather for immediate opportunity alerts. |
 | `TELEGRAM_BOT_USERNAME` | For Telegram | Bot username without `@` (web server). Printed by `python scripts/telegram_setup.py --check`. |
 | `TELEGRAM_WEBHOOK_SECRET` | For Telegram | Random 16-256 chars (`A-Z a-z 0-9 _ -`), web server. Authenticates Telegram's webhook calls. |
-| `TELEGRAM_CHAT_ID` | Optional | Telegram chat or channel ID receiving high-resonance alerts. |
+| `TELEGRAM_CHAT_ID` | Optional | Operator chat for pipeline-failure alerts. Users connect their own chats in Settings. |
 | `SEMANTIC_SCHOLAR_API_KEY` | Optional | Graph API key from https://www.semanticscholar.org/product/api (bypasses unauthenticated rate limits). |
-| `BREVO_API_KEY` | Optional | Brevo (Sendinblue) API key for automated weekly executive email digests. |
+| `BREVO_API_KEY` | Optional | Brevo API key for email digests and deadline alerts (sent to each user's sign-in email). |
 | `BREVO_SENDER_EMAIL` | Optional | Verified sender email configured in Brevo dashboard. |
-| `BREVO_RECIPIENT_EMAIL` | Optional | Faculty recipient email address for weekly opportunity digests. |
-| `MIN_RELEVANCE_BAND` | Recommended | Minimum scoring band triggering alerts (`immediate`, `digest`, or `watch`; default: `watch`). |
-| `DEADLINE_ALERT_WINDOW_DAYS` | Recommended | Rolling window in days for urgent deadline detection (default: `30`). |
-| `GITHUB_PAT` | Optional | GitHub Personal Access Token with repo/workflow dispatch scopes for triggering actions. |
-| `GITHUB_REPO` | Optional | Target GitHub repository (`baba-the-beast/research-opportunity-radar`). |
-| `RADAR_API_SECRET` | **YES** | Cryptographically random secret (32+ chars) protecting external webhook triggers (`/api/pipeline/trigger`) with constant-time verification. Never prefix with `NEXT_PUBLIC_`. |
-| `PROJECT_ROOT` | **YES** | Path to application root (`/app` in Docker; host directory if running natively). |
+| `BREVO_RECIPIENT_EMAIL` | Optional | Legacy single recipient for the operator's seed profile. |
+| `GITHUB_PAT` | For "Scan now" | Fine-grained token with **Actions: write** on this repository (web server). |
+| `GITHUB_REPO` | For "Scan now" | `baba-the-beast/research-opportunity-radar` (web server). `GITHUB_REF` overrides the branch (default `main`). |
+| `RADAR_API_SECRET` | Optional | Random 32+ char secret for CI/cron callers of the web API (constant-time check). Never prefix with `NEXT_PUBLIC_`. |
+| `PROJECT_ROOT` | Docker only | `/app`; used by the legacy in-container `/api/pipeline/stream` route. |
+
+Per-user settings (relevance band, minimum score, sources, channels) live in the database; the old
+`MIN_RELEVANCE_BAND` / `DEADLINE_ALERT_WINDOW_DAYS` variables are no longer read.
 
 ---
 
@@ -53,30 +54,30 @@ Configure these environment variables in your hosting provider's dashboard or co
 
 ---
 
-## 3. Production Supabase Project Status
+## 3. Supabase Project
 
-- Connectivity: Verified live ping `HTTP 200 OK` using project credentials.
-- Database Tables Verified:
-  - `opportunities` (Confirmed present, 0 rows)
-  - `faculty_profile` (Confirmed present, 0 rows)
-  - `profile_terms` (Confirmed present, 0 rows)
-  - `run_log` (Confirmed present, 0 rows)
-  - `source_runs` (Confirmed present, 0 rows)
-  - `opportunity_deadlines` (Confirmed present, 0 rows)
-- Row Level Security (RLS): Policies applied via the migrations in `supabase/migrations/` (apply in filename order).
-- Faculty Profile State: No profile currently exists in `faculty_profile`. A real faculty profile must be inserted before running scheduled autonomous pipeline cycles.
+- The project URL in `.env` / `web/.env.local` must resolve. (On 2026-09-29 `xsaogsrualkfcbgssdjy.supabase.co`
+  returned "non-existent domain": the project was deleted or the id is mistyped.)
+- Apply every file in `supabase/migrations/` in filename order, including
+  `20261001000000_india_profile_and_sources.sql` (new profile fields and cleanup of old data).
+- Give yourself the operator role so the dashboard shows **Scan now**:
+  ```sql
+  update auth.users
+     set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role": "operator"}'
+   where email = 'you@example.com';
+  ```
+  (sign out and in again afterwards).
 
 ---
 
-## 4. Outstanding Items Before Cloud Go-Live
+## 4. Go-Live Checklist
 
-- Database: apply `supabase/migrations/` (see README → Database Migrations; run `supabase migration repair` for files already applied by hand).
-- Web auth configuration: set `SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Production refuses anonymous requests when these are missing.
-- Roles: operator/admin roles must be set in Supabase `app_metadata` (server-controlled). `user_metadata.role` is ignored because users can edit it.
-- Rate limiting: set `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` so limits survive restarts and are shared across instances.
-- Alerts: add `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_RECIPIENT_EMAIL` as GitHub Actions secrets for per-user email digests from the scheduled pipeline.
-
-1. Faculty Profile: Enter a real faculty profile (name, institution, research keywords) either in Supabase Table Editor or via the `/profile` page once deployed.
-2. Optional Credentials: If email digests or elevated Semantic Scholar throughput are desired, configure `BREVO_API_KEY` and `SEMANTIC_SCHOLAR_API_KEY` as needed.
-3. Secret Hygiene & Configuration: Set `RADAR_API_SECRET` in your hosting provider's environment settings. Ensure `NEXT_PUBLIC_RADAR_API_SECRET` is DELETED if previously set (env vars prefixed `NEXT_PUBLIC_` are baked into client JavaScript bundles and leaked to browser visitors). Browser dashboard routes (`/api/pipeline/stream`, `/api/profile`, `/api/opportunities/[id]/status`) rely on per-IP rate limiting and strict Zod validation without embedding secrets in client bundles.
-
+1. Supabase URL and keys correct in the web host and as GitHub Actions secrets
+   (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CROSSREF_MAILTO`).
+2. Migrations applied; run the Supabase security advisor afterwards.
+3. Web host: `SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (build and runtime).
+4. Operator role set (above); `GITHUB_PAT` + `GITHUB_REPO` on the web host for **Scan now**.
+5. Run the workflow once from the Actions tab (or **Scan now**) and check `python scripts/probe_sources.py`
+   passes for every source.
+6. Optional: Brevo (email), Telegram (see README → Telegram Alerts), Gemini/OpenAI (Copilot),
+   Upstash (shared rate limits).
