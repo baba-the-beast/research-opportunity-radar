@@ -90,7 +90,9 @@ def _send_chunk(chat_id: str, markdown_chunk: str) -> None:
         "disable_web_page_preview": True,
     }
 
-    for attempt in range(1, MAX_ATTEMPTS + 1):
+    attempt = 0
+    while attempt < MAX_ATTEMPTS:
+        attempt += 1
         try:
             res = requests.post(url, json=payload, timeout=10)
         except requests.RequestException as e:
@@ -109,6 +111,7 @@ def _send_chunk(chat_id: str, markdown_chunk: str) -> None:
             # Formatting rejected: deliver as plain text rather than not at all
             payload.pop("parse_mode")
             payload["text"] = markdown_chunk
+            attempt -= 1  # the plain-text resend is not a new attempt (it happens at most once)
             continue
         if status == 403:
             raise TelegramBlocked(f"Telegram chat unreachable (HTTP 403: {_description(res)[:80]})", response=res)

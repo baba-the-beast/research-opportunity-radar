@@ -24,7 +24,9 @@ from radar.sources.rate_limiter import scraper_limiter
 
 logger = logging.getLogger(__name__)
 
-MAX_CFP_KEYWORDS = 12
+# Same cap as the pipeline's per-run keyword window (MAX_SCAN_KEYWORDS), which already rotates
+# across users; a smaller cap here would drop every keyword past the first few users.
+MAX_CFP_KEYWORDS = 30
 CFPS_PER_KEYWORD = 5
 WIKICFP_BASE = "http://www.wikicfp.com"
 US_SOURCE_NAMES = {"grants.gov", "grantsgov", "nsf"}

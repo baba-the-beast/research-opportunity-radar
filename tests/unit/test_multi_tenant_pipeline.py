@@ -215,6 +215,23 @@ def test_public_source_failures_hide_keywords_and_error_text():
     ]
 
 
+def test_keywords_rotate_so_every_user_is_searched_over_runs(monkeypatch):
+    from datetime import date
+
+    monkeypatch.setattr(pipeline, "MAX_SCAN_KEYWORDS", 2)
+    profiles = [_profile(f"u{i}", [f"kw{i}"]) for i in range(5)]
+    covered: set[str] = set()
+    for run in range(3):
+        window = pipeline._union_keywords(profiles, rotation=run)
+        assert len(window) == 2
+        covered.update(window)
+    assert covered == {f"kw{i}" for i in range(5)}
+    # Monday and Thursday runs get consecutive numbers
+    monday, thursday, next_monday = date(2026, 9, 28), date(2026, 10, 1), date(2026, 10, 5)
+    assert pipeline._run_number(thursday) == pipeline._run_number(monday) + 1
+    assert pipeline._run_number(next_monday) == pipeline._run_number(thursday) + 1
+
+
 def test_union_keywords_round_robin_does_not_starve_new_users(monkeypatch):
     monkeypatch.setattr(pipeline, "MAX_SCAN_KEYWORDS", 4)
     veteran = _profile("old", ["a1", "a2", "a3", "a4", "a5"])

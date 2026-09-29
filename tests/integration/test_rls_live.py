@@ -130,6 +130,20 @@ def test_chats_stay_private_even_from_admins(stack):
     assert boss.table("chat_sessions").select("id").eq("id", session).execute().data == []
 
 
+def test_users_cannot_link_a_telegram_chat_directly(stack):
+    from postgrest.exceptions import APIError
+
+    a, admin = stack["clients"]["a"], stack["admin"]
+    uid = stack["users"]["a"]
+    with pytest.raises(APIError):
+        a.table("user_preferences").upsert({"user_id": uid, "telegram_chat_id": "123456789", "telegram_alerts": True}).execute()
+    # The server (webhook) can link it, and the user can still disconnect
+    admin.table("user_preferences").upsert({"user_id": uid, "telegram_chat_id": "987654321"}).execute()
+    a.table("user_preferences").update({"telegram_chat_id": None, "telegram_alerts": False}).eq("user_id", uid).execute()
+    row = admin.table("user_preferences").select("telegram_chat_id").eq("user_id", uid).execute().data[0]
+    assert row["telegram_chat_id"] is None
+
+
 def test_alerts_sent_not_exposed_to_clients(stack):
     from supabase import create_client
 

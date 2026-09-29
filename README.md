@@ -299,6 +299,7 @@ The schema lives in ordered, re-runnable migrations under `supabase/migrations/`
 | `20260929000100_telegram_link_codes.sql` | One-time codes for "Connect Telegram" |
 | `20261001000000_india_profile_and_sources.sql` | Eligibility fields (designation, regular post, date of birth, superannuation year, state), `preferred_sources`, neutral profile defaults; removes `2099-12-31` placeholder deadlines and closes stored papers / expired calls |
 | `20261001000100_admin_role_policies.sql` | `public.is_admin()` / `app_role()` read the server-controlled `app_metadata.role`; admin policies use it (the old top-level `role` check never matched); chats and activity stay owner-only |
+| `20261001000200_protect_telegram_chat_id.sql` | Trigger: only the server (Telegram webhook) can set `user_preferences.telegram_chat_id`; users can still clear it |
 
 New project: `supabase link --project-ref <ref> && supabase db push`.
 

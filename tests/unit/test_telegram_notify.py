@@ -70,6 +70,43 @@ def test_falls_back_to_plain_text_when_formatting_rejected(bot):
     assert "parse_mode" not in final and final["text"] == "**hi**"
 
 
+def test_plain_text_fallback_still_sent_after_network_retries(bot):
+    # Attempts 1-2 fail on the network, attempt 3 is rejected for formatting: the plain-text
+    # resend must still happen instead of the chunk being silently dropped.
+    bad_parse = _resp(400, {"ok": False, "description": "Bad Request: can't parse entities"})
+    side_effects = [requests.ConnectionError("x"), requests.ConnectionError("x"), bad_parse, _resp(200)]
+    with patch("requests.post", side_effect=side_effects) as post:
+        telegram.send("**hi**")
+    assert post.call_count == 4
+    assert "parse_mode" not in post.call_args.kwargs["json"]
+
+
+def test_blocked_telegram_does_not_cause_duplicate_email_alerts(bot, monkeypatch):
+    from datetime import date, timedelta
+
+    from radar.db import client as db
+    from radar.models import Opportunity, OpportunityDeadline
+    from radar.notify import deadline_alert, email_brevo
+
+    db._in_memory_client = None
+    monkeypatch.setattr(config, "BREVO_API_KEY", "brevo-key")
+    monkeypatch.setattr(telegram, "send", MagicMock(side_effect=telegram.TelegramBlocked("HTTP 403")))
+    monkeypatch.setattr(email_brevo, "send", MagicMock())
+    today = date(2026, 9, 29)
+    opp = Opportunity(kind="funding", title="Call closing soon", id="opp-1", source_url="https://x.gov.in")
+    opp.deadlines.append(OpportunityDeadline(deadline_type="full_proposal", deadline_date=today + timedelta(days=1), confidence="confirmed"))
+    target = recipients.AlertTarget(faculty_id="f1", user_id="u1", telegram_chat_id="7", email="a@x.in")
+
+    deadline_alert.check_and_send_urgent_deadline_alerts(
+        faculty_id="f1", reference_date=today, target=target, opportunity_ids={"opp-1"}, opportunities=[opp], errors=[]
+    )
+
+    # Email went out, so the alert is recorded and the next run won't send it again
+    email_brevo.send.assert_called_once()
+    assert len(db.get_client().table("alerts_sent")._rows) == 1
+    db._in_memory_client = None
+
+
 def test_blocked_chat_raises_telegram_blocked_without_token(bot):
     blocked = _resp(403, {"ok": False, "description": "Forbidden: bot was blocked by the user"})
     with patch("requests.post", return_value=blocked), pytest.raises(telegram.TelegramBlocked) as exc:

@@ -211,6 +211,16 @@ def test_phd_window(frozen_today):
     assert agent.evaluate_opportunity(call, _faculty(phd_year=2010)).status == "DISQUALIFIED"
 
 
+def test_missing_designation_means_manual_review_not_disqualified(frozen_today):
+    agent = EligibilityAgent()
+    senior_call = _indian_call("This scheme is for full professors only.")
+    report = agent.evaluate_opportunity(senior_call, _faculty(designation=None, career_stage=""))
+    assert report.status == "NEEDS_MANUAL_REVIEW"
+    assert any("designation" in a for a in report.action_items)
+    early_call = _indian_call("Details in the guidelines.", title="Prime Minister Early Career Research Grant")
+    assert agent.evaluate_opportunity(early_call, _faculty(designation=None, career_stage="", phd_year=None)).status == "NEEDS_MANUAL_REVIEW"
+
+
 def test_calls_for_papers_are_not_checked():
     cfp = Opportunity(kind="venue", title="CFP: ICML 2027", source_url="http://www.wikicfp.com/x")
     report = EligibilityAgent().evaluate_opportunity(cfp, _faculty(citizenship_status=""))

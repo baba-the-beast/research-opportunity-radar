@@ -88,6 +88,14 @@ def test_close_expired_opportunities():
     assert status[past.id] == "closed" and status[ongoing.id] == "open"
 
 
+def test_close_expired_reads_past_the_first_page(monkeypatch):
+    # PostgREST truncates at max-rows; with a tiny page every expired call must still be found
+    monkeypatch.setattr(db, "PAGE_SIZE", 2)
+    calls = [_call(f"Past call {i}", date(2026, 3, 1), url=f"https://dbt.gov.in/{i}.pdf") for i in range(5)]
+    db.upsert_opportunities([(c, "ok") for c in calls], [])
+    assert db.close_expired_opportunities(date(2026, 9, 29)) == 5
+
+
 def test_deadline_window_query_ignores_discovery_date():
     soon, later = _call("Due soon", date(2026, 10, 1)), _call("Due later", date(2026, 12, 1))
     db.upsert_opportunities([(soon, "ok"), (later, "ok")], [])

@@ -104,10 +104,12 @@ def check_and_send_urgent_deadline_alerts(
                 )
 
                 if not dry_run:
+                    # Counted before sending: dispatch() disconnects a blocked Telegram chat mid-send
+                    channels = target.enabled_channels
                     send_errors = recipients.dispatch(target, f"URGENT [{days_left}d]: {opp.title[:60]}", alert_text)
                     if send_errors and errors is not None:
                         errors.extend(send_errors)
-                    if target.enabled_channels and len(send_errors) >= target.enabled_channels:
+                    if channels and len(send_errors) >= channels:
                         # Every channel failed: leave it unrecorded so the next run retries it
                         continue
 

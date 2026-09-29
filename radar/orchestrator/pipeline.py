@@ -1,7 +1,7 @@
 """Pipeline orchestrator implementing Watch -> Score -> Validate -> Alert standing loop."""
 import dataclasses
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from radar import config
@@ -52,11 +52,13 @@ def _source_names_for(profile: FacultyProfile) -> set[str]:
     return {config.SOURCE_NAMES[s] for s in (profile.preferred_sources or config.DEFAULT_SOURCES) if s in config.SOURCE_NAMES}
 
 
-def _union_keywords(profiles: list[FacultyProfile]) -> list[str]:
-    """Research keywords to scan, de-duplicated case-insensitively and capped at MAX_SCAN_KEYWORDS.
+def _union_keywords(profiles: list[FacultyProfile], rotation: int = 0) -> list[str]:
+    """Research keywords to scan this run: de-duplicated case-insensitively, at most MAX_SCAN_KEYWORDS.
 
-    Taken round-robin (each profile's 1st keyword, then each one's 2nd, ...) so the cap is shared
-    fairly: newer users are never starved just because earlier profiles hold many keywords.
+    Ordered round-robin (each profile's 1st keyword, then each one's 2nd, ...) so earlier profiles
+    with many keywords can't crowd out newer users. When there are more keywords than the cap, each
+    run takes the next window of the list (`rotation` = scheduled-run number), so over successive
+    runs every user's keywords are searched instead of the same first MAX_SCAN_KEYWORDS forever.
     """
     seen: set[str] = set()
     merged: list[str] = []
@@ -67,9 +69,16 @@ def _union_keywords(profiles: list[FacultyProfile]) -> list[str]:
             if i < len(queue) and queue[i].lower() not in seen:
                 seen.add(queue[i].lower())
                 merged.append(queue[i])
-                if len(merged) == MAX_SCAN_KEYWORDS:
-                    return merged
-    return merged
+    if len(merged) <= MAX_SCAN_KEYWORDS:
+        return merged
+    start = (rotation * MAX_SCAN_KEYWORDS) % len(merged)
+    return [merged[(start + i) % len(merged)] for i in range(MAX_SCAN_KEYWORDS)]
+
+
+def _run_number(day: date) -> int:
+    """Consecutive number for each scheduled run (Monday and Thursday), used to rotate keywords."""
+    # toordinal() 1 is a Monday, so (ordinal - 1) // 7 counts Monday-to-Sunday weeks
+    return ((day.toordinal() - 1) // 7) * 2 + (1 if day.weekday() >= 3 else 0)
 
 
 def _public_source_failures(failed_sources: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -164,7 +173,7 @@ def run_pipeline(
         _attach_preferred_sources(profiles)
         run_sources = set().union(*(p.preferred_sources or config.DEFAULT_SOURCES for p in profiles))
         agencies = [a for a in run_sources if a in config.SOURCE_NAMES and a not in ("WikiCFP", "NSF")]
-        scan_keywords = _union_keywords(profiles)
+        scan_keywords = _union_keywords(profiles, rotation=_run_number(today_ist()))
         # One merged profile drives source discovery so each source is queried once per run,
         # not once per user; scoring below is still per profile.
         discovery_profile = dataclasses.replace(profiles[0], research_keywords=scan_keywords)
@@ -403,9 +412,11 @@ def run_pipeline(
                     digest_md = digest_builder.build(
                         to_alert, failed_sources=_public_source_failures(failed_sources), faculty_id=profile.id
                     )
+                    # Counted before sending: dispatch() disconnects a blocked Telegram chat mid-send
+                    channels = target.enabled_channels
                     send_errors = recipients.dispatch(target, "Research Opportunity Digest", digest_md)
                     summary.errors.extend(send_errors)
-                    if target.enabled_channels and len(send_errors) < target.enabled_channels:
+                    if channels and len(send_errors) < channels:
                         db.record_alerts(profile.id, [o.id for o in to_alert if o.id], "new_high_relevance", target.channel)
 
                 # URGENT DEADLINE SENTINEL (<= 72 hours) for what this faculty tracks or scored highly

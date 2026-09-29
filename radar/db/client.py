@@ -100,6 +100,10 @@ class _InMemoryTable:
     def order(self, *args, **kwargs):
         return self
 
+    def range(self, start: int, end: int):
+        self._last_result = getattr(self, "_last_result", self._rows)[start:end + 1]
+        return self
+
     def limit(self, count: int):
         self._last_result = getattr(self, "_last_result", self._rows)[:count]
         return self
@@ -196,6 +200,20 @@ def finish_source_run(source_run_id: str, status: str, request_count: int = 0, i
     }).eq("id", source_run_id).execute()
 
 _OPPORTUNITY_SELECT = "*, opportunity_deadlines(*), opportunity_sources(*, sources(name))"
+PAGE_SIZE = 1000  # PostgREST's default max-rows: larger results are silently truncated
+
+
+def _fetch_all(make_query: Any, page_size: int | None = None) -> list[dict[str, Any]]:
+    """Every row of a query, fetched page by page. `make_query` builds a fresh, ordered query."""
+    page_size = page_size or PAGE_SIZE
+    rows: list[dict[str, Any]] = []
+    start = 0
+    while True:
+        batch = make_query().range(start, start + page_size - 1).execute().data or []
+        rows.extend(batch)
+        if len(batch) < page_size:
+            return rows
+        start += page_size
 
 
 def _row_to_opportunity(row: dict[str, Any]) -> Opportunity:
@@ -275,11 +293,11 @@ def existing_ids_by_fingerprint(fingerprints: list[str], chunk_size: int = 200) 
 def load_opportunities_with_deadlines_between(start: date, end: date) -> list[Opportunity]:
     """Opportunities with a deadline in [start, end], whatever their discovery date."""
     client = get_client()
-    res = (
-        client.table("opportunity_deadlines").select("opportunity_id")
-        .gte("deadline_date", start.isoformat()).lte("deadline_date", end.isoformat()).execute()
-    )
-    ids = list(dict.fromkeys(row["opportunity_id"] for row in res.data or []))
+    rows = _fetch_all(lambda: (
+        client.table("opportunity_deadlines").select("id, opportunity_id")
+        .gte("deadline_date", start.isoformat()).lte("deadline_date", end.isoformat()).order("id")
+    ))
+    ids = list(dict.fromkeys(row["opportunity_id"] for row in rows))
     return load_opportunities_by_ids(ids) if ids else []
 
 
@@ -467,8 +485,11 @@ def record_alerts(faculty_id: str, opportunity_ids: list[str], alert_type: str, 
 def close_expired_opportunities(today: date) -> int:
     """Mark open/forecasted/unknown opportunities closed once every deadline they have is past."""
     client = get_client()
-    past = client.table("opportunity_deadlines").select("opportunity_id").lt("deadline_date", today.isoformat()).execute()
-    candidates = list({row["opportunity_id"] for row in past.data or []})
+    past = _fetch_all(lambda: (
+        client.table("opportunity_deadlines").select("id, opportunity_id")
+        .lt("deadline_date", today.isoformat()).order("id")
+    ))
+    candidates = list({row["opportunity_id"] for row in past})
     if not candidates:
         return 0
     still_open: set[str] = set()

@@ -382,6 +382,11 @@ class EligibilityAgent:
         early = _early_career_restriction(text, title)
         if early:
             excerpt = _excerpt(text, early)
+            if not stage.strip() and not profile.phd_year:
+                checks.append(ComplianceCheckResult("CAREER_STAGE_ELIGIBILITY", "NEEDS_MANUAL_REVIEW",
+                    "The call is for early-career researchers; add your designation or PhD year to check it.", excerpt))
+                actions.append("Set your designation and PhD year in Profile.")
+                return
             senior = _is_senior(stage)
             recent_phd = bool(profile.phd_year) and today_ist().year - profile.phd_year <= 7
             if senior and not recent_phd:
@@ -393,6 +398,11 @@ class EligibilityAgent:
         senior_only = _SENIOR_ONLY.search(text)
         if senior_only:
             excerpt = _excerpt(text, senior_only)
+            if not stage.strip():
+                checks.append(ComplianceCheckResult("CAREER_STAGE_ELIGIBILITY", "NEEDS_MANUAL_REVIEW",
+                    "The call is restricted to senior researchers; add your designation to check it.", excerpt))
+                actions.append("Set your designation in Profile.")
+                return
             senior = _is_senior(stage)
             checks.append(ComplianceCheckResult("CAREER_STAGE_ELIGIBILITY", "PASS" if senior else "FAIL",
                 "The call is restricted to senior researchers." + ("" if senior else f" The profile says '{stage}'."), excerpt))
