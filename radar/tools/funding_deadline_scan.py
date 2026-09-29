@@ -1,14 +1,18 @@
 """funding_deadline_scan tool for scanning funding agency calls."""
 import logging
+import re
 
 from radar.deadlines.deadline_engine import lifecycle_status, parse_deadline, today_ist
 from radar.dedup import fingerprint
 from radar.models import Opportunity, OpportunityDeadline, OpportunitySource
 from radar.sources import grants_gov_client
 from radar.sources.agencies.anrf_adapter import ANRFAdapter
+from radar.sources.agencies.birac_adapter import BIRACAdapter
+from radar.sources.agencies.csir_adapter import CSIRAdapter
 from radar.sources.agencies.dbt_adapter import DBTAdapter
 from radar.sources.agencies.dst_adapter import DSTAdapter
 from radar.sources.agencies.icmr_adapter import ICMRAdapter
+from radar.sources.agencies.icssr_adapter import ICSSRAdapter
 from radar.sources.agency_scraper_base import AgencyAdapter
 
 logger = logging.getLogger(__name__)
@@ -18,9 +22,20 @@ AGENCY_REGISTRY: dict[str, type[AgencyAdapter]] = {
     "DST": DSTAdapter,
     "DBT": DBTAdapter,
     "ICMR": ICMRAdapter,
+    "BIRAC": BIRACAdapter,
+    "CSIR": CSIRAdapter,
+    "ICSSR": ICSSRAdapter,
 }
 # SERB became part of ANRF in 2024; keep old configuration working
 AGENCY_ALIASES = {"DST-SERB": "ANRF", "SERB": "ANRF"}
+
+def _only_past_years(title: str) -> bool:
+    """True when the title names years and all of them are before this year ("... Fellowship 2025").
+    A range like "2026-27" counts as its later year."""
+    years = [int(y) for y in re.findall(r"\b(20\d\d)\b", title)]
+    years += [2000 + int(y) for y in re.findall(r"\b20\d\d\s*[-–/]\s*(\d\d)\b", title)]
+    return bool(years) and max(years) < today_ist().year
+
 
 def _call_to_opportunity(call: dict, agency_name: str) -> tuple[Opportunity | None, str]:
     """Build an Opportunity from an adapter's call dict. Returns (None, reason) for calls to skip."""
@@ -30,7 +45,11 @@ def _call_to_opportunity(call: dict, agency_name: str) -> tuple[Opportunity | No
         return None, "no_link"  # a call without a link can't be acted on, and would collide in dedup
     raw_dl = call.get("deadline")
     dl_date, conf = parse_deadline(raw_dl) if raw_dl else (None, "unknown")
+    if dl_date and call.get("deadline_confidence") in ("confirmed", "probable"):
+        conf = call["deadline_confidence"]  # e.g. "probable" for a date read from page prose
     lifecycle = lifecycle_status(title, [dl_date])
+    if lifecycle == "unknown" and not call.get("rolling") and _only_past_years(title):
+        lifecycle = "closed"  # "Call for Nomination ... Fellowship 2025" with no readable date: an old round
     if lifecycle in ("result_notice", "closed"):
         return None, lifecycle
 
@@ -45,10 +64,11 @@ def _call_to_opportunity(call: dict, agency_name: str) -> tuple[Opportunity | No
     metadata = {k: v for k, v in call.items() if v is not None}
     if opens_on:
         metadata["opens_on"] = opens_on.isoformat()
+    kind = call.get("kind") if call.get("kind") in ("funding", "journal", "venue") else "funding"
     opp = Opportunity(
-        kind="funding",
+        kind=kind,
         title=title,
-        summary=call.get("summary") or f"Call for proposals from {agency_name}",
+        summary=call.get("summary") or (f"Call for proposals from {agency_name}" if kind == "funding" else f"Call for papers from {agency_name}"),
         agency_or_publisher=agency_name,
         status=status,
         source_name=agency_name,
@@ -58,7 +78,7 @@ def _call_to_opportunity(call: dict, agency_name: str) -> tuple[Opportunity | No
     opp.sources.append(OpportunitySource(source_name=agency_name, source_url=url))
     if dl_date:
         opp.deadlines.append(OpportunityDeadline(
-            deadline_type="full_proposal",
+            deadline_type="full_proposal" if kind == "funding" else "special_issue",
             deadline_date=dl_date,
             confidence=conf,
             raw_text=raw_dl,

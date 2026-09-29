@@ -62,7 +62,7 @@ flowchart TD
 
 ## Data Sources
 
-Indian agencies and calls for papers are on by default. Each user picks their sources in **Settings**
+Indian agencies (ANRF, DST, DBT, ICMR, BIRAC, CSIR, ICSSR) and calls for papers are on by default. Each user picks their sources in **Settings**
 (`user_preferences.preferred_sources`); every scan fetches the union of what users chose, and each
 digest only includes the user's own sources. US sources are opt-in.
 
@@ -72,6 +72,9 @@ digest only includes the user's own sources. US sources are opt-in.
 | **DST** | `dst.gov.in/call-for-proposals` (Drupal table) | Title, call page, PDF, start/end date. An empty listing means no open calls | on |
 | **DBT** | `dbt.gov.in/data-view?name=call-for-proposals` (JSON) | Title, PDF, start/end date (`dd-mm-yyyy`) | on |
 | **ICMR / DHR** | `www.icmr.gov.in/call-for-proposals` (table) | Title, last date, apply link, document; "Results:" notices are dropped | on |
+| **BIRAC** | `birac.nic.in/cfp.php` ("Current Calls" table) + each `cfp_view.php` page | Title, opening and last date; full title, introduction and "Who can apply?" from the call page | on |
+| **CSIR (HRDG)** | `csirhrdg.res.in/Home/Index` (What's New / Notices / banner) | Call-like announcements only (research proposals, special calls, nominations); results, NET notices and circulars dropped. Deadline from the PDF or call page | on |
+| **ICSSR** | `icssr.org` announcements + each call page | Research-proposal calls, fellowships and journal calls for papers; the latest "last date" on the page (extensions); award results dropped | on |
 | **WikiCFP** | `wikicfp.com/cfp/servlet/tool.search?q=<keyword>` | Conference / journal special-issue calls with a future paper deadline, one search per research keyword (max 12) | on |
 | **Grants.gov** | `api.grants.gov/v1/api/search2` | US federal grants (mostly need a US institution) | opt-in |
 | **NSF** | `nsf.gov/rss/rss_www_funding.xml` | NSF solicitations mentioning a profile keyword | opt-in |
@@ -79,6 +82,9 @@ digest only includes the user's own sources. US sources are opt-in.
 For every **new** funding call the pipeline downloads its PDF (10 MB cap) and keeps a summary, the
 eligibility section, the budget and, if the listing had none, the stated last date
 (`radar/sources/pdf_details.py`).
+
+Undated calls whose title names only past years ("Bhatnagar Fellowship 2025") are treated as closed.
+Dates read from page or PDF prose are stored as "probable" (shown as "date to confirm").
 
 Dates: Indian sources are read day-first (`27-04-2026`, `31.10.2026`, `Oct. 31, 2026`, `31st October 2026`);
 US sources month-first. Calls whose deadline has passed and result notices are never stored as open,
@@ -292,6 +298,7 @@ The schema lives in ordered, re-runnable migrations under `supabase/migrations/`
 | `20260929000000_scrub_keyword_sources_and_run_errors.sql` | Removes research keywords from `sources` names and redacts bot tokens / keyword labels already stored in `run_log.errors` |
 | `20260929000100_telegram_link_codes.sql` | One-time codes for "Connect Telegram" |
 | `20261001000000_india_profile_and_sources.sql` | Eligibility fields (designation, regular post, date of birth, superannuation year, state), `preferred_sources`, neutral profile defaults; removes `2099-12-31` placeholder deadlines and closes stored papers / expired calls |
+| `20261001000100_admin_role_policies.sql` | `public.is_admin()` / `app_role()` read the server-controlled `app_metadata.role`; admin policies use it (the old top-level `role` check never matched); chats and activity stay owner-only |
 
 New project: `supabase link --project-ref <ref> && supabase db push`.
 
@@ -378,12 +385,12 @@ For full setup instructions (configuring `RENDER_APP_URL`), operational commands
 1. **Agency pages change.** ANRF, DST, DBT and ICMR adapters parse the sites' current layouts (saved
    fixtures in `tests/fixtures/`). A redesign shows up as a failed source in the run log and digest
    footer; `python scripts/probe_sources.py` pinpoints it.
-2. **More Indian agencies to add.** CSIR, UGC, BIRAC, MeitY, DRDO and ISRO RESPOND are not scraped yet.
+2. **Agencies not covered.** DHR and MeitY refuse automated requests (HTTP 403 to an honest
+   User-Agent), so they are not scraped; DHR calls still arrive through ICMR's listing. UGC publishes
+   no research-call listing, and ISRO RESPOND / DRDO extramural pages have no machine-readable list
+   of open calls.
 3. **PDF extraction is heuristic.** Scanned (image-only) call documents yield no text; eligibility
    for those calls is flagged for manual review.
 4. **WikiCFP relevance.** Its keyword search is broad; low-relevance CFPs are ranked down, not removed.
-5. **Admin RLS clause.** Some RLS policies test a top-level `role = 'admin'` JWT claim, which Supabase
-   never issues; the clause is inert (admins use the service key). It should be rewritten to read
-   `app_metadata.role` when those policies are next revised.
-6. **Embedding model download.** The first run downloads `all-MiniLM-L6-v2` (~90 MB) from Hugging
+5. **Embedding model download.** The first run downloads `all-MiniLM-L6-v2` (~90 MB) from Hugging
    Face; without it scoring runs in degraded mode (terms, deadline and recency only).

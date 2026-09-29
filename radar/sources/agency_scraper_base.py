@@ -1,12 +1,15 @@
 """Base compliance, robots.txt verification, and adapter interface for agency scrapers."""
 import logging
+import re
 import urllib.parse
 from abc import ABC, abstractmethod
 from typing import Any
 from urllib.robotparser import RobotFileParser
 
 import requests
+from bs4 import BeautifulSoup
 
+from radar.deadlines.deadline_engine import parse_deadline
 from radar.sources.http import HONEST_USER_AGENT, FetchError, ca_bundle
 
 logger = logging.getLogger(__name__)
@@ -61,6 +64,30 @@ def is_scraping_allowed(url: str, user_agent: str = "ResearchOpportunityRadar") 
         return _ROBOTS_PARSER_CACHE[base].can_fetch(user_agent, url)
     except Exception:
         return True
+
+
+_DEADLINE_CUE = re.compile(r"(last\s+date|deadline|closing\s+date|cut-?\s?off\s+date|due\s+date|on\s+or\s+before|submission\s+date)", re.I)
+
+
+def latest_cued_deadline(text: str) -> str | None:
+    """The latest date stated after a "last date" / "deadline" phrase in page text, as YYYY-MM-DD.
+    Call pages list the original date and then each extension, so the latest one is current."""
+    found = []
+    for cue in _DEADLINE_CUE.finditer(text):
+        window = text[cue.start():cue.start() + 120]
+        parsed, _ = parse_deadline(window)
+        if parsed:
+            found.append(parsed)
+    return max(found).isoformat() if found else None
+
+
+def page_text(html: str) -> str:
+    """Readable text of a page's main content (navigation, scripts and footers removed)."""
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style", "nav", "header", "footer", "noscript"]):
+        tag.decompose()
+    main = soup.find("main") or soup.select_one("#content, .region-content, #main-content, article") or soup.body or soup
+    return " ".join(main.get_text(" ", strip=True).split())
 
 
 class AgencyAdapter(ABC):

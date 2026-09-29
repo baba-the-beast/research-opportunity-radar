@@ -37,16 +37,19 @@ def stack():
 
     admin = create_client(URL, SERVICE)
     users, clients = {}, {}
-    for name in ("a", "b"):
+    for name in ("a", "b", "boss"):
         email = f"rls-{name}-{uuid.uuid4().hex[:8]}@example.test"
-        created = admin.auth.admin.create_user({"email": email, "password": PASSWORD, "email_confirm": True})
+        attrs = {"email": email, "password": PASSWORD, "email_confirm": True}
+        if name == "boss":
+            attrs["app_metadata"] = {"role": "admin"}  # server-controlled role, as set by operators
+        created = admin.auth.admin.create_user(attrs)
         users[name] = created.user.id
         client = create_client(URL, ANON)
         client.auth.sign_in_with_password({"email": email, "password": PASSWORD})
         clients[name] = client
 
     profiles = {}
-    for name, uid in users.items():
+    for name, uid in ((n, u) for n, u in users.items() if n != "boss"):
         row = admin.table("faculty_profile").insert({
             "full_name": f"Dr. {name.upper()}", "institution": "Test U",
             "profile_text": "t", "user_id": uid,
@@ -106,6 +109,25 @@ def test_user_state_isolated(stack):
     a, b = stack["clients"]["a"], stack["clients"]["b"]
     a.table("user_preferences").upsert({"user_id": stack["users"]["a"], "min_score": 77}).execute()
     assert b.table("user_preferences").select("*").eq("user_id", stack["users"]["a"]).execute().data == []
+
+
+def test_app_metadata_admin_can_read_profiles(stack):
+    seen_by_admin = _profile_ids(stack["clients"]["boss"])
+    assert {stack["profiles"]["a"], stack["profiles"]["b"]} <= seen_by_admin
+
+
+def test_user_metadata_role_does_not_grant_admin(stack):
+    # users can edit user_metadata themselves; only app_metadata counts
+    a = stack["clients"]["a"]
+    a.auth.update_user({"data": {"role": "admin"}})
+    a.auth.refresh_session()
+    assert stack["profiles"]["b"] not in _profile_ids(a)
+
+
+def test_chats_stay_private_even_from_admins(stack):
+    a, boss = stack["clients"]["a"], stack["clients"]["boss"]
+    session = a.table("chat_sessions").insert({"user_id": stack["users"]["a"]}).execute().data[0]["id"]
+    assert boss.table("chat_sessions").select("id").eq("id", session).execute().data == []
 
 
 def test_alerts_sent_not_exposed_to_clients(stack):

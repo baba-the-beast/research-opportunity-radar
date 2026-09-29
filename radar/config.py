@@ -34,13 +34,16 @@ SOURCE_NAMES = {
     "DST": "DST",
     "DBT": "DBT",
     "ICMR": "ICMR",
+    "BIRAC": "BIRAC",
+    "CSIR": "CSIR",
+    "ICSSR": "ICSSR",
     "WikiCFP": "WikiCFP",
     "Grants.gov": "Grants.gov",
     "NSF": "NSF Solicitations Feed",
 }
-DEFAULT_SOURCES = ["ANRF", "DST", "DBT", "ICMR", "WikiCFP"]
+DEFAULT_SOURCES = ["ANRF", "DST", "DBT", "ICMR", "BIRAC", "CSIR", "ICSSR", "WikiCFP"]
 # Funding agencies scanned when no user has chosen sources yet
-AGENCY_LIST = ["ANRF", "DST", "DBT", "ICMR"]
+AGENCY_LIST = ["ANRF", "DST", "DBT", "ICMR", "BIRAC", "CSIR", "ICSSR"]
 
 
 class ConfigurationError(Exception):

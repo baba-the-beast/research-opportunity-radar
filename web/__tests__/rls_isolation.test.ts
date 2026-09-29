@@ -6,8 +6,13 @@ import { describe, it, expect } from 'vitest';
  */
 interface SecurityContext {
   uid: string | null;
-  role: 'anon' | 'authenticated' | 'admin' | 'service_role';
+  // Top-level JWT role: Supabase only ever issues anon / authenticated / service_role here
+  role: 'anon' | 'authenticated' | 'service_role';
+  // Server-controlled app_metadata.role (20261001000100_admin_role_policies.sql: public.is_admin())
+  appRole?: 'admin' | 'operator';
 }
+
+const bypasses = (ctx: SecurityContext) => ctx.role === 'service_role' || ctx.appRole === 'admin';
 
 interface FacultyProfileRow {
   id: string;
@@ -138,14 +143,14 @@ describe('PostgreSQL RLS Multi-Tenant Security & Isolation Regression Tests', ()
   // Helper evaluators applying the exact policies in supabase/migrations (see 20260928000000_tenant_isolation_fixes.sql)
   const rlsFacultyProfile = (ctx: SecurityContext, rows: FacultyProfileRow[]) => {
     if (ctx.role === 'anon') return [];
-    if (ctx.role === 'service_role' || ctx.role === 'admin') return rows;
+    if (bypasses(ctx)) return rows;
     // Policy: user_id = auth.uid()  (the unassigned seed profile is no longer readable by everyone)
     return rows.filter((r) => r.user_id === ctx.uid);
   };
 
   const rlsProfileTerms = (ctx: SecurityContext, rows: ProfileTermsRow[]) => {
     if (ctx.role === 'anon') return [];
-    if (ctx.role === 'service_role' || ctx.role === 'admin') return rows;
+    if (bypasses(ctx)) return rows;
     // Policy: profile_id in (select id from faculty_profile where user_id = auth.uid())
     const allowedProfIds = new Set(
       facultyProfiles.filter((p) => p.user_id === ctx.uid).map((p) => p.id)
@@ -155,7 +160,7 @@ describe('PostgreSQL RLS Multi-Tenant Security & Isolation Regression Tests', ()
 
   const rlsOpportunityStatus = (ctx: SecurityContext, rows: OpportunityStatusRow[]) => {
     if (ctx.role === 'anon') return [];
-    if (ctx.role === 'service_role' || ctx.role === 'admin') return rows;
+    if (bypasses(ctx)) return rows;
     // Policy: faculty_id in (select id from faculty_profile where user_id = auth.uid())
     const allowedProfIds = new Set(
       facultyProfiles.filter((p) => p.user_id === ctx.uid).map((p) => p.id)
@@ -165,18 +170,31 @@ describe('PostgreSQL RLS Multi-Tenant Security & Isolation Regression Tests', ()
 
   const rlsFeedback = (ctx: SecurityContext, rows: FeedbackRow[]) => {
     if (ctx.role === 'anon') return [];
-    if (ctx.role === 'service_role' || ctx.role === 'admin') return rows;
+    if (bypasses(ctx)) return rows;
     const allowedProfIds = new Set(
       facultyProfiles.filter((p) => p.user_id === ctx.uid).map((p) => p.id)
     );
     return rows.filter((r) => allowedProfIds.has(r.faculty_id));
   };
 
-  const rlsDirectUserTable = <T extends { user_id: string }>(ctx: SecurityContext, rows: T[]) => {
+  // private: chat_sessions, chat_messages, user_activity have no admin branch
+  const rlsDirectUserTable = <T extends { user_id: string }>(ctx: SecurityContext, rows: T[], opts: { private?: boolean } = {}) => {
     if (ctx.role === 'anon') return [];
-    if (ctx.role === 'service_role' || ctx.role === 'admin') return rows;
+    if (ctx.role === 'service_role' || (!opts.private && ctx.appRole === 'admin')) return rows;
     return rows.filter((r) => r.user_id === ctx.uid);
   };
+
+  it('app_metadata admin reads profiles and tracking state but not private chats or activity', () => {
+    const ctxAdmin: SecurityContext = { uid: '00000000-0000-0000-0000-00000000000a', role: 'authenticated', appRole: 'admin' };
+    expect(rlsFacultyProfile(ctxAdmin, facultyProfiles)).toHaveLength(facultyProfiles.length);
+    expect(rlsDirectUserTable(ctxAdmin, userOpportunityState)).toHaveLength(userOpportunityState.length);
+    expect(rlsDirectUserTable(ctxAdmin, chatSessions, { private: true })).toHaveLength(0);
+    expect(rlsDirectUserTable(ctxAdmin, chatMessages, { private: true })).toHaveLength(0);
+    expect(rlsDirectUserTable(ctxAdmin, userActivity, { private: true })).toHaveLength(0);
+    // An operator is not an admin
+    const ctxOperator: SecurityContext = { uid: '00000000-0000-0000-0000-00000000000b', role: 'authenticated', appRole: 'operator' };
+    expect(rlsFacultyProfile(ctxOperator, facultyProfiles)).toHaveLength(0);
+  });
 
   it('Table 1: faculty_profile isolates User A and User B completely', () => {
     const resA = rlsFacultyProfile(ctxUserA, facultyProfiles);

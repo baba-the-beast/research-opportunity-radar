@@ -18,7 +18,7 @@ _MONTH_RE = (
     r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|"
     r"sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
 )
-_ORD = r"(?:st|nd|rd|th)?"
+_ORD = r"(?:\s?(?:st|nd|rd|th)\b)?"  # "31st", also "10 th" as some PDFs extract it
 
 # Each pattern yields named groups d, m (number or month name) and y.
 _DATE_PATTERNS = [
@@ -30,7 +30,7 @@ _DATE_PATTERNS = [
 
 # Phrases that introduce the closing date inside longer text
 _DEADLINE_CUE = re.compile(
-    r"(last\s+date|deadline|closing\s+date|closes\s+on|due\s+date|submission\s+(?:date|deadline)|"
+    r"(last\s+date|deadline|closing\s+date|cut-?\s?off\s+date|closes\s+on|due\s+date|submission\s+(?:date|deadline)|"
     r"apply\s+(?:by|before)|on\s+or\s+before|till|until)",
     re.I,
 )

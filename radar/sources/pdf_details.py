@@ -26,7 +26,7 @@ GUIDELINES_CHARS = 12000
 
 _ELIGIBILITY_HEADING = re.compile(r"\b(eligibility(?:\s+criteria)?|who\s+can\s+apply|eligible\s+(?:applicants|institutions))\b", re.I)
 _NEXT_HEADING = re.compile(r"\s(?:\d{1,2}\.|[IVX]{1,4}\.)\s+[A-Z][A-Za-z ]{3,40}:?\s")
-_DEADLINE_CUE = re.compile(r"(last\s+date|deadline|closing\s+date|due\s+date|submission\s+(?:date|deadline)|on\s+or\s+before)", re.I)
+_DEADLINE_CUE = re.compile(r"(last\s+date|deadline|closing\s+date|cut-?\s?off\s+date|due\s+date|submission\s+(?:date|deadline)|on\s+or\s+before)", re.I)
 _BUDGET = re.compile(
     r"(?:(?:\bRs\.?|\bINR|₹)\s*\d[\d,]*(?:\.\d+)?(?:\s*(?:lakhs?|lacs?|crores?|cr\b))?"
     r"|\b\d[\d,]*(?:\.\d+)?\s*(?:lakhs?|lacs?|crores?)\b)",

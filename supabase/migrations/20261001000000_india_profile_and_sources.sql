@@ -45,7 +45,7 @@ update faculty_profile set institution_type = '' where institution_type = 'tier1
 
 -- 2. Source preferences
 alter table user_preferences add column if not exists preferred_sources text[]
-  not null default '{ANRF,DST,DBT,ICMR,WikiCFP}';
+  not null default '{ANRF,DST,DBT,ICMR,BIRAC,CSIR,ICSSR,WikiCFP}';
 
 -- 3. Cleanup of earlier pipeline output
 delete from opportunity_deadlines where deadline_date = '2099-12-31';
