@@ -1,8 +1,8 @@
-"""Autonomous Discovery and Search Agent.
+"""Discovery agent: calls for papers (conferences, workshops, journal special issues) matching each
+research keyword, plus NSF solicitations when US sources are enabled.
 
-Autonomously discovers research opportunities, unindexed agency solicitations,
-special issues, and conference calls beyond static API filters by formulating
-targeted query vectors and parsing academic announcements.
+Only items with a future submission deadline are returned: an undated or past CFP is not something a
+faculty member can act on.
 """
 import hashlib
 import logging
@@ -16,12 +16,18 @@ import requests
 from bs4 import BeautifulSoup
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from radar.deadlines.deadline_engine import classify_deadline_confidence
+from radar import config
+from radar.deadlines.deadline_engine import lifecycle_status, parse_deadline
 from radar.models import FacultyProfile, Opportunity, OpportunityDeadline, OpportunitySource, ProfileTerm
 from radar.sources.agency_scraper_base import HONEST_USER_AGENT, is_scraping_allowed
 from radar.sources.rate_limiter import scraper_limiter
 
 logger = logging.getLogger(__name__)
+
+MAX_CFP_KEYWORDS = 12
+CFPS_PER_KEYWORD = 5
+WIKICFP_BASE = "http://www.wikicfp.com"
+US_SOURCE_NAMES = {"grants.gov", "grantsgov", "nsf"}
 
 
 @retry(
@@ -38,11 +44,50 @@ def _resilient_get(url: str, headers: dict[str, str] | None = None, timeout: int
     return resp
 
 
+def us_sources_enabled(agency_list: list[str] | None = None) -> bool:
+    return any(a.lower() in US_SOURCE_NAMES for a in (agency_list if agency_list is not None else config.AGENCY_LIST))
+
+
+def parse_wikicfp_results(html: str) -> list[dict[str, str]]:
+    """Events from a WikiCFP search page. Each event is two table rows:
+    [acronym link | full name] then [when | where | deadline ("Jan 30, 2026 (Jan 23, 2026)")]."""
+    soup = BeautifulSoup(html, "html.parser")
+    events: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for link in soup.find_all("a", href=True):
+        href = link["href"]
+        if "event.showcfp?eventid=" not in href:
+            continue
+        event_id = href.split("eventid=")[-1].split("&")[0]
+        if event_id in seen:
+            continue
+        row = link.find_parent("tr")
+        if row is None:
+            continue
+        name_cells = [td for td in row.find_all("td") if link not in td.descendants]
+        details_row = row.find_next_sibling("tr")
+        details = [td.get_text(" ", strip=True) for td in details_row.find_all("td")] if details_row else []
+        seen.add(event_id)
+        events.append({
+            "event_id": event_id,
+            "acronym": link.get_text(" ", strip=True),
+            "name": name_cells[0].get_text(" ", strip=True) if name_cells else "",
+            "when": details[0] if len(details) > 0 else "",
+            "where": details[1] if len(details) > 1 else "",
+            # "Jan 30, 2026 (Jan 23, 2026)": paper deadline, then abstract deadline in brackets
+            "deadline": details[2].split("(")[0].strip() if len(details) > 2 else "",
+            "abstract_deadline": details[2].split("(")[1].rstrip(") ") if len(details) > 2 and "(" in details[2] else "",
+            "url": urllib.parse.urljoin(WIKICFP_BASE, href),
+        })
+    return events
+
+
 class DiscoveryAgent:
-    """Agent that performs autonomous, multi-strategy research opportunity discovery."""
+    """Finds calls for papers per research keyword (and NSF solicitations for US-enabled runs)."""
 
     def __init__(self, telemetry_callback: Callable[[dict[str, Any]], None] | None = None):
         self.telemetry_callback = telemetry_callback
+        self.errors: list[dict[str, str]] = []
 
     def _emit(self, phase: str, message: str, payload: dict[str, Any] | None = None):
         if self.telemetry_callback:
@@ -54,286 +99,134 @@ class DiscoveryAgent:
                 "timestamp": datetime.now(UTC).isoformat()
             })
 
-    def formulate_queries(self, profile: FacultyProfile, terms: list[ProfileTerm] | None = None) -> list[dict[str, str]]:
-        """Synthesizes high-precision search query vectors across academic channels."""
-        self._emit(
-            phase="QUERY_FORMULATION",
-            message=f"Formulating query vectors from {len(profile.research_keywords)} active research keywords...",
-            payload={"keywords": profile.research_keywords}
-        )
-
-        queries: list[dict[str, str]] = []
-        keywords = profile.research_keywords or ["cyber-physical systems", "sensor fusion", "edge AI"]
-
-        for kw in keywords[:4]:
-            # 1. Federal & Foundation Funding Solicitations
-            queries.append({
-                "category": "funding",
-                "query": f'"{kw}" ("call for proposals" OR "solicitation" OR "dear colleague letter") (NSF OR DARPA OR DOE OR NIH)',
-                "keyword": kw,
-                "target_type": "federal_rfp"
-            })
-            # 2. Archival Special Issues & Rapid Trans.
-            queries.append({
-                "category": "journal",
-                "query": f'"{kw}" ("special issue" OR "call for papers" OR "topical collection") (IEEE OR ACM OR Nature OR Springer)',
-                "keyword": kw,
-                "target_type": "journal_special_issue"
-            })
-            # 3. Top-Tier Conferences & Symposia
-            queries.append({
-                "category": "venue",
-                "query": f'"{kw}" ("call for papers" OR "CFP" OR "paper submission") (conference OR symposium) 2025 OR 2026',
-                "keyword": kw,
-                "target_type": "conference_cfp"
-            })
-
-        self._emit(
-            phase="QUERIES_COMPILED",
-            message=f"Synthesized {len(queries)} autonomous query vectors across funding, special issues, and conferences.",
-            payload={"total_queries": len(queries)}
-        )
-        return queries
-
-    def search_arxiv_announcements(self, keyword: str, max_results: int = 3) -> list[Opportunity]:
-        """Queries arXiv API for emerging preprints describing upcoming grand challenges or open benchmark calls."""
-        clean_kw = urllib.parse.quote(keyword)
-        url = f"http://export.arxiv.org/api/query?search_query=all:{clean_kw}&start=0&max_results={max_results}&sortBy=submittedDate&sortOrder=descending"
-        results: list[Opportunity] = []
-
-        try:
-            resp = _resilient_get(url, headers={"User-Agent": HONEST_USER_AGENT}, timeout=8)
-            if resp.status_code == 200:
-                root = ET.fromstring(resp.content)
-                ns = {"atom": "http://www.w3.org/2005/Atom"}
-                for entry in root.findall("atom:entry", ns):
-                    title_elem = entry.find("atom:title", ns)
-                    summary_elem = entry.find("atom:summary", ns)
-                    id_elem = entry.find("atom:id", ns)
-                    published_elem = entry.find("atom:published", ns)
-                    pub_date = published_elem.text.strip() if published_elem is not None and published_elem.text else ""
-
-                    if title_elem is not None and id_elem is not None:
-                        clean_title = " ".join(title_elem.text.strip().split())
-                        arxiv_id = id_elem.text.strip()
-                        summary_txt = " ".join(summary_elem.text.strip().split()) if summary_elem is not None else ""
-
-                        opp = Opportunity(
-                            kind="journal",
-                            title=f"ArXiv Open Science Call: {clean_title}",
-                            summary=summary_txt[:350] + "...",
-                            agency_or_publisher="arXiv.org Open Research",
-                            venue_name="arXiv Computing Research Repository (CoRR)",
-                            primary_source_name="ArXiv RSS / API",
-                            primary_source_url=arxiv_id,
-                            external_id=f"ARXIV:{arxiv_id.split('/')[-1]}",
-                            discovered_at=datetime.now(UTC),
-                            metadata={"origin": "arxiv_api", "category": "open_science", "published_date": pub_date, "solicitation_guidelines": summary_txt}
-                        )
-                        results.append(opp)
-        except Exception as e:
-            logger.debug(f"arXiv discovery request skipped: {e}")
-
-        return results
-
     def search_nsf_solicitations(self, profile: FacultyProfile, max_results: int = 5) -> list[Opportunity]:
-        """Fetches and parses live NSF open solicitations from official NSF RSS feeds."""
+        """Live NSF solicitations from the NSF funding RSS feed that mention a profile keyword."""
         rss_url = "https://www.nsf.gov/rss/rss_www_funding.xml"
         if not is_scraping_allowed(rss_url, user_agent="ResearchOpportunityRadar"):
             logger.warning("Scraping disallowed by robots.txt for NSF RSS")
             return []
 
+        keywords = [k.lower() for k in (profile.research_keywords or [])]
         results: list[Opportunity] = []
         try:
             resp = _resilient_get(rss_url, headers={"User-Agent": HONEST_USER_AGENT}, timeout=10)
-            if resp.status_code == 200:
-                root = ET.fromstring(resp.content)
-                keywords = [k.lower() for k in (profile.research_keywords or [])]
-                for item in root.findall(".//item"):
-                    title_elem = item.find("title")
-                    link_elem = item.find("link")
-                    desc_elem = item.find("description")
-                    pub_elem = item.find("pubDate")
-
-                    if title_elem is None or link_elem is None:
-                        continue
-
-                    raw_title = title_elem.text.strip() if title_elem.text else ""
-                    raw_link = link_elem.text.strip() if link_elem.text else ""
-                    raw_desc = desc_elem.text.strip() if desc_elem is not None and desc_elem.text else ""
-                    pub_date = pub_elem.text.strip() if pub_elem is not None and pub_elem.text else None
-
-                    if not raw_title or not raw_link:
-                        continue
-
-                    combined_text = f"{raw_title} {raw_desc}".lower()
-                    relevance_match = any(kw in combined_text for kw in keywords) if keywords else True
-
-                    ext_id = f"NSF-{hashlib.md5(raw_link.encode('utf-8')).hexdigest()[:8].upper()}"
-
-                    opp = Opportunity(
-                        kind="funding",
-                        title=f"NSF Solicitation: {raw_title}",
-                        summary=raw_desc[:400] + ("..." if len(raw_desc) > 400 else ""),
-                        agency_or_publisher="National Science Foundation",
-                        venue_name="NSF Directorate for Engineering / CISE",
-                        source_name="NSF Solicitations Feed",
-                        source_url=raw_link,
-                        external_id=ext_id,
-                        discovered_at=datetime.now(UTC),
-                        sources=[
-                            OpportunitySource(
-                                source_name="NSF Solicitations Feed",
-                                source_url=raw_link,
-                                external_id=ext_id,
-                                first_seen_at=datetime.now(UTC)
-                            )
-                        ],
-                        metadata={
-                            "origin": "nsf_rss_feed",
-                            "pub_date": pub_date,
-                            "solicitation_url": raw_link,
-                            "keyword_matched": relevance_match,
-                            "solicitation_guidelines": raw_desc
-                        }
-                    )
-
-                    parsed_date, confidence = classify_deadline_confidence(raw_desc, day_first=False)  # NSF: US dates
-                    if parsed_date:
-                        opp.deadlines.append(OpportunityDeadline(
-                            deadline_type="full_proposal",
-                            deadline_date=parsed_date,
-                            confidence=confidence,
-                            raw_text=raw_desc[:120]
-                        ))
-
-                    results.append(opp)
-                    if len(results) >= max_results:
-                        break
+            root = ET.fromstring(resp.content)
         except Exception as e:
-            logger.warning(f"NSF solicitations live discovery request failed: {e}")
+            self.errors.append({"source": "NSF", "error": e.__class__.__name__})
+            logger.warning(f"NSF solicitations request failed: {e}")
+            return []
 
+        for item in root.findall(".//item"):
+            title_elem, link_elem = item.find("title"), item.find("link")
+            desc_elem, pub_elem = item.find("description"), item.find("pubDate")
+            raw_title = (title_elem.text or "").strip() if title_elem is not None else ""
+            raw_link = (link_elem.text or "").strip() if link_elem is not None else ""
+            raw_desc = (desc_elem.text or "").strip() if desc_elem is not None else ""
+            if not raw_title or not raw_link:
+                continue
+            combined_text = f"{raw_title} {raw_desc}".lower()
+            if keywords and not any(kw in combined_text for kw in keywords):
+                continue
+
+            ext_id = f"NSF-{hashlib.md5(raw_link.encode('utf-8')).hexdigest()[:8].upper()}"
+            opp = Opportunity(
+                kind="funding",
+                title=f"NSF Solicitation: {raw_title}",
+                summary=raw_desc[:400] + ("..." if len(raw_desc) > 400 else ""),
+                agency_or_publisher="National Science Foundation",
+                status="open",
+                source_name="NSF Solicitations Feed",
+                source_url=raw_link,
+                external_id=ext_id,
+                discovered_at=datetime.now(UTC),
+                sources=[OpportunitySource(source_name="NSF Solicitations Feed", source_url=raw_link, external_id=ext_id)],
+                metadata={
+                    "origin": "nsf_rss_feed",
+                    "pub_date": (pub_elem.text or "").strip() if pub_elem is not None else None,
+                    "solicitation_guidelines": raw_desc,
+                    "us_source": True,
+                },
+            )
+            parsed_date, confidence = parse_deadline(raw_desc, day_first=False)  # NSF: US dates
+            if parsed_date:
+                if lifecycle_status(raw_title, [parsed_date]) == "closed":
+                    continue
+                opp.deadlines.append(OpportunityDeadline(
+                    deadline_type="full_proposal", deadline_date=parsed_date, confidence=confidence, raw_text=raw_desc[:120]
+                ))
+            results.append(opp)
+            if len(results) >= max_results:
+                break
         return results
 
-    def search_wikicfp(self, keyword: str, max_results: int = 3) -> list[Opportunity]:
-        """Queries WikiCFP for live calls for papers, special sessions, and workshops."""
-        clean_kw = urllib.parse.quote(keyword)
-        url = f"http://www.wikicfp.com/cfp/servlet/tool.search?q={clean_kw}&year=a"
+    def search_wikicfp(self, keyword: str, max_results: int = CFPS_PER_KEYWORD) -> list[Opportunity]:
+        """Open calls for papers on WikiCFP matching `keyword`, with a future submission deadline."""
+        url = f"{WIKICFP_BASE}/cfp/servlet/tool.search?q={urllib.parse.quote_plus(keyword)}&year=a"
         if not is_scraping_allowed(url, user_agent="ResearchOpportunityRadar"):
             logger.warning("Scraping disallowed by robots.txt for WikiCFP")
             return []
-
-        results: list[Opportunity] = []
         try:
             resp = _resilient_get(url, headers={"User-Agent": HONEST_USER_AGENT}, timeout=10)
-            if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, "html.parser")
-                seen_urls = set()
-                for a in soup.find_all("a", href=True):
-                    href = a["href"]
-                    if "/cfp/servlet/event.showcfp?eventid=" in href:
-                        raw_title = a.text.strip()
-                        full_url = f"http://www.wikicfp.com{href}" if href.startswith("/") else href
-                        if not raw_title or len(raw_title) < 3 or full_url in seen_urls:
-                            continue
-                        seen_urls.add(full_url)
-                        event_id = href.split("eventid=")[-1].split("&")[0]
-
-                        is_journal = "journal" in raw_title.lower() or "special issue" in raw_title.lower()
-                        opp_kind = "journal" if is_journal else "venue"
-
-                        opp = Opportunity(
-                            kind=opp_kind,
-                            title=f"CFP: {raw_title}",
-                            summary=f"Open call for papers matching '{keyword}' indexed on WikiCFP.",
-                            agency_or_publisher="WikiCFP Academic Index",
-                            venue_name=raw_title,
-                            source_name="WikiCFP Portal",
-                            source_url=full_url,
-                            external_id=f"WIKICFP:{event_id}",
-                            discovered_at=datetime.now(UTC),
-                            sources=[
-                                OpportunitySource(
-                                    source_name="WikiCFP Portal",
-                                    source_url=full_url,
-                                    external_id=f"WIKICFP:{event_id}",
-                                    first_seen_at=datetime.now(UTC)
-                                )
-                            ],
-                            metadata={
-                                "origin": "wikicfp_crawler",
-                                "query_keyword": keyword,
-                                "event_id": event_id
-                            }
-                        )
-                        results.append(opp)
-                        if len(results) >= max_results:
-                            break
         except Exception as e:
-            logger.warning(f"WikiCFP live discovery request failed: {e}")
+            self.errors.append({"source": "WikiCFP", "error": e.__class__.__name__})
+            logger.warning(f"WikiCFP request failed: {e.__class__.__name__}")
+            return []
 
+        results: list[Opportunity] = []
+        for event in parse_wikicfp_results(resp.text):
+            deadline, confidence = parse_deadline(event["deadline"], day_first=False)  # "Jan 30, 2026"
+            if not deadline or lifecycle_status(event["acronym"], [deadline]) != "open":
+                continue
+            name = event["name"] or event["acronym"]
+            is_journal = any(w in name.lower() for w in ("journal", "special issue", "transactions"))
+            details = "; ".join(part for part in (
+                f"When: {event['when']}" if event["when"] and event["when"].upper() != "N/A" else "",
+                f"Where: {event['where']}" if event["where"] and event["where"].upper() != "N/A" else "",
+                f"Abstract due {event['abstract_deadline']}" if event["abstract_deadline"] else "",
+            ) if part)
+            ext_id = f"WIKICFP:{event['event_id']}"
+            opp = Opportunity(
+                kind="journal" if is_journal else "venue",
+                title=f"CFP: {event['acronym']}" + (f" — {event['name']}" if event["name"] else ""),
+                summary=f"Call for papers: {name}." + (f" {details}." if details else ""),
+                agency_or_publisher=None,
+                venue_name=name,
+                status="open",
+                source_name="WikiCFP",
+                source_url=event["url"],
+                external_id=ext_id,
+                discovered_at=datetime.now(UTC),
+                sources=[OpportunitySource(source_name="WikiCFP", source_url=event["url"], external_id=ext_id)],
+                metadata={"origin": "wikicfp", "event_id": event["event_id"], "when": event["when"], "where": event["where"]},
+            )
+            opp.deadlines.append(OpportunityDeadline(
+                deadline_type="special_issue" if is_journal else "submission",
+                deadline_date=deadline,
+                confidence=confidence,
+                raw_text=event["deadline"],
+            ))
+            results.append(opp)
+            if len(results) >= max_results:
+                break
         return results
 
-    def discover_unindexed_opportunities(self, profile: FacultyProfile) -> list[Opportunity]:
-        """Scans active academic solicitation feeds (NSF Open Solicitations & WikiCFP CFPs)."""
-        self._emit(
-            phase="CRAWLING_AGENCY_PORTALS",
-            message="Scanning live academic solicitation repositories & NSF funding solicitations...",
-            payload={"sources": ["NSF Open Solicitations RSS", "WikiCFP Conference & Special Issues"]}
-        )
-
-        candidates: list[Opportunity] = []
-
-        # 1. Fetch live NSF open solicitations
-        nsf_items = self.search_nsf_solicitations(profile, max_results=3)
-        candidates.extend(nsf_items)
-
-        # 2. Fetch live WikiCFP calls for top keywords
-        for kw in (profile.research_keywords or ["edge AI"])[:2]:
-            cfp_items = self.search_wikicfp(kw, max_results=2)
-            candidates.extend(cfp_items)
-
-        self._emit(
-            phase="CANDIDATES_DISCOVERED",
-            message=f"Discovered {len(candidates)} live academic and agency solicitations.",
-            payload={"count": len(candidates), "titles": [c.title for c in candidates]}
-        )
-        return candidates
-
     def run_discovery_cycle(self, profile: FacultyProfile, terms: list[ProfileTerm] | None = None) -> list[Opportunity]:
-        """Runs an autonomous multi-stage discovery cycle."""
-        self._emit(
-            phase="CYCLE_START",
-            message=f"Initiating autonomous discovery cycle for faculty '{profile.full_name}' ({profile.institution}).",
-            payload={"faculty": profile.full_name, "institution": profile.institution}
-        )
+        """CFPs for each research keyword (capped), plus NSF solicitations when US sources are on."""
+        keywords = [k for k in (profile.research_keywords or []) if k.strip()][:MAX_CFP_KEYWORDS]
+        self._emit("CYCLE_START", f"Searching calls for papers for {len(keywords)} research keywords.",
+                   {"keywords_count": len(keywords)})
 
-        # 1. Synthesize targeted search queries
-        queries = self.formulate_queries(profile, terms)
-        self._emit(
-            phase="QUERY_FORMULATION",
-            message=f"Formulated {len(queries)} autonomous query vectors across research topics.",
-            payload={"queries_count": len(queries)}
-        )
+        found: list[Opportunity] = []
+        seen_ids: set[str] = set()
+        for kw in keywords:
+            for opp in self.search_wikicfp(kw):
+                if opp.external_id not in seen_ids:
+                    seen_ids.add(opp.external_id or "")
+                    found.append(opp)
 
-        # 2. Query arXiv API for live preprints/announcements
-        arxiv_items: list[Opportunity] = []
-        for kw in (profile.research_keywords or ["edge AI"])[:2]:
-            self._emit(
-                phase="ARXIV_SCAN",
-                message=f"Querying arXiv open announcements for keyword '{kw}'...",
-                payload={"keyword": kw}
-            )
-            items = self.search_arxiv_announcements(kw, max_results=1)
-            arxiv_items.extend(items)
+        if us_sources_enabled():
+            found.extend(self.search_nsf_solicitations(profile))
 
-        # 3. Discover unindexed federal & archival calls
-        unindexed_items = self.discover_unindexed_opportunities(profile)
-
-        total_discovered = arxiv_items + unindexed_items
-        self._emit(
-            phase="CYCLE_COMPLETE",
-            message=f"Autonomous discovery completed: {len(total_discovered)} candidates extracted and prepared for validation.",
-            payload={"total_discovered": len(total_discovered)}
-        )
-        return total_discovered
+        self._emit("CYCLE_COMPLETE", f"Found {len(found)} open calls for papers and solicitations.",
+                   {"total_discovered": len(found)})
+        return found

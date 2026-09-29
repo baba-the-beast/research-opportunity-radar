@@ -1,9 +1,11 @@
+from datetime import date
 from unittest.mock import patch
 
 import pytest
 
 from radar import config
 from radar.db import client as db
+from radar.models import Opportunity, OpportunityDeadline, OpportunitySource
 from radar.orchestrator import pipeline
 
 
@@ -57,26 +59,32 @@ def test_pipeline_idempotency_second_run_zero_new():
         }
     ])
 
-    fixed_works = [
-        {
-            "id": "W99001",
-            "title": "Robust Sensor Fusion in Cyber-Physical Nodes",
-            "doi": "https://doi.org/10.1109/TCPS.2025.1001",
-            "display_name": "Robust Sensor Fusion in Cyber-Physical Nodes",
-            "primary_location": {
-                "source": {"display_name": "IEEE Trans CPS", "publisher": "IEEE"}
-            }
-        },
-        {
-            "id": "W99002",
-            "title": "Low-Latency Edge AI Inference Architecture",
-            "doi": "https://doi.org/10.1109/TCPS.2025.1002",
-            "display_name": "Low-Latency Edge AI Inference Architecture",
-            "primary_location": {
-                "source": {"display_name": "ACM Trans Embedded Computing", "publisher": "ACM"}
-            }
-        }
-    ]
+    def fixed_calls(agency_list, errors=None):
+        # Fresh objects each run, as a real scan would return
+        return [
+            Opportunity(
+                kind="funding",
+                title="Call for proposals: Robust Sensor Fusion for Cyber-Physical Systems",
+                summary="ANRF call on sensor fusion and edge AI for cyber-physical systems",
+                agency_or_publisher="ANRF",
+                status="open",
+                source_name="ANRF",
+                source_url="https://anrfonline.in/ANRF/sensor_fusion_call",
+                deadlines=[OpportunityDeadline(deadline_type="full_proposal", deadline_date=date(2099, 1, 31), confidence="confirmed")],
+                sources=[OpportunitySource(source_name="ANRF", source_url="https://anrfonline.in/ANRF/sensor_fusion_call")],
+            ),
+            Opportunity(
+                kind="funding",
+                title="Low-Latency Edge AI Inference: Call for Proposals",
+                summary="DBT call on edge AI inference",
+                agency_or_publisher="DBT",
+                status="open",
+                source_name="DBT",
+                source_url="https://dbt.gov.in/storage/media/edge-ai.pdf",
+                deadlines=[OpportunityDeadline(deadline_type="full_proposal", deadline_date=date(2099, 2, 28), confidence="confirmed")],
+                sources=[OpportunitySource(source_name="DBT", source_url="https://dbt.gov.in/storage/media/edge-ai.pdf")],
+            ),
+        ]
 
     class MockTransformer:
         def encode(self, text, **kwargs):
@@ -86,10 +94,8 @@ def test_pipeline_idempotency_second_run_zero_new():
             return np.array([0.05] * 384, dtype=float)
 
     with patch("radar.scoring.component_scorer.get_sentence_transformer", return_value=MockTransformer()), \
-         patch("radar.sources.openalex_client.search_works", return_value=fixed_works), \
-         patch("radar.sources.crossref_client.search_works", return_value=[]), \
-         patch("radar.sources.semantic_scholar_client.search_papers", return_value=[]), \
-         patch("radar.tools.funding_deadline_scan.funding_deadline_scan", return_value=[]), \
+         patch("radar.orchestrator.pipeline.funding_deadline_scan", side_effect=fixed_calls), \
+         patch("radar.sources.pdf_details.enrich_with_pdf_details", return_value=0), \
          patch("radar.agents.discovery_agent.DiscoveryAgent.run_discovery_cycle", return_value=[]):
 
         # RUN 1

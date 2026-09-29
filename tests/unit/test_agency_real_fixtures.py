@@ -39,8 +39,8 @@ def test_icmr_adapter_parses_real_fixture(monkeypatch):
 
     raw_html = fixture_path.read_bytes()
     monkeypatch.setattr(
-        "radar.sources.agencies.icmr_adapter._fetch_icmr_page",
-        lambda url: MockResponse(raw_html, 200, is_json=False)
+        "radar.sources.agencies.icmr_adapter.fetch",
+        lambda url, **kwargs: MockResponse(raw_html, 200, is_json=False)
     )
 
     adapter = ICMRAdapter()
@@ -66,8 +66,8 @@ def test_dbt_adapter_parses_real_json_fixture(monkeypatch):
 
     raw_json = fixture_path.read_bytes()
     monkeypatch.setattr(
-        "radar.sources.agencies.dbt_adapter._fetch_dbt_page",
-        lambda url: MockResponse(raw_json, 200, is_json=True)
+        "radar.sources.agencies.dbt_adapter.fetch",
+        lambda url, **kwargs: MockResponse(raw_json, 200, is_json=True)
     )
 
     adapter = DBTAdapter()

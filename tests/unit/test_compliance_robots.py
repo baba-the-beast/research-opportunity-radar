@@ -1,6 +1,4 @@
-import urllib.error
-from urllib.robotparser import RobotFileParser
-
+from radar.sources import agency_scraper_base
 from radar.sources.agency_scraper_base import (
     AgencyAdapter,
     is_scraping_allowed,
@@ -12,20 +10,20 @@ class DummyAdapter(AgencyAdapter):
     agency_name = "Dummy"
     url = "https://mock-agency.gov/calls/proposals"
 
-    def fetch_open_calls(self):
+    def _fetch_calls(self):
         return []
 
 
 def test_is_scraping_allowed_disallows_path(monkeypatch):
     reset_robots_cache()
 
-    def mock_read(self):
-        self.parse([
+    def mock_read(robots_url):
+        return ([
             "User-agent: *",
             "Disallow: /calls/",
         ])
 
-    monkeypatch.setattr(RobotFileParser, "read", mock_read)
+    monkeypatch.setattr(agency_scraper_base, "fetch_robots_lines", mock_read)
     allowed = is_scraping_allowed("https://mock-agency.gov/calls/proposals")
     assert allowed is False
 
@@ -33,14 +31,14 @@ def test_is_scraping_allowed_disallows_path(monkeypatch):
 def test_is_scraping_allowed_allows_permitted_path(monkeypatch):
     reset_robots_cache()
 
-    def mock_read(self):
-        self.parse([
+    def mock_read(robots_url):
+        return ([
             "User-agent: *",
             "Disallow: /private/",
             "Allow: /calls/",
         ])
 
-    monkeypatch.setattr(RobotFileParser, "read", mock_read)
+    monkeypatch.setattr(agency_scraper_base, "fetch_robots_lines", mock_read)
     allowed = is_scraping_allowed("https://mock-agency.gov/calls/proposals")
     assert allowed is True
 
@@ -48,10 +46,10 @@ def test_is_scraping_allowed_allows_permitted_path(monkeypatch):
 def test_is_scraping_allowed_fails_open_on_network_error(monkeypatch):
     reset_robots_cache()
 
-    def mock_read_error(self):
-        raise urllib.error.URLError("DNS resolution failure / Sandbox network blocked")
+    def mock_read_error(robots_url):
+        return None  # fetch_robots_lines' result when robots.txt can't be reached
 
-    monkeypatch.setattr(RobotFileParser, "read", mock_read_error)
+    monkeypatch.setattr(agency_scraper_base, "fetch_robots_lines", mock_read_error)
     allowed = is_scraping_allowed("https://unreachable-site.org/calls")
     # Fail-open compliance: unresolvable or 404 robots.txt permits crawling
     assert allowed is True
@@ -60,13 +58,13 @@ def test_is_scraping_allowed_fails_open_on_network_error(monkeypatch):
 def test_agency_adapter_check_robots_allowed(monkeypatch):
     reset_robots_cache()
 
-    def mock_read(self):
-        self.parse([
+    def mock_read(robots_url):
+        return ([
             "User-agent: *",
             "Disallow: /other/",
         ])
 
-    monkeypatch.setattr(RobotFileParser, "read", mock_read)
+    monkeypatch.setattr(agency_scraper_base, "fetch_robots_lines", mock_read)
     adapter = DummyAdapter()
     assert adapter.check_robots_allowed() is True
 
@@ -110,8 +108,8 @@ def test_wildcard_allow_and_disallow_rules_enforced(monkeypatch):
     """Verifies that a wildcard User-agent: * block containing both Allow and Disallow enforces both correctly."""
     reset_robots_cache()
 
-    def mock_read(self):
-        self.parse([
+    def mock_read(robots_url):
+        return ([
             "User-agent: *",
             "Allow: /rss/",
             "Allow: /public/call",
@@ -119,7 +117,7 @@ def test_wildcard_allow_and_disallow_rules_enforced(monkeypatch):
             "Disallow: /funding/opps",
         ])
 
-    monkeypatch.setattr(RobotFileParser, "read", mock_read)
+    monkeypatch.setattr(agency_scraper_base, "fetch_robots_lines", mock_read)
     assert is_scraping_allowed("https://mock-agency.gov/rss/feed.xml") is True
     assert is_scraping_allowed("https://mock-agency.gov/public/call") is True
     assert is_scraping_allowed("https://mock-agency.gov/admin/console") is False
@@ -131,22 +129,22 @@ def test_empty_robots_and_dbt_style_allow_scraping(monkeypatch):
     # Case A: DBT-style User-agent: * with empty Disallow:
     reset_robots_cache()
 
-    def mock_read_dbt(self):
-        self.parse([
+    def mock_read_dbt(robots_url):
+        return ([
             "User-agent: *",
             "Disallow:",
         ])
 
-    monkeypatch.setattr(RobotFileParser, "read", mock_read_dbt)
+    monkeypatch.setattr(agency_scraper_base, "fetch_robots_lines", mock_read_dbt)
     assert is_scraping_allowed("https://dbt.gov.in/data-view?name=call-for-proposals") is True
 
     # Case B: Genuinely empty robots.txt (0 rules)
     reset_robots_cache()
 
-    def mock_read_empty(self):
-        self.parse([])
+    def mock_read_empty(robots_url):
+        return ([])
 
-    monkeypatch.setattr(RobotFileParser, "read", mock_read_empty)
+    monkeypatch.setattr(agency_scraper_base, "fetch_robots_lines", mock_read_empty)
     assert is_scraping_allowed("https://empty-robots-agency.gov/calls") is True
 
 

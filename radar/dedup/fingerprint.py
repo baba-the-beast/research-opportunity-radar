@@ -1,6 +1,7 @@
 """Multi-stage fingerprint computation and matching module."""
 import hashlib
 import re
+from urllib.parse import parse_qsl, urlsplit
 
 from rapidfuzz import fuzz
 
@@ -9,6 +10,31 @@ from radar.models import Opportunity
 
 def normalize(value: str | None) -> str:
     return re.sub(r"\s+", " ", (value or "").strip().lower())
+
+
+_DOI_PREFIX = re.compile(r"^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)", re.I)
+_TRACKING_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "homepage", "ref"}
+
+
+def normalize_doi(doi: str | None) -> str | None:
+    """'https://doi.org/10.1/ABC', 'doi:10.1/abc' and '10.1/abc' are the same DOI."""
+    if not doi:
+        return None
+    cleaned = _DOI_PREFIX.sub("", doi.strip()).strip().lower()
+    return cleaned or None
+
+
+def normalize_url(url: str | None) -> str:
+    """Canonical form for URL comparison: https, no 'www.', no trailing slash, fragment or tracking params."""
+    if not url:
+        return ""
+    parts = urlsplit(url.strip())
+    host = parts.netloc.lower().removeprefix("www.")
+    path = parts.path.rstrip("/")
+    query = "&".join(sorted(
+        f"{k}={v}" for k, v in parse_qsl(parts.query, keep_blank_values=True) if k.lower() not in _TRACKING_PARAMS
+    ))
+    return f"{host}{path}" + (f"?{query}" if query else "")
 
 def is_award_record(opp: Opportunity) -> bool:
     """Checks if an opportunity represents historical awarded grant intelligence rather than an open call."""
@@ -40,9 +66,9 @@ def find_existing_match(candidate: Opportunity, existing: list[Opportunity]) -> 
     Crucial Guard: Never collapses historical award intelligence records (e.g. NSF Awards API)
     with active open application solicitations (e.g. Grants.gov), even if program titles match.
     """
-    cand_doi = normalize(candidate.doi)
+    cand_doi = normalize_doi(candidate.doi)
     cand_ext = normalize(candidate.external_id)
-    cand_url = normalize(candidate.primary_source_url)
+    cand_url = normalize_url(candidate.primary_source_url)
     cand_title = normalize(candidate.title)
     cand_agency = normalize(candidate.agency_or_publisher)
     cand_is_award = is_award_record(candidate)
@@ -56,7 +82,7 @@ def find_existing_match(candidate: Opportunity, existing: list[Opportunity]) -> 
     # Stage 1: Exact DOI
     if cand_doi:
         for item in compatible_existing:
-            if item.doi and normalize(item.doi) == cand_doi:
+            if item.doi and normalize_doi(item.doi) == cand_doi:
                 return item
 
     # Stage 2: External ID + Agency
@@ -68,7 +94,7 @@ def find_existing_match(candidate: Opportunity, existing: list[Opportunity]) -> 
     # Stage 3: Normalized URL
     if cand_url:
         for item in compatible_existing:
-            if item.primary_source_url and normalize(item.primary_source_url) == cand_url:
+            if item.primary_source_url and normalize_url(item.primary_source_url) == cand_url:
                 return item
 
     # Stage 4: Exact normalized title + agency/publisher/source

@@ -66,7 +66,8 @@ def search_papers(query: str, limit: int = 25) -> list[dict[str, Any]]:
             timeout=15
         )
         if res.status_code == 429:
-            retry_after = int(res.headers.get("Retry-After", 120))
+            header = res.headers.get("Retry-After", "")
+            retry_after = int(header) if header.isdigit() else 120  # may also be an HTTP date
             trip_circuit(retry_after)
             logger.warning(f"Semantic Scholar rate-limited (429). Circuit open for {retry_after}s.")
             return []

@@ -1,11 +1,19 @@
 """Unit tests for ICMR and DBT Indian funding agency adapters."""
 import json
+from datetime import date
 
+import pytest
 import responses
 
 from radar.sources.agencies.dbt_adapter import DBTAdapter
 from radar.sources.agencies.icmr_adapter import ICMRAdapter
 from radar.tools.funding_deadline_scan import AGENCY_REGISTRY, funding_deadline_scan
+
+
+@pytest.fixture(autouse=True)
+def frozen_today(monkeypatch):
+    """The mock calls close in late 2026; keep them open whatever day the suite runs."""
+    monkeypatch.setattr("radar.deadlines.deadline_engine.today_ist", lambda: date(2026, 9, 29))
 
 ICMR_MOCK_HTML = """
 <html>
@@ -161,6 +169,7 @@ def test_funding_deadline_scan_integration():
 def test_funding_scan_drops_closed_calls_and_result_notices(monkeypatch):
     class StubAdapter:
         agency_name = "STUB"
+        last_error = None
 
         def fetch_open_calls(self):
             return [

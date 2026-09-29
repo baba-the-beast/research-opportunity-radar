@@ -26,7 +26,8 @@ BREVO_RECIPIENT_EMAIL = os.getenv("BREVO_RECIPIENT_EMAIL", "")
 # Tunables
 MIN_RELEVANCE_BAND = os.getenv("MIN_RELEVANCE_BAND", "watch")
 DEADLINE_ALERT_WINDOW_DAYS = int(os.getenv("DEADLINE_ALERT_WINDOW_DAYS", "30"))
-AGENCY_LIST = ["Grants.gov", "DST-SERB", "ICMR", "DBT"]
+# Indian agencies by default; US sources (Grants.gov) are opt-in per user (see user_preferences)
+AGENCY_LIST = ["ANRF", "DST", "DBT", "ICMR"]
 
 
 class ConfigurationError(Exception):

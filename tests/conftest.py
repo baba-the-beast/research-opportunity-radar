@@ -1,8 +1,9 @@
+import socket
 import urllib.parse
-from urllib.robotparser import RobotFileParser
 
 import pytest
 
+from radar.sources import agency_scraper_base
 from radar.sources.agency_scraper_base import reset_robots_cache
 
 MOCK_ROBOTS_BY_HOST = {
@@ -136,25 +137,37 @@ def no_real_alert_delivery(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_outbound_network(monkeypatch, request):
+    """Tests must not depend on live agency sites: refuse outbound TCP connections.
+    HTTP mocked with `responses` never opens a socket, so it keeps working. Opt out with
+    @pytest.mark.live_network."""
+    if request.node.get_closest_marker("live_network"):
+        return
+    real_connect = socket.socket.connect
+
+    def guarded_connect(sock, address):
+        host = address[0] if isinstance(address, tuple) else address
+        if host in ("127.0.0.1", "::1", "localhost"):
+            return real_connect(sock, address)
+        raise ConnectionRefusedError(f"network access blocked in tests: {address}")
+
+    monkeypatch.setattr(socket.socket, "connect", guarded_connect)
+
+
+@pytest.fixture(autouse=True)
 def hermetic_robots_mock(monkeypatch):
     """
     Enforces hermetic tests by preventing unmocked live network requests to /robots.txt.
-    Intercepts urllib.robotparser.RobotFileParser.read to parse known mock rules in-memory.
+    Replaces the robots.txt fetch with known mock rules in-memory.
     """
     reset_robots_cache()
 
-    def mocked_read(self):
-        url = getattr(self, "url", "")
-        if url:
-            parsed = urllib.parse.urlparse(url)
-            base = f"{parsed.scheme}://{parsed.netloc}"
-            if base in MOCK_ROBOTS_BY_HOST:
-                self.parse(MOCK_ROBOTS_BY_HOST[base])
-                return
+    def mocked_fetch(robots_url):
+        parsed = urllib.parse.urlparse(robots_url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        # Default: permissive rules, without network access
+        return MOCK_ROBOTS_BY_HOST.get(base, ["User-agent: *", "Disallow:"])
 
-        # Default fail-open in-memory parsing without network access
-        self.parse(["User-agent: *", "Disallow:"])
-
-    monkeypatch.setattr(RobotFileParser, "read", mocked_read)
+    monkeypatch.setattr(agency_scraper_base, "fetch_robots_lines", mocked_fetch)
     yield
     reset_robots_cache()

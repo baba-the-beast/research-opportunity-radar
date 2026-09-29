@@ -16,8 +16,8 @@ from radar.memory import faculty_profile_store
 from radar.models import FacultyProfile, Opportunity, ProfileTerm, RunSummary
 from radar.notify import deadline_alert, digest_builder, email_brevo, recipients, telegram  # noqa: F401
 from radar.scoring import component_scorer
+from radar.sources import pdf_details
 from radar.tools.funding_deadline_scan import funding_deadline_scan
-from radar.tools.journal_watch import journal_watch
 
 logger = get_logger(__name__)
 
@@ -158,42 +158,25 @@ def run_pipeline(
         found: list[Opportunity] = []
         failed_sources: list[dict[str, str]] = []
 
-        # 1. OpenAlex, Crossref & Semantic Scholar via journal_watch (parallelized)
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        # Published papers (OpenAlex / Crossref / Semantic Scholar) are not opportunities and are no
+        # longer scanned here: they flooded the catalog with thousands of already-published works.
 
-        def _scan_keyword(kw: str):
-            src_label = SCHOLARLY_SEARCH_SOURCE
-            sr_id = db.start_source_run(run_id, src_label)
-            t0 = datetime.now()
-            try:
-                items = journal_watch(kw)
-                lat = int((datetime.now() - t0).total_seconds() * 1000)
-                db.finish_source_run(sr_id, status="success", request_count=1, inserted_count=len(items), latency_ms=lat)
-                logger.info(f"Retrieved {len(items)} works for one scan keyword", run_id=run_id, source_name=src_label)
-                return items, None
-            except Exception as e:
-                lat = int((datetime.now() - t0).total_seconds() * 1000)
-                db.finish_source_run(sr_id, status="failed", error_count=1, error_category="api_error", latency_ms=lat)
-                logger.error(f"journal_watch error: {e}", run_id=run_id, source_name=src_label, error_category="api_error")
-                return [], {"source": src_label, "error": str(e)}
-
-        max_workers = min(3, len(scan_keywords) or 1)
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_kw = {executor.submit(_scan_keyword, kw): kw for kw in scan_keywords}
-            for future in as_completed(future_to_kw):
-                items, err = future.result()
-                found.extend(items)
-                if err:
-                    failed_sources.append(err)
-
-        # 2. Funding deadline scan
+        # 1. Funding calls from agency listings
         sr_id = db.start_source_run(run_id, "funding_deadline_scan")
         t0 = datetime.now()
         try:
-            funding_items = funding_deadline_scan(config.AGENCY_LIST)
+            agency_errors: list[dict[str, str]] = []
+            funding_items = funding_deadline_scan(config.AGENCY_LIST, errors=agency_errors)
             found.extend(funding_items)
             lat = int((datetime.now() - t0).total_seconds() * 1000)
-            db.finish_source_run(sr_id, status="success", request_count=1, inserted_count=len(funding_items), latency_ms=lat)
+            failed_sources.extend(agency_errors)
+            for err in agency_errors:
+                logger.error(f"Agency source failed: {err['error']}", run_id=run_id, source_name=err["source"], error_category="source_error")
+                summary.errors.append(f"{err['source']} unavailable: {err['error']}")
+            db.finish_source_run(
+                sr_id, status="partial_failure" if agency_errors else "success", request_count=len(config.AGENCY_LIST),
+                inserted_count=len(funding_items), error_count=len(agency_errors), latency_ms=lat,
+            )
             logger.info(f"Retrieved {len(funding_items)} funding opportunities", run_id=run_id, source_name="funding_deadline_scan")
         except Exception as e:
             lat = int((datetime.now() - t0).total_seconds() * 1000)
@@ -201,7 +184,7 @@ def run_pipeline(
             failed_sources.append({"source": "Grants.gov / Agency Scans", "error": str(e)})
             logger.error(f"funding_deadline_scan error: {e}", run_id=run_id, source_name="funding_deadline_scan", error_category="api_error")
 
-        # 3. Autonomous Discovery Agent (unindexed calls, arXiv preprints, special issues)
+        # 2. Discovery agent: conference / journal calls for papers (and NSF if US sources are enabled)
         sr_id = db.start_source_run(run_id, "autonomous_discovery_agent")
         t0 = datetime.now()
         try:
@@ -209,12 +192,19 @@ def run_pipeline(
             discovered = discovery_agent.run_discovery_cycle(discovery_profile, discovery_terms)
             found.extend(discovered)
             lat = int((datetime.now() - t0).total_seconds() * 1000)
-            db.finish_source_run(sr_id, status="success", request_count=1, inserted_count=len(discovered), latency_ms=lat)
+            # One entry per failing source, not per failed keyword request
+            discovery_errors = list({e["source"]: e for e in discovery_agent.errors}.values())
+            failed_sources.extend(discovery_errors)
+            summary.errors.extend(f"{e['source']} unavailable: {e['error']}" for e in discovery_errors)
+            db.finish_source_run(
+                sr_id, status="partial_failure" if discovery_errors else "success", request_count=1,
+                inserted_count=len(discovered), error_count=len(discovery_errors), latency_ms=lat,
+            )
             logger.info(f"Discovered {len(discovered)} unindexed/special opportunities", run_id=run_id, source_name="autonomous_discovery_agent")
         except Exception as e:
             lat = int((datetime.now() - t0).total_seconds() * 1000)
             db.finish_source_run(sr_id, status="failed", error_count=1, error_category="api_error", latency_ms=lat)
-            failed_sources.append({"source": "Autonomous Discovery (NSF/WikiCFP/ArXiv)", "error": str(e)})
+            failed_sources.append({"source": "Calls for papers (WikiCFP)", "error": str(e)})
             logger.error(f"discovery_agent error: {e}", run_id=run_id, source_name="autonomous_discovery_agent", error_category="api_error")
 
         summary.opportunities_found = len(found)
@@ -238,6 +228,15 @@ def run_pipeline(
                 cand.is_new = True
                 to_score.append(cand)
                 existing.append(cand)
+
+        # ENRICH new funding calls from their call PDFs (scope, eligibility, budget, stated deadline)
+        try:
+            pdfs_read = pdf_details.enrich_with_pdf_details(to_score)
+            logger.info(f"Read {pdfs_read} call documents", run_id=run_id, source_name="pdf_details")
+        except Exception as e:  # enrichment is best-effort; never block scoring
+            logger.error(f"Call document enrichment failed: {e}", run_id=run_id, source_name="pdf_details")
+        # A PDF may reveal that a call without a listed date has already closed
+        to_score = [o for o in to_score if o.status != "closed"]
 
         # SCORE + COMPLIANCE (per faculty profile)
         if telemetry_callback:

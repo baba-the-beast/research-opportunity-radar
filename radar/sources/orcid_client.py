@@ -171,7 +171,7 @@ def fetch_orcid_profile(orcid_id: str) -> dict[str, Any]:
     url = f"https://pub.orcid.org/v3.0/{norm_id}/record"
     headers = {
         "Accept": "application/json",
-        "User-Agent": "ResearchOpportunityRadar/1.0 (+https://github.com/org/repo; contact: faculty@institution.edu)"
+        "User-Agent": "ResearchOpportunityRadar/1.0 (+https://github.com/baba-the-beast/research-opportunity-radar)"
     }
     scraper_limiter.wait()
     res = requests.get(url, headers=headers, timeout=12)
