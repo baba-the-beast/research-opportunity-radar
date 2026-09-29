@@ -16,12 +16,12 @@ def test_validate_required_config_missing_raises(monkeypatch):
     err = str(exc_info.value)
     assert 'SUPABASE_URL' in err
     assert 'SUPABASE_SERVICE_ROLE_KEY' in err
-    assert 'OPENALEX_API_KEY' in err
+    assert 'OPENALEX_API_KEY' not in err  # optional: OpenAlex works anonymously
     assert 'CRITICAL CONFIGURATION ERROR' in err
 
 def test_validate_required_config_with_allow_in_memory(monkeypatch):
     monkeypatch.setenv('ALLOW_IN_MEMORY_DB', '1')
-    monkeypatch.setenv('OPENALEX_API_KEY', 'valid_test_key')
+    monkeypatch.delenv('OPENALEX_API_KEY', raising=False)
     monkeypatch.delenv('SUPABASE_URL', raising=False)
     monkeypatch.delenv('SUPABASE_SERVICE_ROLE_KEY', raising=False)
 

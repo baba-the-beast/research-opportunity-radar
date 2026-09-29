@@ -950,7 +950,7 @@ export default function DashboardPage() {
                   </h4>
                 </Link>
                 <p className="font-body-sm text-body-sm text-on-surface-variant">
-                  Full Proposal Submission Deadline (5:00 PM Submitter's Local Time)
+                  Full Proposal Submission Deadline (5:00 PM Submitter&apos;s Local Time)
                 </p>
                 <div className="flex items-center gap-space-sm font-data-mono-sm text-data-mono-sm text-outline pt-space-2xs">
                   <span>FUNDING: $1.2M - $3.0M</span>

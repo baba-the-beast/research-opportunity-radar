@@ -208,7 +208,7 @@ export default function DigestsPage() {
                     <div className="flex flex-col gap-space-2xs">
                       <div className="flex items-center gap-space-sm flex-wrap">
                         <span className="font-data-mono-sm sm:font-data-mono-md text-data-mono-sm sm:text-data-mono-md font-bold text-primary tracking-wider font-mono">
-                          {cycle.dates} // CYCLE {cycle.cycleNumber}
+                          {cycle.dates}{' // '}CYCLE {cycle.cycleNumber}
                         </span>
                         <span
                           className={`font-data-mono-sm text-[10px] sm:text-data-mono-sm px-space-xs py-space-2xs uppercase ${
@@ -273,7 +273,7 @@ export default function DigestsPage() {
                             <div className="flex flex-col gap-space-sm">
                               <div className="flex items-center justify-between">
                                 <span className="font-label-caps text-label-caps text-secondary uppercase tracking-widest">
-                                  Signal {sig.number} // {sig.kind}
+                                  Signal {sig.number}{' // '}{sig.kind}
                                 </span>
                                 <span
                                   className={`font-data-mono-sm text-data-mono-sm px-space-xs py-space-2xs uppercase font-bold ${sig.badgeClass}`}

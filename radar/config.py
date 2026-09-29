@@ -10,7 +10,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 ALLOW_IN_MEMORY_DB = os.getenv("ALLOW_IN_MEMORY_DB", "0").lower() in ("1", "true", "yes")
 
-# Academic Data Sources
+# Academic Data Sources (all optional: OpenAlex/Crossref work anonymously; a mailto joins the polite pool)
 OPENALEX_API_KEY = os.getenv("OPENALEX_API_KEY", "")
 CROSSREF_MAILTO = os.getenv("CROSSREF_MAILTO", "")
 SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
@@ -46,12 +46,6 @@ REQUIRED_SECRETS: list[dict[str, str]] = [
         "name": "Supabase Service Role Secret Key",
         "purpose": "Bypasses Row Level Security (RLS) for backend pipeline writes and agent state updates.",
         "source": "https://supabase.com/dashboard/project/<id>/settings/api"
-    },
-    {
-        "key": "OPENALEX_API_KEY",
-        "name": "OpenAlex API Key or Polite Pool Mailto",
-        "purpose": "Authorizes OpenAlex academic discovery queries without hitting anonymous rate limits.",
-        "source": "https://openalex.org (or supply institutional email in OPENALEX_API_KEY / CROSSREF_MAILTO)"
     }
 ]
 

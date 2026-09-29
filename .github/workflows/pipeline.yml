@@ -15,6 +15,7 @@ concurrency:
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,12 +24,17 @@ jobs:
       - name: Cache sentence-transformers model
         uses: actions/cache@v4
         with:
-          path: ~/.cache/torch/sentence_transformers
-          key: minilm-l6-v2
+          # sentence-transformers >= 3 downloads models through huggingface_hub
+          path: ~/.cache/huggingface
+          key: hf-minilm-l6-v2
       - name: Install dependencies (CPU PyTorch)
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements-dev.txt
+      - name: Unit tests (fail fast before touching the database)
+        env:
+          ALLOW_IN_MEMORY_DB: '1'
+        run: pytest -q tests/unit
       - name: Smoke import check
         run: python -c "import radar; from radar.orchestrator.pipeline import OpportunityPipeline; from radar.scoring.component_scorer import ComponentScorer; print('Smoke import OK')"
       - name: Run pipeline
