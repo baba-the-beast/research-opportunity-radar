@@ -143,3 +143,16 @@ def test_icssr_scan_marks_prose_dates_probable(monkeypatch):
     assert special_issue.deadlines[0].confidence == "probable"
     # Indo-German call from 2024 has no readable page (fetch failed) and is too old to keep
     assert not any("Indo-German" in t for t in opps)
+
+
+@pytest.mark.parametrize("url", ["javascript:alert(1)", "JAVASCRIPT:alert(1)", "data:text/html,x", "file:///etc/passwd", "", None])
+def test_non_http_links_are_never_stored(url):
+    opp, reason = scan._call_to_opportunity({"title": "Call for proposals", "url": url, "deadline": "31-12-2099"}, "DBT")
+    assert opp is None and reason == "no_link"
+
+
+def test_non_http_pdf_links_are_dropped():
+    opp, _ = scan._call_to_opportunity(
+        {"title": "Call for proposals", "url": "https://dbt.gov.in/c", "pdf_url": "javascript:alert(1)", "deadline": "31-12-2099"}, "DBT"
+    )
+    assert "pdf_url" not in opp.metadata

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { safeExternalUrl } from '@/lib/safeUrl';
 import Link from 'next/link';
 import { formatDeadline, formatIstDateTime } from '@/lib/dates';
 
@@ -131,8 +132,8 @@ export default function DigestsPage() {
                         : 'Deadline not published'}
                       {item.matched_terms.length > 0 && ` · matches ${item.matched_terms.slice(0, 3).join(', ')}`}
                     </span>
-                    {item.url && (
-                      <a href={item.url} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                    {safeExternalUrl(item.url) && (
+                      <a href={safeExternalUrl(item.url)} target="_blank" rel="noreferrer" className="text-primary hover:underline">
                         Official page
                       </a>
                     )}

@@ -14,6 +14,7 @@ from radar.sources.agencies.dst_adapter import DSTAdapter
 from radar.sources.agencies.icmr_adapter import ICMRAdapter
 from radar.sources.agencies.icssr_adapter import ICSSRAdapter
 from radar.sources.agency_scraper_base import AgencyAdapter
+from radar.sources.http import is_http_url
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +42,12 @@ def _call_to_opportunity(call: dict, agency_name: str) -> tuple[Opportunity | No
     """Build an Opportunity from an adapter's call dict. Returns (None, reason) for calls to skip."""
     title = " ".join(str(call.get("title") or "").split())
     url = call.get("url")
-    if not title or not url:
-        return None, "no_link"  # a call without a link can't be acted on, and would collide in dedup
+    if not title or not is_http_url(url):
+        # No usable http(s) link: can't be acted on, would collide in dedup, and a scraped
+        # "javascript:" href must never become a clickable link on the dashboard
+        return None, "no_link"
+    if call.get("pdf_url") and not is_http_url(call["pdf_url"]):
+        call = {**call, "pdf_url": None}
     raw_dl = call.get("deadline")
     dl_date, conf = parse_deadline(raw_dl) if raw_dl else (None, "unknown")
     if dl_date and call.get("deadline_confidence") in ("confirmed", "probable"):

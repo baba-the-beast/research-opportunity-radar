@@ -40,6 +40,15 @@ def ca_bundle() -> str:
     return path
 
 
+def is_http_url(url: str | None) -> bool:
+    """Only http(s) links are stored or followed: a scraped href such as "javascript:..." or
+    "file:..." would otherwise pass through urljoin() unchanged and end up as a clickable link."""
+    if not url:
+        return False
+    scheme = url.split(":", 1)[0].strip().lower()
+    return scheme in ("http", "https") and "://" in url
+
+
 class FetchError(Exception):
     """A source could not be fetched; the message is safe to show in run logs."""
 

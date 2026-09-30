@@ -1,6 +1,7 @@
 'use client';
 
 import { use, useEffect, useState } from 'react';
+import { safeExternalUrl } from '@/lib/safeUrl';
 import Link from 'next/link';
 import { formatIstDateTime } from '@/lib/dates';
 
@@ -168,7 +169,7 @@ export default function OpportunityDetailPage({ params }: { params: Promise<{ id
   const normalizeScore = (val: number | undefined | null): number => componentScore(val) ?? 0;
 
   const primarySrc = opp.sources && opp.sources.length > 0 ? opp.sources[0] : null;
-  const primarySourceUrl = primarySrc?.source_url || (opp.doi ? `https://doi.org/${opp.doi}` : '#');
+  const primarySourceUrl = safeExternalUrl(primarySrc?.source_url) || (opp.doi ? `https://doi.org/${encodeURIComponent(opp.doi)}` : '#');
   const primarySourceName = primarySrc?.source_name || opp.agency_or_publisher || 'Live Academic Feed';
 
   return (
@@ -664,7 +665,7 @@ export default function OpportunityDetailPage({ params }: { params: Promise<{ id
                         {src.source_name}
                       </span>
                       <a
-                        href={src.source_url}
+                        href={safeExternalUrl(src.source_url)}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-space-2xs font-data-mono-sm text-xs sm:text-data-mono-sm text-brass hover:underline uppercase font-bold"

@@ -13,7 +13,6 @@ const PUBLIC_EXACT_PATHS = new Set([
   '/api/health',
   '/api/health/live',
   '/api/health/ready',
-  '/api/health/deps',
   // Lets the config banner explain a misconfigured deployment before anyone can sign in
   '/api/config/status'
 ]);
@@ -107,7 +106,6 @@ export async function middleware(req: NextRequest) {
 
   const isPublic =
     PUBLIC_EXACT_PATHS.has(pathname) ||
-    pathname.startsWith('/api/health') ||
     // Telegram has no user session; the route authenticates it with the webhook secret header
     (pathname === '/api/telegram/webhook' && req.method === 'POST') ||
     (pathname === '/api/opportunities' && req.method === 'GET') ||

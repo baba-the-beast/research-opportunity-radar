@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { safeExternalUrl } from '@/lib/safeUrl';
 import { formatDeadline, formatIstDateTime } from '@/lib/dates';
 import { getSupabaseBrowserClient } from '@/lib/supabaseBrowserClient';
 import Link from 'next/link';
@@ -737,7 +738,7 @@ export default function DashboardPage() {
                         </span>
                         <span className="text-outline">·</span>
                         <a
-                          href={opp.primary_source_url}
+                          href={safeExternalUrl(opp.primary_source_url)}
                           target="_blank"
                           rel="noreferrer"
                           onClick={(e) => e.stopPropagation()}

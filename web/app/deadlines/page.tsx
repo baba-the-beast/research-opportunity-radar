@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { safeExternalUrl } from '@/lib/safeUrl';
 import Link from 'next/link';
 import { formatDeadline } from '@/lib/dates';
 
@@ -162,8 +163,8 @@ export default function DeadlinesPage() {
                           </Link>
                           <div className="mt-space-xs pt-space-xs flex flex-wrap items-center justify-between gap-2 text-on-surface-variant font-data-mono-sm text-data-mono-sm border-t border-surface-container/60">
                             <span>{item.agency}</span>
-                            {item.source_url && (
-                              <a href={item.source_url} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                            {safeExternalUrl(item.source_url) && (
+                              <a href={safeExternalUrl(item.source_url)} target="_blank" rel="noreferrer" className="text-primary hover:underline">
                                 Official page
                               </a>
                             )}

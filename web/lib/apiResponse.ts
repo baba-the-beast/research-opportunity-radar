@@ -51,11 +51,16 @@ export function createErrorResponse(
     })
   );
 
+  // Server-side failures (database errors, exceptions) can name tables, columns or hosts: in
+  // production callers get a reference id instead; the details are in the log line above.
+  const hideDetails = status >= 500 && process.env.NODE_ENV === 'production';
   return NextResponse.json(
     {
       error: {
         code,
-        message: sanitizeErrorMessage(message),
+        message: hideDetails
+          ? `Something went wrong on our side. Please try again; if it keeps happening, quote reference ${requestId}.`
+          : sanitizeErrorMessage(message),
         requestId
       }
     },

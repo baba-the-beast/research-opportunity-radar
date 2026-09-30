@@ -34,10 +34,12 @@ export async function GET() {
     const latencyMs = Date.now() - t0;
 
     if (error) {
+      // Public probe: details go to the server log, not the response
+      console.error(`[health/ready] database ping failed: ${error.message}`);
       return NextResponse.json(
         {
           status: 'not_ready',
-          reason: `Database ping failed: ${error.message}`,
+          reason: 'Database ping failed',
           timestamp: new Date().toISOString()
         },
         { status: 503 }
@@ -51,10 +53,11 @@ export async function GET() {
       timestamp: new Date().toISOString()
     });
   } catch (err: any) {
+    console.error(`[health/ready] readiness check failed: ${err.message}`);
     return NextResponse.json(
       {
         status: 'not_ready',
-        reason: `Readiness check exception: ${err.message}`,
+        reason: 'Readiness check failed',
         timestamp: new Date().toISOString()
       },
       { status: 503 }

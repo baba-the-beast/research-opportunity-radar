@@ -1,12 +1,24 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { authenticateRequest, authorizeRole } from '@/lib/auth';
 import { getSupabaseAdminClient, isSupabaseConfigured } from '@/lib/supabaseServerClient';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * Dependency health probe: Reports connectivity and health status across integrated external services.
+ * Operators only: each call pings the database and makes outbound requests, and the answer includes
+ * error details, so it must not be callable by anyone on the internet.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await authenticateRequest(req);
+  if (!auth.authenticated) {
+    return auth.errorResponse!;
+  }
+  const roleCheck = authorizeRole(auth.user, ['operator', 'admin']);
+  if (!roleCheck.authorized) {
+    return roleCheck.errorResponse!;
+  }
+
   const results: Record<string, any> = {
     timestamp: new Date().toISOString()
   };

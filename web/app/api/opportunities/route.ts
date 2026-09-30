@@ -3,6 +3,7 @@ import { authenticateRequest } from '@/lib/auth';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { getOwnProfileId, getRequestSupabase, UUID_PATTERN } from '@/lib/routeContext';
 import { daysUntil, istDate } from '@/lib/dates';
+import { sanitizeSearchTerm } from '@/lib/ai/tools';
 
 export const dynamic = 'force-dynamic';
 
@@ -104,9 +105,11 @@ export async function GET(req: NextRequest) {
       query = query.neq('status', 'closed');
     }
     if (search) {
-      // PostgREST ilike pattern; strip characters that have meaning in the filter syntax
-      const safe = search.replace(/[%_,()*\\]/g, ' ');
-      query = query.or(`title.ilike.%${safe}%,summary.ilike.%${safe}%,agency_or_publisher.ilike.%${safe}%`);
+      // Same sanitizer as the Copilot's search tool: strips PostgREST filter syntax (, ( ) . : * % " \)
+      const safe = sanitizeSearchTerm(search);
+      if (safe) {
+        query = query.or(`title.ilike.%${safe}%,summary.ilike.%${safe}%,agency_or_publisher.ilike.%${safe}%`);
+      }
     }
 
     if (stateJoin === 'inner') {

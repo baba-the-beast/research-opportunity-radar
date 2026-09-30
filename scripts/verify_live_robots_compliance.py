@@ -102,14 +102,14 @@ def fetch_robots_with_retry(url: str, max_retries: int = 3, timeout: float = 20.
             cl_int = int(cl_hdr) if cl_hdr and cl_hdr.isdigit() else None
             return resp.status_code, resp.text, resp.content, "", cl_int
         except requests.exceptions.SSLError:
-            # Indian government portals often use NIC intermediate CAs
+            # Indian government portals often omit intermediate CAs: retry with the bundled ones
+            # (radar/sources/certs) instead of turning verification off
             try:
-                import urllib3
-                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-                resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True, verify=False)
+                from radar.sources.http import ca_bundle
+                resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True, verify=ca_bundle())
                 cl_hdr = resp.headers.get("Content-Length")
                 cl_int = int(cl_hdr) if cl_hdr and cl_hdr.isdigit() else None
-                return resp.status_code, resp.text, resp.content, "(SSL verify bypassed for NIC CA)", cl_int
+                return resp.status_code, resp.text, resp.content, "(verified with bundled intermediate CAs)", cl_int
             except Exception as e:
                 last_err = f"SSLError fallback failed: {e}"
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:

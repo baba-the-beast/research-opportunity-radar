@@ -20,6 +20,7 @@ from radar import config
 from radar.deadlines.deadline_engine import lifecycle_status, parse_deadline
 from radar.models import FacultyProfile, Opportunity, OpportunityDeadline, OpportunitySource, ProfileTerm
 from radar.sources.agency_scraper_base import HONEST_USER_AGENT, is_scraping_allowed
+from radar.sources.http import is_http_url
 from radar.sources.rate_limiter import scraper_limiter
 
 logger = logging.getLogger(__name__)
@@ -124,7 +125,7 @@ class DiscoveryAgent:
             raw_title = (title_elem.text or "").strip() if title_elem is not None else ""
             raw_link = (link_elem.text or "").strip() if link_elem is not None else ""
             raw_desc = (desc_elem.text or "").strip() if desc_elem is not None else ""
-            if not raw_title or not raw_link:
+            if not raw_title or not is_http_url(raw_link):
                 continue
             combined_text = f"{raw_title} {raw_desc}".lower()
             if keywords and not any(kw in combined_text for kw in keywords):
