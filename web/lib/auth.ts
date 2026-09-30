@@ -55,21 +55,26 @@ export function extractAuthToken(req: Request | NextRequest): { token?: string; 
       })
     );
 
-    // 1. Direct or chunked Supabase cookie lookup
+    // 1. Direct or chunked Supabase cookie lookup. Match the session cookie exactly
+    // (sb-<ref>-auth-token or its .0/.1 chunks): sign-up also leaves a
+    // sb-<ref>-auth-token-code-verifier cookie, which is not a session and must not be picked.
     let cookieVal = rawCookies['sb-access-token'];
     if (!cookieVal) {
-      const baseKey = Object.keys(rawCookies).find((k) => k.startsWith('sb-') && k.includes('-auth-token'));
-      if (baseKey) {
-        if (baseKey.endsWith('.0')) {
+      const sessionCookie = /^(sb-[^.]+-auth-token)(\.0)?$/;
+      const match = Object.keys(rawCookies)
+        .map((k) => sessionCookie.exec(k))
+        .find((m): m is RegExpExecArray => m !== null);
+      if (match) {
+        const root = match[1];
+        if (rawCookies[root]) {
+          cookieVal = rawCookies[root];
+        } else {
           // Reassemble chunked cookies (.0, .1, etc.)
-          const root = baseKey.slice(0, -2);
           const chunks: string[] = [];
           for (let i = 0; rawCookies[`${root}.${i}`]; i++) {
             chunks.push(rawCookies[`${root}.${i}`]);
           }
           cookieVal = chunks.join('');
-        } else {
-          cookieVal = rawCookies[baseKey];
         }
       }
     }

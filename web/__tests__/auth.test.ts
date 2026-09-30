@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { authenticateRequest, timingSafeEqual } from '../lib/auth';
+import { authenticateRequest, extractAuthToken, timingSafeEqual } from '../lib/auth';
 import { getClientIp } from '../lib/rateLimit';
 import { getActivePipelineLock } from '../lib/pipelineLock';
 
@@ -82,6 +82,30 @@ describe('Auth & IP Resolution System', () => {
       const auth = await authenticateRequest(req);
       expect(auth.authenticated).toBe(true);
       expect(auth.user?.role).toBe('operator');
+    });
+  });
+
+  describe('extractAuthToken', () => {
+    const session = (token: string) =>
+      'base64-' + Buffer.from(JSON.stringify({ access_token: token })).toString('base64');
+
+    it('ignores the PKCE code-verifier cookie that precedes the session cookie', () => {
+      const req = new Request('http://localhost/api/profile', {
+        headers: {
+          cookie: `sb-abc-auth-token-code-verifier=verifier123; sb-abc-auth-token=${session('jwt-1')}`
+        }
+      });
+      expect(extractAuthToken(req).token).toBe('jwt-1');
+    });
+
+    it('reassembles a chunked session cookie', () => {
+      const value = session('jwt-chunked');
+      const req = new Request('http://localhost/api/profile', {
+        headers: {
+          cookie: `sb-abc-auth-token-code-verifier=v; sb-abc-auth-token.0=${value.slice(0, 20)}; sb-abc-auth-token.1=${value.slice(20)}`
+        }
+      });
+      expect(extractAuthToken(req).token).toBe('jwt-chunked');
     });
   });
 
