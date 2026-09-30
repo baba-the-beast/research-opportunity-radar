@@ -131,7 +131,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const parsed = updateProfileSchema.safeParse(body);
     if (!parsed.success) {
-      return createErrorResponse('VALIDATION_ERROR', 'Invalid profile payload', 400, req, parsed.error.issues);
+      // Name the offending fields so the profile page can tell the user what to fix
+      const problems = parsed.error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`).join('; ');
+      return createErrorResponse('VALIDATION_ERROR', `Invalid profile payload (${problems})`, 400, req);
     }
     const data = parsed.data;
 
