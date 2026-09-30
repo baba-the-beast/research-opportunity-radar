@@ -11,7 +11,8 @@ const statusSchema = z.object({
   negative_terms: z.array(z.string().trim().min(1).max(100)).max(25).optional()
 });
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id: rawId } = await params; // Next 15: params is async
   try {
     // 1. Authentication
     const auth = await authenticateRequest(req);
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       );
     }
 
-    const id = params?.id?.trim();
+    const id = rawId?.trim();
     if (!id || !UUID_PATTERN.test(id)) {
       return createErrorResponse('INVALID_IDENTIFIER', 'Invalid opportunity identifier format', 400, req);
     }

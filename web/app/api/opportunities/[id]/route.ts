@@ -3,14 +3,15 @@ import { getOwnProfileId, getRequestSupabase, UUID_PATTERN } from '@/lib/routeCo
 import { authenticateRequest } from '@/lib/auth';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id: rawId } = await params; // Next 15: params is async
   try {
     const auth = await authenticateRequest(req);
     if (!auth.authenticated) {
       return auth.errorResponse!;
     }
 
-    const id = params?.id?.trim();
+    const id = rawId?.trim();
     if (!id || !UUID_PATTERN.test(id)) {
       return createErrorResponse('INVALID_IDENTIFIER', 'Invalid opportunity identifier format', 400, req);
     }

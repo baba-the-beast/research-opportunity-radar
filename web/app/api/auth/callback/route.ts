@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   const next = safeRedirectPath(searchParams.get('next'));
 
   if (code) {
-    const supabase = getSupabaseServerClient();
+    const supabase = await getSupabaseServerClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
       return NextResponse.redirect(new URL(next, origin));

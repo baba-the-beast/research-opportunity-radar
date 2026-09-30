@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { formatIstDateTime } from '@/lib/dates';
 
@@ -62,7 +62,8 @@ interface OpportunityDetail {
   metadata?: Record<string, any>;
 }
 
-export default function OpportunityDetailPage({ params }: { params: { id: string } }) {
+export default function OpportunityDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params); // Next 15: params is a Promise
   const [opp, setOpp] = useState<OpportunityDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [isPursuing, setIsPursuing] = useState(false);
@@ -71,7 +72,7 @@ export default function OpportunityDetailPage({ params }: { params: { id: string
   const [scoreBreakdownOpen, setScoreBreakdownOpen] = useState(true);
 
   useEffect(() => {
-    fetch(`/api/opportunities/${params.id}`)
+    fetch(`/api/opportunities/${id}`)
       .then((res) => res.json())
       .then((data) => {
         const oppData = data?.data || data;
@@ -88,14 +89,14 @@ export default function OpportunityDetailPage({ params }: { params: { id: string
         setOpp(null);
         setLoading(false);
       });
-  }, [params.id]);
+  }, [id]);
 
   const togglePursue = async () => {
     const nextState = !isPursuing;
     setIsPursuing(nextState);
     if (nextState) setIsDismissed(false);
     try {
-      await fetch(`/api/opportunities/${params.id}/status`, {
+      await fetch(`/api/opportunities/${id}/status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: nextState ? 'pursuing' : 'new' })
@@ -110,7 +111,7 @@ export default function OpportunityDetailPage({ params }: { params: { id: string
     setIsDismissed(nextState);
     if (nextState) setIsPursuing(false);
     try {
-      await fetch(`/api/opportunities/${params.id}/status`, {
+      await fetch(`/api/opportunities/${id}/status`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: nextState ? 'dismissed' : 'new' })
@@ -126,7 +127,7 @@ export default function OpportunityDetailPage({ params }: { params: { id: string
         <span className="material-symbols-outlined text-3xl text-primary animate-spin mb-3 block">
           biotech
         </span>
-        RETRIEVING OBSERVATORY TELEMETRY RECORD FOR #{params.id.toUpperCase()}...
+        RETRIEVING OBSERVATORY TELEMETRY RECORD FOR #{id.toUpperCase()}...
       </div>
     );
   }
@@ -141,7 +142,7 @@ export default function OpportunityDetailPage({ params }: { params: { id: string
           ERR 404: SOLICITATION RECORD NOT FOUND
         </div>
         <p className="text-outline text-xs mb-6 leading-relaxed">
-          No verified telemetry dossier matches identifier <code className="text-primary font-mono">{params.id}</code> in the Observatory index.
+          No verified telemetry dossier matches identifier <code className="text-primary font-mono">{id}</code> in the Observatory index.
         </p>
         <Link
           href="/"
