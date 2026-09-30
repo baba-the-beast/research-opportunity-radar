@@ -45,6 +45,18 @@ const nextConfig = {
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },
+  // Browser auth calls go to /supabase/auth/v1/* on this origin and are forwarded server-side, so
+  // sign-in works on networks and browsers that cannot reach *.supabase.co directly
+  // (see lib/supabaseBrowserClient.ts). Only the auth API is forwarded.
+  async rewrites() {
+    if (!supabaseUrl) return [];
+    return [
+      {
+        source: '/supabase/auth/v1/:path*',
+        destination: `${supabaseUrl.replace(/\/+$/, '')}/auth/v1/:path*`,
+      },
+    ];
+  },
 };
 
 module.exports = nextConfig;

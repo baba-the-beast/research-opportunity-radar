@@ -27,6 +27,16 @@ export function getSupabaseBrowserClient(): SupabaseClient {
     return client;
   }
 
-  client = createBrowserClient(supabaseUrl, supabaseAnonKey);
+  // Auth requests go through this site's /supabase proxy (next.config.js rewrites), so sign-in
+  // works where the browser cannot reach *.supabase.co. The cookie keeps the name derived from the
+  // real project URL, which is the name the server-side clients and middleware read.
+  client = createBrowserClient(`${window.location.origin}/supabase`, supabaseAnonKey, {
+    cookieOptions: { name: authCookieName(supabaseUrl) }
+  });
   return client;
+}
+
+/** Supabase's default auth cookie name for a project URL: sb-<project-ref>-auth-token. */
+export function authCookieName(supabaseUrl: string): string {
+  return `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token`;
 }

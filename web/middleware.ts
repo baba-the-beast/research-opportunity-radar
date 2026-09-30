@@ -33,10 +33,13 @@ export async function middleware(req: NextRequest) {
 
   // 1. Skip internal paths and favicon. Static files are already excluded by `config.matcher`;
   // do not skip on '.' in the path, or dynamic routes like /api/opportunities/a.b bypass auth.
+  // /supabase/auth/v1/* is forwarded to Supabase Auth (next.config.js), which does its own auth:
+  // signing up and in must work before the visitor has a session.
   if (
     pathname.startsWith('/_next') ||
     pathname.startsWith('/static') ||
-    pathname.startsWith('/favicon')
+    pathname.startsWith('/favicon') ||
+    pathname.startsWith('/supabase/auth/v1/')
   ) {
     return NextResponse.next();
   }
