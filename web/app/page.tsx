@@ -71,9 +71,6 @@ const INITIAL_LOGS: AgentTelemetryLog[] = [
   }
 ];
 
-const RESCAN_POLL_MS = 15_000;
-const RESCAN_MAX_WAIT_MS = 30 * 60_000;
-
 /** Deadline badge text and tone from the API's IST-based days_left. */
 function deadlineBadge(opp: OpportunitySummary): { text: string; tone: 'urgent' | 'normal' | 'muted' } {
   if (opp.is_expired && opp.next_deadline) {
@@ -192,39 +189,54 @@ export default function DashboardPage() {
   const log = (level: string, message: string, phase = 'SCAN') =>
     setLogs((prev) => [...prev, { timestamp: new Date().toISOString(), agent: 'Radar', phase, level, stepIndex: 1, message }]);
 
-  /** Start a scan on GitHub Actions (operators only) and poll run_log until it finishes. */
+  /**
+   * Run a scan now (operators only): the server spawns the Python pipeline and streams its
+   * progress as server-sent events, which are shown live in the console below. Alerts are
+   * suppressed so an on-demand scan does not send everyone an extra digest.
+   */
   const triggerRescan = async () => {
     if (isStreaming) return;
     setRescanTriggered(true);
     setIsStreaming(true);
     setConsoleOpen(true);
-    setActivePhase('DISPATCH');
-    const previousRunId = lastRun?.id;
+    setActiveStep(1);
+    setActivePhase('INIT');
+    let finished = false;
     try {
-      const res = await fetch('/api/pipeline/trigger', { method: 'POST' });
-      const body = await res.json().catch(() => null);
-      if (!res.ok) {
+      const res = await fetch('/api/pipeline/stream?run=true&suppress_alerts=true');
+      if (!res.ok || !res.body) {
+        const body = await res.json().catch(() => null);
         log('ERROR', body?.error?.message || `Could not start the scan (HTTP ${res.status}).`, 'ERROR');
         return;
       }
-      log('INFO', 'Scan started on GitHub Actions. This usually takes 5-15 minutes; you can leave this page.');
-      const started = Date.now();
-      while (Date.now() - started < RESCAN_MAX_WAIT_MS) {
-        await new Promise((resolve) => setTimeout(resolve, RESCAN_POLL_MS));
-        const run = await loadLastRun();
-        if (!run || run.id === previousRunId) continue;
-        if (run.status === 'running') {
-          setActivePhase('RUNNING');
-          continue;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split('\n\n');
+        buffer = events.pop() || '';
+        for (const raw of events) {
+          const data = raw.split('\n').find((line) => line.startsWith('data: '));
+          if (!data) continue; // heartbeat comment
+          let event: AgentTelemetryLog;
+          try {
+            event = JSON.parse(data.slice('data: '.length));
+          } catch {
+            continue;
+          }
+          setLogs((prev) => [...prev, event]);
+          if (event.phase) setActivePhase(event.phase);
+          if (event.stepIndex) setActiveStep(event.stepIndex);
+          if (event.phase === 'COMPLETE' || event.phase === 'ERROR') finished = true;
         }
-        const summary = `${run.opportunities_found} calls checked, ${run.opportunities_new} new`;
-        log(run.status === 'success' ? 'SUCCESS' : 'WARN',
-          run.status === 'success' ? `Scan finished: ${summary}.` : `Scan finished with problems (${run.error_count} issues): ${summary}.`, 'COMPLETE');
-        setActivePhase('COMPLETE');
-        await loadOpportunities();
-        return;
       }
-      log('WARN', 'The scan is taking longer than usual. Check the Actions tab on GitHub, or refresh later.', 'TIMEOUT');
+      if (!finished) {
+        log('WARN', 'Lost the connection to the scan; it keeps running on the server. Refresh later for results.', 'TIMEOUT');
+      }
+      await Promise.all([loadOpportunities(), loadLastRun()]);
     } catch (err: any) {
       log('ERROR', `Could not start the scan: ${err.message}`, 'ERROR');
     } finally {

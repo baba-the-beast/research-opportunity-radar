@@ -2,8 +2,8 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { safeRedirectPath } from '@/lib/safeRedirect';
 
+// The dashboard ('/') is deliberately not public: every visitor signs in first.
 const PUBLIC_EXACT_PATHS = new Set([
-  '/',
   '/login',
   '/register',
   '/forgot-password',
