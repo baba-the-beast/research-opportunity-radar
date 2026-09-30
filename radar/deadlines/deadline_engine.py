@@ -32,9 +32,13 @@ _DATE_PATTERNS = [
 # (whole words only: "till" must not match inside "still")
 _DEADLINE_CUE = re.compile(
     r"\b(last\s+date|deadline|closing\s+date|cut-?\s?off\s+date|closes\s+on|due\s+date|submission\s+(?:date|deadline)|"
-    r"apply\s+(?:by|before)|on\s+or\s+before|till|until)\b",
+    r"apply\s+(?:by|before)|on\s+or\s+before)\b",
     re.I,
 )
+# Only used when no real deadline phrase is present: "tenable until 31.03.2029" is not a deadline
+_WEAK_CUE = re.compile(r"\b(till|until)\b", re.I)
+# Wording that marks a changed deadline, where the later date is the current one
+_EXTENSION = re.compile(r"\b(extend\w*|extension|revised|postpone\w*|rescheduled)\b", re.I)
 # How far after a cue its dates can be ("Last date extended from 15.09.2026 to 30.09.2026")
 _CUE_CLAUSE_CHARS = 70
 
@@ -124,20 +128,26 @@ def parse_deadline(raw_text: str | None, day_first: bool = True) -> tuple[date |
         is_bare = not re.search(r"\w", text[:start] + text[end:])
         return parsed, "confirmed" if is_bare else "probable"
 
-    cues = [m for m in _DEADLINE_CUE.finditer(text)]
-    for i in range(len(cues) - 1, -1, -1):
+    cues = list(_DEADLINE_CUE.finditer(text)) or list(_WEAK_CUE.finditer(text))
+    clauses: list[tuple[bool, list[date]]] = []
+    for i, cue in enumerate(cues):
         # The cue's clause: up to the next cue, a ';', or _CUE_CLAUSE_CHARS characters
-        clause_end = min(
-            cues[i + 1].start() if i + 1 < len(cues) else len(text),
-            cues[i].end() + _CUE_CLAUSE_CHARS,
-        )
-        semicolon = text.find(";", cues[i].end(), clause_end)
+        clause_end = min(cues[i + 1].start() if i + 1 < len(cues) else len(text), cue.end() + _CUE_CLAUSE_CHARS)
+        semicolon = text.find(";", cue.end(), clause_end)
         if semicolon != -1:
             clause_end = semicolon
-        in_clause = [parsed for start, _, parsed in dates if cues[i].end() <= start < clause_end]
+        in_clause = [parsed for start, _, parsed in dates if cue.end() <= start < clause_end]
         if in_clause:
-            # "extended from 15.09.2026 to 30.09.2026": the later date is the current one
-            return max(in_clause), "probable"
+            # "Extension of last date ..." / "Last date extended from ... to ..."
+            extended = bool(_EXTENSION.search(text[max(0, cue.start() - 40):clause_end]))
+            clauses.append((extended, in_clause))
+
+    extensions = [d for extended, found in clauses if extended for d in found]
+    if extensions:
+        return max(extensions), "probable"  # the later date of an extension is the current one
+    if clauses:
+        # First deadline phrase, first date: "Deadline 30.09.2026 (results by 15.12.2026)" -> 30 Sep
+        return clauses[0][1][0], "probable"
     return max(parsed for _, _, parsed in dates), "probable"
 
 

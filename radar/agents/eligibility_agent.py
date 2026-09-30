@@ -88,9 +88,13 @@ _INDIAN_ONLY = re.compile(r"\b(indian (?:nationals?|citizens?)|(?:citizens?|nati
 # Age limits must say "age" (or "years of age" / "years old"): "not more than 10 years of experience"
 # or "should not exceed 03 years" (project length) are not age limits.
 _LIMIT_WORDS = r"(?:not\s+(?:be\s+)?(?:above|more\s+than|older\s+than|exceed(?:ing)?)|below|under|less\s+than|up\s*to)"
+# A maximum age needs an "upper/maximum age" or "age limit" phrase, or a limiting word before the
+# number ("age should not be more than 40 years", "below 35 years of age"). "Minimum age of 25 years"
+# and "average age 30 years" are not maximum ages.
 _AGE_LIMIT = re.compile(
-    rf"\b(?:upper\s+age(?:\s+limit)?|maximum\s+age(?:\s+limit)?|age(?:\s+limit)?)"
-    rf"(?:\s+(?:of|is|should\s+be|must\s+be|shall\s+be|should|must|shall|for\s+\w+))?\s*:?\s*(?:{_LIMIT_WORDS}\s*)?(\d{{2}})\s*(?:years|yrs)"
+    rf"\b(?:upper\s+age(?:\s+limit)?|maximum\s+age(?:\s+limit)?|(?<!minimum\s)(?<!average\s)(?<!mean\s)age\s+limit)"
+    rf"(?:\s+(?:of|is|for\s+\w+))?\s*:?\s*(?:{_LIMIT_WORDS}\s*)?(\d{{2}})\s*(?:years|yrs)"
+    rf"|(?<!minimum\s)(?<!average\s)(?<!mean\s)\bage(?:\s+(?:should|must|shall)(?:\s+be)?)?\s*:?\s*{_LIMIT_WORDS}\s*(\d{{2}})\s*(?:years|yrs)"
     rf"|\b{_LIMIT_WORDS}\s*(\d{{2}})\s*(?:years|yrs)\s*(?:of\s+age|old)\b",
     re.I,
 )
@@ -308,7 +312,7 @@ class EligibilityAgent:
         match = _AGE_LIMIT.search(text)
         if not match:
             return
-        limit = int(match.group(1) or match.group(2))
+        limit = int(next(g for g in match.groups() if g))
         excerpt = _excerpt(text, match)
         dob = profile.date_of_birth
         if not dob:

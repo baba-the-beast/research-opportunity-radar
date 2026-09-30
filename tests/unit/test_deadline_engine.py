@@ -94,3 +94,25 @@ def test_still_is_not_the_cue_till():
 def test_dates_after_the_deadline_clause_are_not_the_deadline():
     text = "Last date of submission: 15-10-2026; results will be announced by 15-12-2026"
     assert deadline_engine.parse_deadline(text)[0] == date(2026, 10, 15)
+
+
+def test_until_after_the_last_date_is_not_the_deadline():
+    text = "Last date: 30.09.2026. The fellowship is tenable until 31.03.2029"
+    assert deadline_engine.parse_deadline(text)[0] == date(2026, 9, 30)
+
+
+@pytest.mark.parametrize("text", [
+    "Deadline 30.09.2026 (results by 15.12.2026)",
+    "Last date of submission: 30.09.2026, date of presentation 15.10.2026",
+])
+def test_later_dates_in_the_clause_are_not_the_deadline(text):
+    assert deadline_engine.parse_deadline(text)[0] == date(2026, 9, 30)
+
+
+def test_extension_on_a_separate_line_wins():
+    text = "Last date for submission 06.07.2026. Extension of last date for submission: 14.08.2026"
+    assert deadline_engine.parse_deadline(text)[0] == date(2026, 8, 14)
+
+
+def test_until_is_used_when_no_deadline_phrase_exists():
+    assert deadline_engine.parse_deadline("Applications accepted from 01-09-2026 until 30-10-2026")[0] == date(2026, 10, 30)

@@ -274,3 +274,14 @@ def test_service_experience_is_not_years_before_retirement(frozen_today):
     assert not any(c.rule_name == "SERVICE_BEFORE_SUPERANNUATION" for c in report.checks)
     retiring = _indian_call("The PI should have at least 3 years of service left before superannuation.")
     assert EligibilityAgent().evaluate_opportunity(retiring, _faculty(superannuation_year=2027)).status == "DISQUALIFIED"
+
+
+@pytest.mark.parametrize("text", ["The minimum age of 25 years is required.", "The average age 30 years of past awardees."])
+def test_minimum_and_average_ages_are_not_age_limits(frozen_today, text):
+    report = EligibilityAgent().evaluate_opportunity(_indian_call(text), _faculty(date_of_birth=date(1980, 1, 1)))
+    assert not any(c.rule_name == "AGE_LIMIT" for c in report.checks)
+
+
+def test_maximum_age_phrasing_is_found(frozen_today):
+    report = EligibilityAgent().evaluate_opportunity(_indian_call("Maximum age of 45 years."), _faculty(date_of_birth=date(1960, 1, 1)))
+    assert next(c for c in report.checks if c.rule_name == "AGE_LIMIT").verdict == "FAIL"
