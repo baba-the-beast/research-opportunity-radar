@@ -29,11 +29,14 @@ _DATE_PATTERNS = [
 ]
 
 # Phrases that introduce the closing date inside longer text
+# (whole words only: "till" must not match inside "still")
 _DEADLINE_CUE = re.compile(
-    r"(last\s+date|deadline|closing\s+date|cut-?\s?off\s+date|closes\s+on|due\s+date|submission\s+(?:date|deadline)|"
-    r"apply\s+(?:by|before)|on\s+or\s+before|till|until)",
+    r"\b(last\s+date|deadline|closing\s+date|cut-?\s?off\s+date|closes\s+on|due\s+date|submission\s+(?:date|deadline)|"
+    r"apply\s+(?:by|before)|on\s+or\s+before|till|until)\b",
     re.I,
 )
+# How far after a cue its dates can be ("Last date extended from 15.09.2026 to 30.09.2026")
+_CUE_CLAUSE_CHARS = 70
 
 # Titles that announce outcomes of a call, not a call that can be applied to
 _RESULT_NOTICE = re.compile(
@@ -121,11 +124,20 @@ def parse_deadline(raw_text: str | None, day_first: bool = True) -> tuple[date |
         is_bare = not re.search(r"\w", text[:start] + text[end:])
         return parsed, "confirmed" if is_bare else "probable"
 
-    cues = [m.end() for m in _DEADLINE_CUE.finditer(text)]
-    for cue_end in reversed(cues):
-        after = [parsed for start, _, parsed in dates if start >= cue_end]
-        if after:
-            return after[0], "probable"
+    cues = [m for m in _DEADLINE_CUE.finditer(text)]
+    for i in range(len(cues) - 1, -1, -1):
+        # The cue's clause: up to the next cue, a ';', or _CUE_CLAUSE_CHARS characters
+        clause_end = min(
+            cues[i + 1].start() if i + 1 < len(cues) else len(text),
+            cues[i].end() + _CUE_CLAUSE_CHARS,
+        )
+        semicolon = text.find(";", cues[i].end(), clause_end)
+        if semicolon != -1:
+            clause_end = semicolon
+        in_clause = [parsed for start, _, parsed in dates if cues[i].end() <= start < clause_end]
+        if in_clause:
+            # "extended from 15.09.2026 to 30.09.2026": the later date is the current one
+            return max(in_clause), "probable"
     return max(parsed for _, _, parsed in dates), "probable"
 
 

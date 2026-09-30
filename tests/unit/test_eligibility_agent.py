@@ -246,3 +246,31 @@ def test_passing_mention_of_young_researchers_is_not_a_restriction(frozen_today)
 def test_early_career_scheme_by_title(frozen_today):
     call = _indian_call("Details in the guidelines.", title="Prime Minister Early Career Research Grant")
     assert EligibilityAgent().evaluate_opportunity(call, _faculty(designation="Professor", phd_year=2002)).status == "DISQUALIFIED"
+
+
+@pytest.mark.parametrize("text", [
+    "Applicants should have not more than 10 years of experience after PhD.",
+    "The project duration should not exceed 03 years.",
+])
+def test_experience_and_duration_limits_are_not_age_limits(frozen_today, text):
+    report = EligibilityAgent().evaluate_opportunity(_indian_call(text), _faculty(date_of_birth=date(1970, 1, 1)))
+    assert not any(c.rule_name == "AGE_LIMIT" for c in report.checks)
+
+
+@pytest.mark.parametrize("text, limit", [
+    ("The upper age limit is 45 years as on the last date.", 45),
+    ("Age should not be more than 40 years.", 40),
+    ("Candidates below 35 years of age may apply.", 35),
+])
+def test_real_age_limits_are_still_found(frozen_today, text, limit):
+    report = EligibilityAgent().evaluate_opportunity(_indian_call(text), _faculty(date_of_birth=date(1960, 1, 1)))
+    check = next(c for c in report.checks if c.rule_name == "AGE_LIMIT")
+    assert f"limit of {limit}" in check.reason and check.verdict == "FAIL"
+
+
+def test_service_experience_is_not_years_before_retirement(frozen_today):
+    call = _indian_call("The PI should have a minimum of 5 years of regular service in the institution.")
+    report = EligibilityAgent().evaluate_opportunity(call, _faculty(superannuation_year=2028))
+    assert not any(c.rule_name == "SERVICE_BEFORE_SUPERANNUATION" for c in report.checks)
+    retiring = _indian_call("The PI should have at least 3 years of service left before superannuation.")
+    assert EligibilityAgent().evaluate_opportunity(retiring, _faculty(superannuation_year=2027)).status == "DISQUALIFIED"

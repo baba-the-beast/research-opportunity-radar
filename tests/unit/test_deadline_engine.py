@@ -80,3 +80,17 @@ def test_lifecycle_open_closed_unknown():
     # Any future stage (e.g. full proposal after a past LoI) keeps the call open
     assert deadline_engine.lifecycle_status("Call", [date(2026, 3, 1), date(2026, 12, 1)], today) == "open"
     assert deadline_engine.lifecycle_status("Call for proposals", [None], today) == "unknown"
+
+
+def test_extension_in_one_sentence_takes_the_new_date():
+    assert deadline_engine.parse_deadline("Last date extended from 15.09.2026 to 30.09.2026.")[0] == date(2026, 9, 30)
+
+
+def test_still_is_not_the_cue_till():
+    text = "Applications are still invited from 01-09-2026 and close 30-09-2026"
+    assert deadline_engine.parse_deadline(text)[0] == date(2026, 9, 30)
+
+
+def test_dates_after_the_deadline_clause_are_not_the_deadline():
+    text = "Last date of submission: 15-10-2026; results will be announced by 15-12-2026"
+    assert deadline_engine.parse_deadline(text)[0] == date(2026, 10, 15)

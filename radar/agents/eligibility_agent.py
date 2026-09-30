@@ -85,14 +85,20 @@ def indian_nationality(citizenship: str) -> str | None:
 
 # --- Restrictions as they appear in Indian call documents -------------------------------------
 _INDIAN_ONLY = re.compile(r"\b(indian (?:nationals?|citizens?)|(?:citizens?|nationals?) of india)\b", re.I)
+# Age limits must say "age" (or "years of age" / "years old"): "not more than 10 years of experience"
+# or "should not exceed 03 years" (project length) are not age limits.
+_LIMIT_WORDS = r"(?:not\s+(?:be\s+)?(?:above|more\s+than|older\s+than|exceed(?:ing)?)|below|under|less\s+than|up\s*to)"
 _AGE_LIMIT = re.compile(
-    r"\b(?:below|under|less than|not (?:be )?(?:above|more than|older than|exceed(?:ing)?)|"
-    r"upper age limit(?: of| is)?|maximum age(?: limit)?(?: of| is)?|age limit(?: of| is)?)\s*:?\s*(\d{2})\s*(?:years|yrs)",
+    rf"\b(?:upper\s+age(?:\s+limit)?|maximum\s+age(?:\s+limit)?|age(?:\s+limit)?)"
+    rf"(?:\s+(?:of|is|should\s+be|must\s+be|shall\s+be|should|must|shall|for\s+\w+))?\s*:?\s*(?:{_LIMIT_WORDS}\s*)?(\d{{2}})\s*(?:years|yrs)"
+    rf"|\b{_LIMIT_WORDS}\s*(\d{{2}})\s*(?:years|yrs)\s*(?:of\s+age|old)\b",
     re.I,
 )
+# Years left before superannuation must name superannuation/retirement: "a minimum of 5 years of
+# regular service in the institution" is an experience requirement, not a years-left one.
 _SERVICE_LEFT = re.compile(
-    r"\b(?:at least|minimum(?: of)?|not less than)\s*(\d{1,2})\s*years?\s*(?:of\s*)?(?:regular\s*)?"
-    r"(?:service|superannuation|before (?:superannuation|retirement)|left|remaining)",
+    r"\b(?:at\s+least|minimum(?:\s+of)?|not\s+less\s+than)\s*(\d{1,2})\s*years?\s*(?:of\s+)?(?:regular\s+)?"
+    r"(?:service\s+)?(?:left\s+|remaining\s+)?(?:before|prior\s+to|till|until|for)\s+(?:the\s+)?(?:(?:date\s+of\s+)?superannuation|retirement)",
     re.I,
 )
 _REGULAR_POSITION = re.compile(r"\bregular (?:position|faculty|employee|appointment|basis|post)\b", re.I)
@@ -302,7 +308,7 @@ class EligibilityAgent:
         match = _AGE_LIMIT.search(text)
         if not match:
             return
-        limit = int(match.group(1))
+        limit = int(match.group(1) or match.group(2))
         excerpt = _excerpt(text, match)
         dob = profile.date_of_birth
         if not dob:
