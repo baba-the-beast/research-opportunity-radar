@@ -56,10 +56,10 @@ export default function SettingsPage() {
     }
 
     fetch('/api/settings')
-      .then((res) => res.json())
+      .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data?.data) {
-          setSettings((prev) => ({ ...prev, ...data.data, preferred_sources: data.data.preferred_sources?.length ? data.data.preferred_sources : DEFAULT_SOURCES }));
+        if (data) {
+          setSettings((prev) => ({ ...prev, ...data, preferred_sources: data.preferred_sources?.length ? data.preferred_sources : DEFAULT_SOURCES }));
         }
         setLoading(false);
       })

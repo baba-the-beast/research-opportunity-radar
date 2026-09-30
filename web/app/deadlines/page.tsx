@@ -43,9 +43,8 @@ export default function DeadlinesPage() {
     const res = await fetch(`/api/deadlines?${params}`);
     const body = await res.json().catch(() => null);
     if (!res.ok) throw new Error(body?.error?.message || `HTTP ${res.status}`);
-    const page = body?.data;
-    const rows: DeadlineItem[] = Array.isArray(page?.data) ? page.data : [];
-    setNextCursor(page?.pagination?.next_cursor ?? null);
+    const rows: DeadlineItem[] = Array.isArray(body?.data) ? body.data : [];
+    setNextCursor(body?.pagination?.next_cursor ?? null);
     setItems((prev) => (cursor ? [...prev, ...rows] : rows));
   };
 

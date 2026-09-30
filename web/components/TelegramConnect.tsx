@@ -65,10 +65,10 @@ export function TelegramConnect({
           setStatus({ kind: 'error', message: 'Still not connected. Open the link, press Start in Telegram, then try again.' });
           return;
         }
-        const poll = await fetch('/api/settings').then((r) => r.json()).catch(() => null);
-        if (poll?.data?.telegram_chat_id) {
+        const poll = await fetch('/api/settings').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        if (poll?.telegram_chat_id) {
           stopPolling();
-          onConnectionChange({ telegram_chat_id: poll.data.telegram_chat_id, telegram_alerts: true });
+          onConnectionChange({ telegram_chat_id: poll.telegram_chat_id, telegram_alerts: true });
           setStatus({ kind: 'info', message: 'Connected. Check Telegram for a confirmation message.' });
         }
       }, POLL_INTERVAL_MS);

@@ -39,7 +39,7 @@ export default function DigestsPage() {
       .then(async (res) => {
         const body = await res.json().catch(() => null);
         if (!res.ok) throw new Error(body?.error?.message || `HTTP ${res.status}`);
-        setDigest(body?.data ?? null);
+        setDigest(body ?? null);
       })
       .catch((err) => setError(`Could not load your digest: ${err.message}`))
       .finally(() => setLoading(false));

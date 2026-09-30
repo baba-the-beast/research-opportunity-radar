@@ -61,16 +61,16 @@ export function AiCopilot() {
       });
 
       const data = await res.json();
-      if (res.ok && data?.data) {
-        if (data.data.session_id) {
-          setSessionId(data.data.session_id);
+      if (res.ok && data) {
+        if (data.session_id) {
+          setSessionId(data.session_id);
         }
 
         const assistantEntry: ChatEntry = {
           id: Math.random().toString(36).slice(2),
           role: 'assistant',
-          content: data.data.message || 'No response generated.',
-          tools: data.data.tools_executed,
+          content: data.message || 'No response generated.',
+          tools: data.tools_executed,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         };
 

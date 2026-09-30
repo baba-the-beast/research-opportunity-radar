@@ -137,18 +137,19 @@ export default function DashboardPage() {
     if (cursor) params.set('cursor', cursor);
     const res = await fetch(`/api/opportunities?${params}`);
     const body = await res.json();
-    const page = body?.data;
-    const items: OpportunitySummary[] = Array.isArray(page?.data) ? page.data : Array.isArray(page) ? page : [];
-    setNextCursor(page?.pagination?.next_cursor ?? null);
+    // List endpoints return { data: [...], pagination } (createSuccessResponse does not wrap)
+    const items: OpportunitySummary[] = Array.isArray(body?.data) ? body.data : [];
+    setNextCursor(body?.pagination?.next_cursor ?? null);
     setOpportunities((prev) => (cursor ? [...prev, ...items] : items));
   };
 
   const loadLastRun = () =>
     fetch('/api/pipeline/status')
-      .then((res) => res.json())
-      .then((body) => {
-        setLastRun(body?.data ?? null);
-        return (body?.data ?? null) as PipelineRun | null;
+      .then(async (res) => {
+        // The route returns the latest run itself, or null before the first scan
+        const run = res.ok ? ((await res.json()) as PipelineRun | null) : null;
+        setLastRun(run);
+        return run;
       })
       .catch(() => null);
 
@@ -158,10 +159,9 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
     loadLastRun();
     fetch('/api/profile')
-      .then((res) => res.json())
-      .then((body) => {
-        const prof = body?.data;
-        if (prof) setMe({ full_name: prof.full_name, institution: prof.institution, department: prof.department, research_keywords: prof.research_keywords || [] });
+      .then((res) => (res.ok ? res.json() : null))
+      .then((prof) => {
+        if (prof?.id) setMe({ full_name: prof.full_name, institution: prof.institution, department: prof.department, research_keywords: prof.research_keywords || [] });
       })
       .catch(() => {});
     try {
@@ -589,7 +589,7 @@ export default function DashboardPage() {
                 <span>Saved Calls Only</span>
               </div>
               <span className="font-data-mono-sm text-data-mono-sm">
-                0{opportunities.filter((o) => o.saved).length}
+                {String(opportunities.filter((o) => o.saved).length).padStart(2, '0')}
               </span>
             </button>
           </div>
@@ -636,7 +636,7 @@ export default function DashboardPage() {
                 Observatory Opportunity Stream
               </span>
               <span className="font-data-mono-sm text-data-mono-sm text-outline">
-                0{filteredOpps.length} DETECTED CANDIDATES
+                {String(filteredOpps.length).padStart(2, '0')} DETECTED CANDIDATES
               </span>
             </div>
             <div className="flex items-center gap-space-sm font-data-mono-sm text-data-mono-sm text-on-surface-variant">

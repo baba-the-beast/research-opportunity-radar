@@ -172,7 +172,7 @@ export default function ProfilePage() {
         setSaveMessage({ ok: false, text: `Not saved: ${detail}` });
         return;
       }
-      setProfile((prev: any) => ({ ...prev, id: body?.data?.profile_id || prev.id, research_keywords: keywords }));
+      setProfile((prev: any) => ({ ...prev, id: body?.profile_id || prev.id, research_keywords: keywords }));
       setSaveMessage({ ok: true, text: 'Saved. Scores are recalculated on the next scan.' });
     } catch (err: any) {
       setSaveMessage({ ok: false, text: `Not saved: ${err.message}` });
