@@ -29,13 +29,19 @@ interface PipelineRun {
   rejected: RejectedItem[];
 }
 
+function formatUtc(value?: string): string {
+  const d = value ? new Date(value) : null;
+  if (!d || isNaN(d.getTime())) return 'Unknown time';
+  return `${d.toISOString().replace('T', ' ').substring(0, 19)} UTC`;
+}
+
 export default function ActivityPage() {
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedRun, setExpandedRun] = useState<string>('');
 
   useEffect(() => {
-    fetch('/api/activity')
+    fetch('/api/activity?scope=system')
       .then((res) => res.json())
       .then((data) => {
         const items = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
@@ -183,10 +189,10 @@ export default function ActivityPage() {
                 >
                   <div className="flex items-center gap-space-xs sm:gap-space-md flex-wrap font-mono text-xs sm:text-sm">
                     <span className="font-data-mono-sm sm:font-data-mono-md text-data-mono-sm sm:text-data-mono-md text-on-surface font-bold">
-                      {new Date(r.started_at).toISOString().replace('T', ' ').substring(0, 19)} UTC
+                      {formatUtc(r.started_at)}
                     </span>
                     <span className="text-outline-variant">/</span>
-                    <span className="text-data-mono-sm text-[11px] sm:text-data-mono-sm text-on-surface-variant">ID: #{r.run_id.slice(0, 8)}</span>
+                    <span className="text-data-mono-sm text-[11px] sm:text-data-mono-sm text-on-surface-variant">ID: #{String(r.run_id ?? '').slice(0, 8)}</span>
                     <span
                       className={`text-[10px] sm:text-data-mono-sm uppercase font-bold px-space-xs py-space-2xs ${
                         r.status === 'success'
