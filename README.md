@@ -205,8 +205,8 @@ Open [http://localhost:3000](http://localhost:3000). New users start on an empty
 The Research Opportunity Radar co-locates high-throughput academic discovery agents, ML transformer embeddings, and a Next.js 14 observatory dashboard.
 
 ### Path A: Single Multi-Runtime Container (Implemented & Recommended)
-Co-locates Python 3.11 and Node.js 20 within a multi-stage Docker container (`Dockerfile`):
-- **Base image**: `python:3.11-slim` with Node.js 20 LTS installed.
+Co-locates Python 3.11 and Node.js 22 within a multi-stage Docker container (`Dockerfile`):
+- **Base image**: `python:3.11-slim` with Node.js 22 LTS installed.
 - **Environment**: `PYTHONPATH=/app`, `PROJECT_ROOT=/app`, and pre-cached `all-MiniLM-L6-v2` transformer model weights.
 - **Resource Sizing**:
   - SentenceTransformer model: ~400 MB RAM

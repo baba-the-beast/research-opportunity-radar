@@ -40,7 +40,7 @@ Per-user settings (relevance band, minimum score, sources, channels) live in the
 
 ## 2. Docker Build & Container Specifications
 
-- Container Structure (`Dockerfile`): Multi-stage image on `python:3.11-slim` with Node.js 20 LTS installed.
+- Container Structure (`Dockerfile`): Multi-stage image on `python:3.11-slim` with Node.js 22 LTS installed.
 - Pre-cached ML Weights: Downloads and caches `sentence-transformers/all-MiniLM-L6-v2` during image build.
 - Port: Exposes port `3000` (Next.js Observatory console + background orchestrator).
 - Resource Sizing:
