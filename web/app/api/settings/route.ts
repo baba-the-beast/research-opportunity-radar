@@ -4,7 +4,7 @@ import { authenticateRequest } from '@/lib/auth';
 import { consumeRateLimit, rateLimitKey } from '@/lib/rateLimit';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { z } from 'zod';
-import { DEFAULT_SOURCES, SOURCE_IDS } from '@/lib/sources';
+import { DEFAULT_SOURCES, SOURCE_IDS, withNewDefaults } from '@/lib/sources';
 import { DEFAULT_REMINDER_DAYS, REMINDER_OPTIONS } from '@/lib/reminders';
 
 export const dynamic = 'force-dynamic';
@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Rows created before preferred_sources existed have no value: show the defaults
-    return createSuccessResponse({ ...DEFAULT_SETTINGS, user_id: auth.user.id, ...(prefs || {}), preferred_sources: prefs?.preferred_sources?.length ? prefs.preferred_sources : DEFAULT_SOURCES }, req);
+    return createSuccessResponse({ ...DEFAULT_SETTINGS, user_id: auth.user.id, ...(prefs || {}), preferred_sources: prefs?.preferred_sources?.length ? withNewDefaults(prefs.preferred_sources) : DEFAULT_SOURCES }, req);
   } catch (err: any) {
     return createErrorResponse('INTERNAL_SERVER_ERROR', err.message, 500, req);
   }

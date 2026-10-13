@@ -2,6 +2,8 @@
 import logging
 import re
 import time
+from collections.abc import Callable
+from functools import partial
 
 from radar.deadlines.deadline_engine import lifecycle_status, parse_deadline, today_ist
 from radar.dedup import fingerprint
@@ -12,15 +14,18 @@ from radar.sources.agencies.anrf_adapter import ANRFAdapter
 from radar.sources.agencies.birac_adapter import BIRACAdapter
 from radar.sources.agencies.csir_adapter import CSIRAdapter
 from radar.sources.agencies.dbt_adapter import DBTAdapter
-from radar.sources.agencies.dst_adapter import DSTAdapter
+from radar.sources.agencies.gov_cms_adapter import DSTAdapter, MeitYAdapter, MoESAdapter
 from radar.sources.agencies.icmr_adapter import ICMRAdapter
 from radar.sources.agencies.icssr_adapter import ICSSRAdapter
+from radar.sources.agencies.listing_adapter import ListingAdapter
+from radar.sources.agencies.listings import LISTING_SOURCES
 from radar.sources.agency_scraper_base import AgencyAdapter
 from radar.sources.http import is_http_url
 
 logger = logging.getLogger(__name__)
 
-AGENCY_REGISTRY: dict[str, type[AgencyAdapter]] = {
+# Name -> zero-argument factory (an adapter class, or a ListingAdapter bound to its config)
+AGENCY_REGISTRY: dict[str, Callable[[], AgencyAdapter]] = {
     "ANRF": ANRFAdapter,
     "DST": DSTAdapter,
     "DBT": DBTAdapter,
@@ -28,6 +33,9 @@ AGENCY_REGISTRY: dict[str, type[AgencyAdapter]] = {
     "BIRAC": BIRACAdapter,
     "CSIR": CSIRAdapter,
     "ICSSR": ICSSRAdapter,
+    "MeitY": MeitYAdapter,
+    "MoES": MoESAdapter,
+    **{source.name: partial(ListingAdapter, source) for source in LISTING_SOURCES},
 }
 # SERB became part of ANRF in 2024; keep old configuration working
 AGENCY_ALIASES = {"DST-SERB": "ANRF", "SERB": "ANRF"}

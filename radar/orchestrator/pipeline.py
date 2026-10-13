@@ -47,7 +47,8 @@ def _attach_preferred_sources(profiles: list[FacultyProfile]) -> None:
     by_user = db.load_preferred_sources([p.user_id for p in profiles if p.user_id])
     for profile in profiles:
         if profile.user_id in by_user:
-            profile.preferred_sources = [s for s in by_user[profile.user_id] if s in config.SOURCE_NAMES]
+            saved = config.with_new_defaults(by_user[profile.user_id])
+            profile.preferred_sources = [s for s in saved if s in config.SOURCE_NAMES]
 
 
 def _source_names_for(profile: FacultyProfile) -> set[str]:
