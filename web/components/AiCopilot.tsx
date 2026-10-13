@@ -13,7 +13,7 @@ interface ChatEntry {
 const INITIAL_MESSAGE: ChatEntry = {
   id: 'welcome',
   role: 'assistant',
-  content: `### Welcome to your Academic Copilot\n\nI am calibrated to assist you with discovery, deadline tracking, and strategic analysis:\n\n- **Search**: *"Find recent Edge AI grants"*\n- **Analyze**: *"Why was this opportunity recommended?"*\n- **Track**: *"Save opportunity <id>"*\n\nHow may I support your research agenda today?`,
+  content: `### Ask about your calls\n\nI can help you find, compare and track calls:\n\n- **Search**: *"Find recent Edge AI grants"*\n- **Analyze**: *"Why was this opportunity recommended?"*\n- **Track**: *"Save opportunity <id>"*\n\nWhat would you like to know?`,
   timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 };
 
@@ -115,17 +115,19 @@ export function AiCopilot() {
       <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-40">
         <button
           onClick={() => setOpen(!open)}
-          className="flex items-center gap-2 px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-full bg-primary text-on-primary font-bold shadow-2xl hover:bg-primary-fixed-dim hover:scale-105 transition-all border border-outline-variant/40"
-          title="Open AI Research Copilot"
+          className="flex items-center gap-2 min-h-11 px-4 rounded-full bg-primary text-on-primary font-semibold surface-card hover:bg-primary-fixed transition-colors"
+          title="Ask about your calls"
+          aria-label="Research Copilot: ask about your calls"
+          aria-expanded={open}
         >
-          <span className="material-symbols-outlined text-[20px] sm:text-[22px]">auto_awesome</span>
+          <span className="material-symbols-outlined text-[20px] sm:text-[22px]" aria-hidden="true">auto_awesome</span>
           <span className="font-body-md text-body-md hidden sm:inline">Research Copilot</span>
         </button>
       </div>
 
       {/* Slide-out / Floating Panel */}
       {open && (
-        <div className="fixed inset-x-2 sm:inset-x-auto sm:right-6 bottom-20 z-50 sm:w-[440px] max-h-[calc(100vh-6rem)] h-[75vh] flex flex-col bg-surface-container border border-outline-variant/50 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-md">
+        <div className="fixed inset-x-2 sm:inset-x-auto sm:right-6 bottom-20 z-50 sm:w-[440px] max-h-[calc(100vh-6rem)] h-[75vh] flex flex-col bg-surface surface-card rounded-2xl overflow-hidden">
           {/* Copilot Header */}
           <div className="px-4 py-3.5 bg-surface-container-high border-b border-outline-variant/30 flex items-center justify-between">
             <div className="flex items-center gap-2.5">

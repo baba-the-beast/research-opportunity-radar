@@ -1,6 +1,5 @@
 import '@/styles/tokens.css';
 import type { Metadata, Viewport } from 'next';
-import { AppBackground } from '@/components/AppBackground';
 import { AppShell } from '@/components/AppShell';
 import { ThemeProvider } from '@/components/ThemeProvider';
 
@@ -17,8 +16,8 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#F9F8F5' },
-    { media: '(prefers-color-scheme: dark)', color: '#0f141a' }
+    { media: '(prefers-color-scheme: light)', color: '#F5F6F8' },
+    { media: '(prefers-color-scheme: dark)', color: '#0E1117' }
   ]
 };
 
@@ -31,7 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning>
       <head>
         <link
-          href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Text:ital,wght@0,400;0,700;1,400&family=Public+Sans:ital,wght@0,300..800;1,300..800&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:ital,wght@0,400..800;1,400..800&display=swap"
           rel="stylesheet"
         />
         <link
@@ -59,11 +58,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body className="bg-background font-body-md text-on-surface antialiased selection:bg-primary-container selection:text-on-primary-container" suppressHydrationWarning>
+      <body className="bg-background font-body-md text-on-surface antialiased " suppressHydrationWarning>
         <ThemeProvider>
-          <AppBackground>
-            <AppShell>{children}</AppShell>
-          </AppBackground>
+          <AppShell>{children}</AppShell>
         </ThemeProvider>
       </body>
     </html>

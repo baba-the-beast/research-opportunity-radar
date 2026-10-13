@@ -286,7 +286,7 @@ pm run build in web/ passed with 0 errors (all 14 static and dynamic routes comp
 * **Files:** [Dockerfile](Dockerfile), [.dockerignore](.dockerignore), [radar/orchestrator/pipeline.py](radar/orchestrator/pipeline.py), [web/app/api/pipeline/stream/route.ts](web/app/api/pipeline/stream/route.ts), [web/app/page.tsx](web/app/page.tsx), [tests/integration/test_pipeline_end_to_end.py](tests/integration/test_pipeline_end_to_end.py)
 * **Defect:** Next.js SSE route spawned Python as a child process which fails in Node-only serverless hosts. `dry_run` previously coupled database write skipping with alert suppression.
 * **Fix:**
-  - Created Path A multi-stage `Dockerfile` co-locating Python 3.11 and Node.js 20, pre-caching `all-MiniLM-L6-v2` transformer weights (documented 1GB min, 2GB recommended RAM).
+  - Created Path A multi-stage `Dockerfile` co-locating Python 3.11 and Node.js (originally 20; now 22, which supabase-js requires), pre-caching `all-MiniLM-L6-v2` transformer weights (documented 1GB min, 2GB recommended RAM).
   - Disambiguated `dry_run` (skips DB writes entirely, logs what would be written) from `suppress_alerts` (persists DB records, suppresses notifications).
   - Added `--suppress-alerts` CLI flag and updated `OpportunityPipeline.run()` and `run_pipeline()`.
   - Added "DRY RUN" toggle in Next.js dashboard and parameterized `stream/route.ts`.

@@ -139,7 +139,7 @@ silent pass. Calls for papers are not checked.
 
 ### Prerequisites
 - Python 3.10+ (tested on Python 3.11 & 3.14)
-- Node.js 18+ and npm
+- Node.js 22+ and npm (see `web/.nvmrc`; supabase-js requires Node 22)
 - (Optional) Supabase Project URL & Service Role Key
 
 ### 1. Clone & Configure Environment
@@ -206,7 +206,7 @@ The Research Opportunity Radar co-locates high-throughput academic discovery age
 
 ### Path A: Single Multi-Runtime Container (Implemented & Recommended)
 Co-locates Python 3.11 and Node.js 22 within a multi-stage Docker container (`Dockerfile`):
-- **Base image**: `python:3.11-slim` with Node.js 22 LTS installed.
+- **Base image**: `python:3.11-slim`, with Node.js 22 copied from the pinned `node:22.x-slim` build stage.
 - **Environment**: `PYTHONPATH=/app`, `PROJECT_ROOT=/app`, and pre-cached `all-MiniLM-L6-v2` transformer model weights.
 - **Resource Sizing**:
   - SentenceTransformer model: ~400 MB RAM

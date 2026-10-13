@@ -36,7 +36,7 @@ export default function ForgotPasswordPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md bg-surface-container border border-outline-variant/30 rounded-xl p-8 shadow-2xl">
+      <div className="w-full max-w-md bg-surface surface-card rounded-2xl p-8 sm:p-10">
         <div className="flex flex-col items-center text-center mb-6">
           <div className="w-12 h-12 rounded-full bg-surface-container-high border border-primary/40 flex items-center justify-center mb-3">
             <span className="material-symbols-outlined text-primary text-[24px]">key</span>
@@ -70,7 +70,7 @@ export default function ForgotPasswordPage() {
             )}
 
             <div>
-              <label className="block font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider mb-1">
+              <label className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
                 Email Address
               </label>
               <input
@@ -78,8 +78,8 @@ export default function ForgotPasswordPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="faculty@university.edu"
-                className="w-full px-3.5 py-2.5 rounded-lg bg-surface-container-lowest border border-outline-variant/40 text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:outline-none text-body-md"
+                placeholder="you@university.ac.in"
+                className="w-full rounded-lg border border-outline bg-surface text-body-md text-on-surface px-3 min-h-11 sm:min-h-10 placeholder:text-on-surface-variant/70 hover:border-on-surface-variant focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
               />
             </div>
 

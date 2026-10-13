@@ -3,69 +3,38 @@
 import { useTheme } from './ThemeProvider';
 import { useEffect, useState } from 'react';
 
+const NEXT = { system: 'light', light: 'dark', dark: 'system' } as const;
+const META = {
+  light: { icon: 'light_mode', label: 'Light' },
+  dark: { icon: 'dark_mode', label: 'Dark' },
+  system: { icon: 'contrast', label: 'Match device' }
+} as const;
+
+/** One button that cycles light → dark → match device. The full choice also lives in Settings. */
 export function ThemeToggle() {
-  const { theme, setTheme, resolvedTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  if (!mounted) {
-    return (
-      <div className="w-20 h-7 rounded-full bg-surface-container-high animate-pulse"></div>
-    );
-  }
+  const size = 'inline-flex items-center justify-center w-11 h-11 sm:w-9 sm:h-9 rounded-lg';
+  if (!mounted) return <span className={size} aria-hidden="true" />;
 
-  const cycleTheme = () => {
-    if (theme === 'system') setTheme('light');
-    else if (theme === 'light') setTheme('dark');
-    else setTheme('system');
-  };
-
+  const current = META[theme];
+  const next = META[NEXT[theme]];
   return (
-    <div className="flex items-center rounded-full bg-surface-container-high border border-outline-variant/40 p-0.5">
-      <button
-        type="button"
-        title="Light Mode"
-        onClick={() => setTheme('light')}
-        className={`px-2 py-1 rounded-full text-[12px] flex items-center gap-1 transition-all ${
-          theme === 'light'
-            ? 'bg-primary text-on-primary font-bold shadow-sm'
-            : 'text-on-surface-variant hover:text-on-surface'
-        }`}
-      >
-        <span className="material-symbols-outlined text-[14px]">light_mode</span>
-        <span className="hidden sm:inline">Light</span>
-      </button>
-
-      <button
-        type="button"
-        title="Dark Mode"
-        onClick={() => setTheme('dark')}
-        className={`px-2 py-1 rounded-full text-[12px] flex items-center gap-1 transition-all ${
-          theme === 'dark'
-            ? 'bg-primary text-on-primary font-bold shadow-sm'
-            : 'text-on-surface-variant hover:text-on-surface'
-        }`}
-      >
-        <span className="material-symbols-outlined text-[14px]">dark_mode</span>
-        <span className="hidden sm:inline">Dark</span>
-      </button>
-
-      <button
-        type="button"
-        title="Follow System Theme"
-        onClick={() => setTheme('system')}
-        className={`px-2 py-1 rounded-full text-[12px] flex items-center gap-1 transition-all ${
-          theme === 'system'
-            ? 'bg-primary text-on-primary font-bold shadow-sm'
-            : 'text-on-surface-variant hover:text-on-surface'
-        }`}
-      >
-        <span className="material-symbols-outlined text-[14px]">settings_brightness</span>
-        <span className="hidden sm:inline">Auto</span>
-      </button>
-    </div>
+    <button
+      type="button"
+      onClick={() => setTheme(NEXT[theme])}
+      title={`Theme: ${current.label}. Switch to ${next.label.toLowerCase()}`}
+      aria-label={`Theme: ${current.label}. Switch to ${next.label.toLowerCase()}`}
+      className={`${size} text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors`}
+    >
+      <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
+        {current.icon}
+      </span>
+    </button>
   );
 }

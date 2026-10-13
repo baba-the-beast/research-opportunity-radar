@@ -65,11 +65,13 @@ export async function GET(req: NextRequest) {
       return createSuccessResponse(toProfileResponse(null, []), req);
     }
 
-    const { data: prof, error } = await supabase.from('faculty_profile').select('*').eq('id', profileId).single();
+    const [{ data: prof, error }, { data: terms }] = await Promise.all([
+      supabase.from('faculty_profile').select('*').eq('id', profileId).single(),
+      supabase.from('profile_terms').select('*').eq('profile_id', profileId)
+    ]);
     if (error) {
       return createErrorResponse('DATABASE_ERROR', error.message, 500, req);
     }
-    const { data: terms } = await supabase.from('profile_terms').select('*').eq('profile_id', profileId);
     return createSuccessResponse(toProfileResponse(prof, terms || []), req);
   } catch (err: any) {
     return createErrorResponse('INTERNAL_SERVER_ERROR', err.message, 500, req);

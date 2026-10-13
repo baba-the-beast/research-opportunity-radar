@@ -35,18 +35,18 @@ function VerifyEmailForm() {
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md bg-surface-container border border-outline-variant/30 rounded-xl p-8 shadow-2xl text-center">
+      <div className="w-full max-w-md bg-surface surface-card rounded-2xl p-8 sm:p-10 text-center">
         <div className="w-14 h-14 rounded-full bg-secondary-container/40 border border-secondary/40 flex items-center justify-center mx-auto mb-4">
           <span className="material-symbols-outlined text-secondary text-[30px]">mark_email_unread</span>
         </div>
 
         <h1 className="font-headline-lg text-headline-lg text-on-surface mb-2">
-          Verify Your Academic Email
+          Check your email
         </h1>
 
         <p className="font-body-md text-body-md text-on-surface-variant mb-6">
           A confirmation dispatch has been sent to{' '}
-          <strong className="text-on-surface">{email || 'your email'}</strong>. Please click the verification link inside to activate your observatory node.
+          <strong className="text-on-surface">{email || 'your email'}</strong>. Open the link in that email to activate your account.
         </p>
 
         {statusMsg && (
