@@ -6,6 +6,8 @@ import { safeExternalUrl } from '@/lib/safeUrl';
 import { formatDeadline, formatIstDateTime, daysUntil } from '@/lib/dates';
 import { bandLabel, bandTextClass, isGoodMatch, kindName } from '@/lib/match';
 import { SendToTelegram } from '@/components/SendToTelegram';
+import { eligibilityLabel } from '@/lib/eligibility';
+import { EligibilityCorrection } from '@/components/EligibilityCorrection';
 import { ApplicationPanel } from '@/components/ApplicationPanel';
 import { DismissPanel, type DismissChoice } from '@/components/DismissPanel';
 import { PENALISING_REASON } from '@/lib/feedback';
@@ -83,14 +85,6 @@ const COMPONENTS = [
   { keys: ['venue_or_funder_fit', 'venue_funder_fit'], label: 'Funder or venue fit', weight: 5, desc: 'Whether this funder or venue is one you listed in your profile.' },
   { keys: ['recency'], label: 'Recently announced', weight: 5, desc: 'Newly announced calls rank slightly higher.' }
 ];
-
-function eligibilityBadge(report?: EligibilityReportData): { tone: Tone; text: string } {
-  if (!report) return { tone: 'neutral', text: 'Not checked yet' };
-  if (report.status === 'ELIGIBLE') return { tone: 'success', text: 'You appear eligible' };
-  if (report.status === 'NEEDS_MANUAL_REVIEW') return { tone: 'warning', text: 'Check eligibility yourself' };
-  if (report.status.includes('WARNING')) return { tone: 'warning', text: 'Limited submission' };
-  return { tone: 'danger', text: 'You may not be eligible' };
-}
 
 function verdictBadge(verdict: string): { tone: Tone; text: string } {
   if (verdict === 'PASS') return { tone: 'success', text: 'Meets' };
@@ -197,7 +191,7 @@ export default function OpportunityDetailPage({ params }: { params: Promise<{ id
     opp.metadata?.origin === 'nsf_awards_api' ||
     Boolean(primarySrc?.source_name?.toLowerCase().includes('award')) ||
     Boolean(opp.agency_or_publisher?.toLowerCase().includes('award'));
-  const eligibility = eligibilityBadge(opp.eligibility_report);
+  const eligibility = eligibilityLabel(opp.eligibility_report);
   const datedDeadlines = [...opp.deadlines].sort((a, b) => (a.deadline_date ?? '9999').localeCompare(b.deadline_date ?? '9999'));
   const nextDeadline = datedDeadlines.find((d) => d.deadline_date && daysUntil(d.deadline_date) >= 0);
   const shareText = callShareText(
@@ -324,6 +318,16 @@ export default function OpportunityDetailPage({ params }: { params: Promise<{ id
                   void setStatus('dismissed', choice);
                 }}
               />
+            )}
+
+            {opp.eligibility_report && opp.eligibility_report.status !== 'ELIGIBLE' && (
+              <Notice
+                tone={eligibility.tone === 'danger' ? 'danger' : 'warning'}
+                title={eligibility.text}
+              >
+                {opp.eligibility_report.summary}{' '}
+                <a href="#eligibility" className="text-primary underline underline-offset-4">See why</a>
+              </Notice>
             )}
 
             {isAward && (
@@ -455,7 +459,7 @@ export default function OpportunityDetailPage({ params }: { params: Promise<{ id
             </div>
           </Panel>
 
-          <Panel title="Eligibility" actions={<Badge tone={eligibility.tone}>{eligibility.text}</Badge>}>
+          <Panel id="eligibility" title="Eligibility" actions={<Badge tone={eligibility.tone}>{eligibility.text}</Badge>}>
             <div className="flex flex-col gap-4">
               <p className="text-body-md text-on-surface max-w-[70ch]">
                 {opp.eligibility_report?.summary || (
@@ -484,6 +488,12 @@ export default function OpportunityDetailPage({ params }: { params: Promise<{ id
                             {chk.solicitation_excerpt}
                           </blockquote>
                         )}
+                        <EligibilityCorrection
+                          opportunityId={opp.id}
+                          ruleName={chk.rule_name}
+                          verdict={chk.verdict}
+                          excerpt={chk.solicitation_excerpt}
+                        />
                       </li>
                     );
                   })}
