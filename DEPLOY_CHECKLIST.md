@@ -73,7 +73,8 @@ Per-user settings (relevance band, minimum score, sources, channels) live in the
 - October 2026 migrations, all safe to re-run: `20261013000000_source_health.sql` (source checks),
   `20261013000100_eligibility_corrections.sql` ("Is this wrong?" on eligibility checks),
   `20261013000200_research_office.sql` (institution notes and internal deadlines),
-  `20261013000300_pilot_metrics.sql` (the Pilot results page). Until they are applied those features
+  `20261013000300_pilot_metrics.sql` (the Pilot results page),
+  `20261014000000_institution_suggestions.sql` (institution names in the profile picker). Until they are applied those features
   are hidden or say a database update is needed; nothing else breaks.
 
 ---
@@ -84,7 +85,9 @@ Per-user settings (relevance band, minimum score, sources, channels) live in the
    (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CROSSREF_MAILTO`).
 2. Migrations applied; run the Supabase security advisor afterwards.
 3. Web host: `SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (build and runtime).
-4. Operator role set (above); `GITHUB_PAT` + `GITHUB_REPO` on the web host for **Scan now**.
+4. Operator role set (above); `GITHUB_PAT` + `GITHUB_REPO` on the web host for **Scan now** and for
+   scoring a profile right after it is saved (`.github/workflows/rescore.yml`; without them scores
+   update on the next scheduled scan).
 5. Run the workflow once from the Actions tab (or **Scan now**) and check `python scripts/probe_sources.py`
    passes for every source.
 6. Optional: Brevo (email), Telegram (see README → Telegram Alerts), Gemini/OpenAI (Copilot),
