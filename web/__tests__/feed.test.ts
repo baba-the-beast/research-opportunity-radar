@@ -17,4 +17,8 @@ describe('isActionable', () => {
     expect(isActionable({ ...open, eligibility: { status: 'DISQUALIFIED' } })).toBe(false);
     expect(isActionable({ ...open, eligibility: { status: 'NEEDS_MANUAL_REVIEW' } })).toBe(true);
   });
+
+  it('keeps journal papers, which never have a deadline', () => {
+    expect(isActionable({ ...open, kind: 'journal', lifecycle_status: 'unknown', next_deadline: null })).toBe(true);
+  });
 });

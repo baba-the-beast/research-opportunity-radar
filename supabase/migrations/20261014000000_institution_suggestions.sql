@@ -11,7 +11,7 @@ as $$
   select min(btrim(fp.institution)) as name, count(*)::int as profiles
   from public.faculty_profile fp
   where char_length(btrim(coalesce(q, ''))) >= 2
-    and fp.institution ilike '%' || replace(replace(replace(btrim(q), '\', '\'), '%', '\%'), '_', '\_') || '%'
+    and fp.institution ilike '%' || replace(replace(replace(btrim(q), '\', '\\'), '%', '\%'), '_', '\_') || '%'
   group by public.institution_key(fp.institution)
   order by count(*) desc, min(btrim(fp.institution))
   limit 8
