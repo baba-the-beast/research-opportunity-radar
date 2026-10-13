@@ -26,6 +26,10 @@ const NAV = [
   { href: '/settings', label: 'Settings', icon: 'settings', mobile: false }
 ] as const;
 
+/** Shown in the sidebar only to research offices, operators and admins. */
+const PILOT_ROLES = new Set(['research_office', 'operator', 'admin']);
+const PILOT_NAV = { href: '/pilot', label: 'Pilot results', icon: 'query_stats', mobile: false } as const;
+
 /** Opportunity detail pages belong to the feed. */
 function isActive(href: string, pathname: string): boolean {
   if (href === '/') return pathname === '/' || pathname.startsWith('/opportunities');
@@ -51,19 +55,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const isAuthPage = AUTH_PATHS.has(pathname);
 
-  const [user, setUser] = useState<{ id: string; email?: string; name: string } | null>(null);
+  const [user, setUser] = useState<{ id: string; email?: string; name: string; role?: string } | null>(null);
 
   useEffect(() => {
     try {
       const supabase = getSupabaseBrowserClient();
       supabase.auth
         .getUser()
-        .then(({ data: { user } }) => setUser(user ? { id: user.id, email: user.email, name: displayName(user) } : null))
+        .then(({ data: { user } }) =>
+          setUser(user ? { id: user.id, email: user.email, name: displayName(user), role: (user.app_metadata as any)?.role } : null)
+        )
         .catch(() => setUser(null));
 
       const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
         const u = session?.user;
-        setUser(u ? { id: u.id, email: u.email, name: displayName(u) } : null);
+        setUser(u ? { id: u.id, email: u.email, name: displayName(u), role: (u.app_metadata as any)?.role } : null);
       });
       return () => subscription.unsubscribe();
     } catch {
@@ -150,7 +156,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         className="group hidden lg:flex fixed left-0 top-14 h-[calc(100vh-3.5rem)] w-16 hover:w-56 focus-within:w-56 overflow-hidden bg-background border-r border-outline-variant hover:surface-card focus-within:surface-card z-40 flex-col px-2 py-space-lg transition-[width,box-shadow] duration-200 ease-out delay-0 hover:delay-100"
       >
         <nav className="flex flex-col gap-0.5">
-          {NAV.map(({ href, label, icon }) => {
+          {[...NAV, ...(user?.role && PILOT_ROLES.has(user.role) ? [PILOT_NAV] : [])].map(({ href, label, icon }) => {
             const active = isActive(href, pathname);
             return (
               <Link
