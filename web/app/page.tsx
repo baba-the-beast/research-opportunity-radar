@@ -9,6 +9,7 @@ import dynamic from 'next/dynamic';
 import { SendToTelegram } from '@/components/SendToTelegram';
 import { eligibilityLabel, eligibilityLine, type EligibilityVerdict } from '@/lib/eligibility';
 import { rescorePending } from '@/lib/rescore';
+import { isActionable } from '@/lib/feed';
 import { callShareText } from '@/lib/share';
 import { BANDS, BAND_RANK, bandLabel, bandTextClass, isGoodMatch, kindName } from '@/lib/match';
 import { Icon, Notice, SegmentedControl, controlClass } from '@/components/ui';
@@ -100,6 +101,8 @@ export default function DashboardPage() {
   const [kind, setKind] = useState<(typeof KINDS)[number]['value']>('all');
   const [minBand, setMinBand] = useState<string>('low');
   const [savedOnly, setSavedOnly] = useState(false);
+  // Off by default: closed, undated and not-eligible calls are hidden until asked for
+  const [showAll, setShowAll] = useState(false);
   const [sortBy, setSortBy] = useState<'score' | 'deadline'>('score');
   const [isOperator, setIsOperator] = useState(false);
   const [lastRun, setLastRun] = useState<PipelineRun | null>(null);
@@ -283,7 +286,11 @@ export default function DashboardPage() {
     setSavedOnly(false);
   };
 
+  // A search looks everywhere, so a specific closed call can still be found
+  const hideInactive = !showAll && !query;
+  const hiddenCount = hideInactive ? opportunities.filter((o) => !isActionable(o)).length : 0;
   const filteredOpps = opportunities
+    .filter((o) => !hideInactive || isActionable(o))
     .filter((o) => !savedOnly || Boolean(o.saved))
     .filter((o) => (BAND_RANK[o.band] ?? 3) <= BAND_RANK[minBand])
     .filter((o) => kind === 'all' || o.kind === kind)
@@ -471,6 +478,23 @@ export default function DashboardPage() {
             </div>
           </div>
 
+          {hiddenCount > 0 && (
+            <p className="text-body-sm text-on-surface-variant">
+              Showing calls you can apply to now. {hiddenCount} closed, undated or not-for-you call{hiddenCount === 1 ? ' is' : 's are'} hidden.{' '}
+              <button type="button" onClick={() => setShowAll(true)} className="text-primary font-semibold underline underline-offset-4">
+                Show them
+              </button>
+            </p>
+          )}
+          {showAll && !query && (
+            <p className="text-body-sm text-on-surface-variant">
+              Showing every call, including closed and undated ones.{' '}
+              <button type="button" onClick={() => setShowAll(false)} className="text-primary font-semibold underline underline-offset-4">
+                Show only open calls
+              </button>
+            </p>
+          )}
+
           {/* List */}
           <div className="flex flex-col rounded-2xl border border-outline-variant divide-y divide-outline-variant bg-surface overflow-hidden">
             {loading ? (
@@ -486,6 +510,13 @@ export default function DashboardPage() {
                   </>
                 ) : opportunities.length === 0 ? (
                   <span>No calls yet. They appear after the next scan (Monday and Thursday mornings, IST).</span>
+                ) : hiddenCount > 0 && !filtersActive ? (
+                  <>
+                    <span>No open calls for you right now. New calls are checked every Monday and Thursday.</span>
+                    <button type="button" onClick={() => setShowAll(true)} className="text-primary hover:underline">
+                      Show closed and undated calls
+                    </button>
+                  </>
                 ) : (
                   <>
                     <span>No calls match these filters.</span>
