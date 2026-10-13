@@ -59,7 +59,7 @@ def test_pipeline_idempotency_second_run_zero_new():
         }
     ])
 
-    def fixed_calls(agency_list, errors=None):
+    def fixed_calls(agency_list, errors=None, stats=None):
         # Fresh objects each run, as a real scan would return
         return [
             Opportunity(
