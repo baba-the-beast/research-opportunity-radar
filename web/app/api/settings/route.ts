@@ -5,6 +5,7 @@ import { consumeRateLimit, rateLimitKey } from '@/lib/rateLimit';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { z } from 'zod';
 import { DEFAULT_SOURCES, SOURCE_IDS } from '@/lib/sources';
+import { DEFAULT_REMINDER_DAYS, REMINDER_OPTIONS } from '@/lib/reminders';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,13 @@ const settingsSchema = z.object({
   telegram_chat_id: z.null().optional(),
   // Digests go out after each scheduled scan (twice a week); 'daily' is kept for older rows
   digest_frequency: z.enum(['daily', 'weekly', 'never']).optional(),
-  preferred_sources: z.array(z.enum(SOURCE_IDS)).min(1).max(SOURCE_IDS.length).optional()
+  preferred_sources: z.array(z.enum(SOURCE_IDS)).min(1).max(SOURCE_IDS.length).optional(),
+  // Days before a deadline to remind; [] turns deadline reminders off
+  reminder_days: z
+    .array(z.number().int().refine((d) => (REMINDER_OPTIONS as readonly number[]).includes(d), 'Unsupported reminder window'))
+    .max(REMINDER_OPTIONS.length)
+    .transform((days) => Array.from(new Set(days)).sort((a, b) => b - a))
+    .optional()
 });
 
 const DEFAULT_SETTINGS = {
@@ -28,7 +35,8 @@ const DEFAULT_SETTINGS = {
   telegram_alerts: false,
   telegram_chat_id: null,
   digest_frequency: 'weekly',
-  preferred_sources: DEFAULT_SOURCES
+  preferred_sources: DEFAULT_SOURCES,
+  reminder_days: DEFAULT_REMINDER_DAYS
 };
 
 export async function GET(req: NextRequest) {
@@ -99,6 +107,15 @@ export async function PATCH(req: NextRequest) {
       .select()
       .single();
 
+    // Before migration 20261008000100 the column does not exist; say so instead of a raw DB error
+    if (error && parsed.data.reminder_days && /reminder_days/.test(error.message)) {
+      return createErrorResponse(
+        'NOT_AVAILABLE_YET',
+        'Reminder settings need a database update that has not been applied yet. Your other settings were not saved; try again without changing reminders.',
+        409,
+        req
+      );
+    }
     if (error) {
       return createErrorResponse('DATABASE_ERROR', error.message, 500, req);
     }

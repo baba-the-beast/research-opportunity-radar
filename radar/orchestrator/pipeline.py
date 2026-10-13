@@ -23,7 +23,8 @@ from radar.tools.funding_deadline_scan import funding_deadline_scan
 logger = get_logger(__name__)
 
 _BAND_RANK = {"not_eligible": -1, "low": 0, "watch": 1, "strong": 2, "high": 3}
-URGENT_WINDOW_DAYS = 3
+# Reminder window when no user has chosen a wider one (radar.notify.recipients default)
+DEFAULT_REMINDER_WINDOW_DAYS = 3
 
 
 def should_alert(score_result, min_band: str = "high") -> bool:
@@ -388,15 +389,26 @@ def run_pipeline(
         # Every opportunity with a deadline in the sentinel window, however long ago it was found
         # (the old "500 most recent" catalog let saved calls fall out of alerting)
         today = today_ist()
+        targets: dict[str, Any] = {}
+        for profile in profiles if not lease.lost else []:
+            try:
+                targets[profile.id] = recipients.resolve_target(profile)
+            except Exception:
+                pass  # resolved again (and the error recorded) in the per-profile loop below
+        # Load only as far ahead as the widest reminder anyone asked for
+        window_days = max(
+            (max(t.reminder_days) for t in targets.values() if t.reminder_days),
+            default=DEFAULT_REMINDER_WINDOW_DAYS,
+        )
         due_soon = (
-            db.load_opportunities_with_deadlines_between(today, today + timedelta(days=URGENT_WINDOW_DAYS))
+            db.load_opportunities_with_deadlines_between(today, today + timedelta(days=window_days))
             if not lease.lost else []
         )
         for profile in profiles if not lease.lost else []:
             # Isolated per profile: one user's bad preferences or a failed lookup must not stop
             # digests and deadline alerts for everyone after them.
             try:
-                target = recipients.resolve_target(profile)
+                target = targets.get(profile.id) or recipients.resolve_target(profile)
                 wanted = _source_names_for(profile)
                 to_alert = [
                     o for o in new_accepted
@@ -419,10 +431,15 @@ def run_pipeline(
                     if channels and len(send_errors) < channels:
                         db.record_alerts(profile.id, [o.id for o in to_alert if o.id], "new_high_relevance", target.channel)
 
-                # URGENT DEADLINE SENTINEL (<= 72 hours) for what this faculty tracks or scored highly
+                # DEADLINE REMINDERS (on the days this user chose) for what they track or scored highly
                 alertable_ids = None
-                if profile.user_id:
+                personal: list[deadline_alert.PersonalDeadline] = []
+                if profile.user_id and target.reminder_days:  # no reminder days: reminders are off
                     alertable_ids = db.load_alertable_opportunity_ids(profile.id, profile.user_id)
+                    personal = [
+                        deadline_alert.PersonalDeadline(**row)
+                        for row in db.load_personal_deadlines(profile.user_id, today, today + timedelta(days=max(target.reminder_days, default=DEFAULT_REMINDER_WINDOW_DAYS)))
+                    ]
                 urgent_alerts.extend(deadline_alert.check_and_send_urgent_deadline_alerts(
                     faculty_id=profile.id,
                     dry_run=(dry_run or suppress_alerts),
@@ -430,6 +447,7 @@ def run_pipeline(
                     opportunity_ids=alertable_ids,
                     opportunities=due_soon,
                     errors=summary.errors,
+                    personal_deadlines=personal,
                 ))
             except Exception as e:
                 logger.error(f"Alerting failed for profile {profile.id}: {e}", run_id=run_id,
@@ -449,7 +467,7 @@ def run_pipeline(
                 "phase": "ALERT",
                 "level": "INFO",
                 "stepIndex": 4,
-                "message": f"Deadline Sentinel dispatched {len(urgent_alerts)} urgent 72-hour notifications.",
+                "message": f"Deadline Sentinel dispatched {len(urgent_alerts)} deadline reminders.",
                 "timestamp": datetime.now(UTC).isoformat()
             })
 

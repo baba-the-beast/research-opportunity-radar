@@ -550,6 +550,62 @@ def insert_scores_bulk(scored: list[tuple[str, dict[str, ScoreResult]]], chunk_s
         client.table("scoring_log").insert(rows[i:i + chunk_size]).execute()
 
 
+def load_personal_deadlines(user_id: str, start: date, end: date) -> list[dict[str, Any]]:
+    """A user's own deadlines (user_opportunity_state.my_deadline) in [start, end], with call details.
+
+    Only calls still being worked on (pursuing or applied) count: once the user stops tracking a call,
+    dismisses it or records an outcome, its date no longer sends reminders. Returns [] if the columns
+    do not exist yet (migration not applied) or a lookup fails, so agency reminders keep working.
+    """
+    client = get_client()
+    try:
+        rows = (
+            client.table("user_opportunity_state")
+            .select("opportunity_id, my_deadline, my_deadline_label, status")
+            .eq("user_id", user_id)
+            .gte("my_deadline", start.isoformat())
+            .lte("my_deadline", end.isoformat())
+            .execute()
+        ).data or []
+    except Exception as e:
+        logger.warning(f"Personal deadlines unavailable for user {user_id}: {e}")
+        return []
+    rows = [r for r in rows if r.get("my_deadline") and r.get("status") in ("pursuing", "applied")]
+    if not rows:
+        return []
+    try:
+        opps = (
+            client.table("opportunities").select("id, title, agency_or_publisher, venue_name")
+            .in_("id", [r["opportunity_id"] for r in rows]).execute()
+        ).data or []
+    except Exception as e:
+        logger.warning(f"Call details for personal deadlines unavailable for user {user_id}: {e}")
+        return []
+    by_id = {o["id"]: o for o in opps}
+    urls: dict[str, str] = {}
+    try:
+        for src in (client.table("opportunity_sources").select("opportunity_id, source_url")
+                    .in_("opportunity_id", list(by_id)).execute()).data or []:
+            urls.setdefault(src["opportunity_id"], src.get("source_url") or "")
+    except Exception:
+        pass
+    out = []
+    for r in rows:
+        opp = by_id.get(r["opportunity_id"])
+        if not opp:
+            continue
+        due = r["my_deadline"]
+        out.append({
+            "opportunity_id": r["opportunity_id"],
+            "deadline_date": due if isinstance(due, date) else date.fromisoformat(str(due)[:10]),
+            "label": (r.get("my_deadline_label") or "").strip(),
+            "title": opp.get("title") or "",
+            "agency_or_publisher": opp.get("agency_or_publisher") or opp.get("venue_name") or "",
+            "url": urls.get(r["opportunity_id"], ""),
+        })
+    return out
+
+
 def load_alertable_opportunity_ids(faculty_id: str, user_id: str | None) -> set[str]:
     """Opportunities a faculty member should get deadline alerts for: ones they saved or are
     pursuing/applied to, plus ones scored high/strong for them."""

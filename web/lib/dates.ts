@@ -18,6 +18,11 @@ export function daysUntil(deadline: string, today: string = istDate()): number {
   return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86_400_000);
 }
 
+/** "today", "tomorrow", "in 5 days" or "passed" for a daysUntil() result. */
+export function relativeDays(days: number): string {
+  return days < 0 ? 'passed' : days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`;
+}
+
 /** "15 Oct 2026" */
 export function formatDeadline(deadline: string): string {
   const [y, m, d] = deadline.slice(0, 10).split('-').map(Number);

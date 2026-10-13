@@ -1,12 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTheme } from '@/components/ThemeProvider';
 import { getSupabaseBrowserClient } from '@/lib/supabaseBrowserClient';
 import { TelegramConnect } from '@/components/TelegramConnect';
 import { DEFAULT_SOURCES, SOURCE_OPTIONS } from '@/lib/sources';
+import { useUnsavedChanges } from '@/lib/useUnsavedChanges';
+import { DEFAULT_REMINDER_DAYS, REMINDER_OPTIONS } from '@/lib/reminders';
+import { Badge, Button, Field, LoadingRows, Notice, Page, PageHeader, Panel, SegmentedControl, Switch, controlClass } from '@/components/ui';
 
 interface SettingsData {
   theme: 'light' | 'dark' | 'system';
@@ -16,6 +19,7 @@ interface SettingsData {
   telegram_chat_id: string | null;
   digest_frequency: 'daily' | 'weekly' | 'never';
   preferred_sources: string[];
+  reminder_days: number[];
 }
 
 export default function SettingsPage() {
@@ -29,7 +33,8 @@ export default function SettingsPage() {
     telegram_alerts: false,
     telegram_chat_id: null,
     digest_frequency: 'weekly',
-    preferred_sources: DEFAULT_SOURCES
+    preferred_sources: DEFAULT_SOURCES,
+    reminder_days: DEFAULT_REMINDER_DAYS
   });
 
   const [user, setUser] = useState<{ id: string; email?: string; name?: string } | null>(null);
@@ -37,9 +42,10 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Last saved reminders: only sent when changed, so saving still works before the reminders migration
+  const savedReminders = useRef<string>(JSON.stringify(DEFAULT_REMINDER_DAYS));
 
   useEffect(() => {
-    // Load current user and preferences
     try {
       const supabase = getSupabaseBrowserClient();
       supabase.auth.getUser().then(({ data: { user } }) => {
@@ -47,29 +53,39 @@ export default function SettingsPage() {
           setUser({
             id: user.id,
             email: user.email,
-            name: user.user_metadata?.full_name || 'Investigator'
+            name: user.user_metadata?.full_name || 'Researcher'
           });
         }
       });
     } catch {
-      // Ignore
+      // Supabase not configured: no account section details
     }
 
     fetch('/api/settings')
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data) {
-          setSettings((prev) => ({ ...prev, ...data, preferred_sources: data.preferred_sources?.length ? data.preferred_sources : DEFAULT_SOURCES }));
+          const reminders = Array.isArray(data.reminder_days) ? [...data.reminder_days].sort((a: number, b: number) => b - a) : DEFAULT_REMINDER_DAYS;
+          savedReminders.current = JSON.stringify(reminders);
+          setSettings((prev) => ({ ...prev, ...data, reminder_days: reminders, preferred_sources: data.preferred_sources?.length ? data.preferred_sources : DEFAULT_SOURCES }));
         }
-        setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => setErrorMessage('Your settings did not load. Refresh the page before making changes.'))
+      .finally(() => setLoading(false));
   }, []);
+
+  const { theme: _theme, ...editable } = settings;
+  const { dirty, markSaved } = useUnsavedChanges({ ...editable, preferred_sources: [...editable.preferred_sources].sort() }, !loading);
+
+  const update = (patch: Partial<SettingsData>) => {
+    setSaveSuccess(false);
+    setSettings((prev) => ({ ...prev, ...patch }));
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!settings.preferred_sources.length) {
-      setErrorMessage('Choose at least one source.');
+      setErrorMessage('Not saved. Choose at least one source to search.');
       return;
     }
     setSaving(true);
@@ -87,19 +103,21 @@ export default function SettingsPage() {
           email_alerts: settings.email_alerts,
           telegram_alerts: settings.telegram_alerts,
           digest_frequency: settings.digest_frequency === 'daily' ? 'weekly' : settings.digest_frequency,
-          preferred_sources: settings.preferred_sources
+          preferred_sources: settings.preferred_sources,
+          ...(JSON.stringify(settings.reminder_days) !== savedReminders.current ? { reminder_days: settings.reminder_days } : {})
         })
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
       if (res.ok) {
         setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 3000);
+        savedReminders.current = JSON.stringify(settings.reminder_days);
+        markSaved();
       } else {
-        setErrorMessage(data?.error?.message || 'Failed to save settings.');
+        setErrorMessage(`Not saved: ${data?.error?.message || `HTTP ${res.status}`}`);
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Error saving settings.');
+      setErrorMessage(`Not saved: ${err.message}. Check your connection and try again.`);
     } finally {
       setSaving(false);
     }
@@ -107,352 +125,244 @@ export default function SettingsPage() {
 
   const handleSignOut = async () => {
     try {
-      const supabase = getSupabaseBrowserClient();
-      await supabase.auth.signOut();
+      await getSupabaseBrowserClient().auth.signOut();
       router.push('/login');
       router.refresh();
     } catch {
-      // Ignore
+      setErrorMessage('Sign-out failed. Refresh the page and try again.');
     }
   };
 
   if (loading) {
     return (
-      <div className="p-space-xl max-w-4xl mx-auto flex items-center justify-center min-h-[60vh]">
-        <div className="flex items-center gap-3 text-on-surface-variant font-data-mono-sm">
-          <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></span>
-          <span>Loading platform settings...</span>
-        </div>
-      </div>
+      <Page narrow>
+        <Panel>
+          <LoadingRows rows={4} label="Loading settings" />
+        </Panel>
+      </Page>
     );
   }
 
+  const indiaSources = SOURCE_OPTIONS.filter((s) => s.region !== 'us');
+  const usSources = SOURCE_OPTIONS.filter((s) => s.region === 'us');
+  const sourceList = (list: typeof SOURCE_OPTIONS) => (
+    <ul className="flex flex-col divide-y divide-outline-variant border-y border-outline-variant">
+      {list.map((source) => {
+        const checked = settings.preferred_sources.includes(source.id);
+        return (
+          <li key={source.id}>
+            <label className="flex items-start gap-3 py-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={(e) =>
+                  update({
+                    preferred_sources: e.target.checked
+                      ? [...settings.preferred_sources, source.id]
+                      : settings.preferred_sources.filter((id) => id !== source.id)
+                  })
+                }
+                className="w-5 h-5 mt-0.5 accent-primary shrink-0"
+              />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-body-md font-semibold text-on-surface">{source.label}</span>
+                <span className="text-body-sm text-on-surface-variant">{source.description}</span>
+              </span>
+            </label>
+          </li>
+        );
+      })}
+    </ul>
+  );
+
   return (
-    <div className="p-space-xl max-w-4xl mx-auto space-y-8">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-outline-variant/30">
-        <div>
-          <h1 className="font-headline-lg text-headline-lg text-on-surface tracking-tight">
-            Platform Settings
-          </h1>
-          <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
-            Configure observatory interface, relevance thresholds, alert dispatches, and security
-          </p>
-        </div>
+    <Page narrow>
+      <PageHeader title="Settings" description="How and when you hear about new calls, where we search, and your account." />
 
-        <div className="flex items-center gap-3">
-          <Link
-            href="/profile"
-            className="px-3.5 py-2 rounded-lg border border-outline-variant text-body-sm text-on-surface hover:bg-surface-container-high transition-colors flex items-center gap-1.5"
-          >
-            <span className="material-symbols-outlined text-[16px]">person_search</span>
-            <span>Profile Calibration</span>
-          </Link>
-          <button
-            onClick={handleSignOut}
-            className="px-3.5 py-2 rounded-lg bg-error-container/30 border border-error/40 text-on-surface hover:bg-error-container/60 text-body-sm font-bold transition-colors flex items-center gap-1.5"
-          >
-            <span className="material-symbols-outlined text-[16px] text-error">logout</span>
-            <span>Sign Out</span>
-          </button>
-        </div>
-      </div>
+      {errorMessage && <Notice tone="danger">{errorMessage}</Notice>}
 
-      {saveSuccess && (
-        <div className="p-4 rounded-xl bg-secondary-container/40 border border-secondary/40 text-on-surface text-body-sm flex items-center gap-2">
-          <span className="material-symbols-outlined text-secondary text-[20px]">check_circle</span>
-          <span>Observatory configuration saved successfully!</span>
-        </div>
-      )}
-
-      {errorMessage && (
-        <div className="p-4 rounded-xl bg-error-container/40 border border-error/30 text-on-surface text-body-sm flex items-center gap-2">
-          <span className="material-symbols-outlined text-error text-[20px]">error</span>
-          <span>{errorMessage}</span>
-        </div>
-      )}
-
-      <form onSubmit={handleSave} className="space-y-8">
-        {/* Section 1: Visual Theme Calibration */}
-        <div className="bg-surface-container border border-outline-variant/30 rounded-xl p-6 space-y-4">
-          <div className="flex items-center gap-3 pb-3 border-b border-outline-variant/20">
-            <span className="material-symbols-outlined text-primary text-[22px]">palette</span>
-            <div>
-              <h2 className="font-headline-sm text-body-lg font-bold text-on-surface">
-                Interface Appearance
-              </h2>
-              <p className="font-body-sm text-body-sm text-on-surface-variant">
-                Select your preferred visual theme for reading academic calls
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
-            <button
-              type="button"
-              onClick={() => {
-                setTheme('light');
-                setSettings({ ...settings, theme: 'light' });
-              }}
-              className={`p-4 rounded-xl border text-left transition-all ${
-                theme === 'light'
-                  ? 'border-primary bg-primary/10 shadow-sm'
-                  : 'border-outline-variant/40 bg-surface-container-lowest hover:border-outline-variant'
-              }`}
-            >
-              <div className="flex items-center gap-2 font-bold text-on-surface mb-1">
-                <span className="material-symbols-outlined text-[20px] text-primary">light_mode</span>
-                <span>Light Mode</span>
-              </div>
-              <p className="text-[12px] text-on-surface-variant">
-                Warm academic parchment with crisp ink contrast.
-              </p>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setTheme('dark');
-                setSettings({ ...settings, theme: 'dark' });
-              }}
-              className={`p-4 rounded-xl border text-left transition-all ${
-                theme === 'dark'
-                  ? 'border-primary bg-primary/10 shadow-sm'
-                  : 'border-outline-variant/40 bg-surface-container-lowest hover:border-outline-variant'
-              }`}
-            >
-              <div className="flex items-center gap-2 font-bold text-on-surface mb-1">
-                <span className="material-symbols-outlined text-[20px] text-primary">dark_mode</span>
-                <span>Dark Mode</span>
-              </div>
-              <p className="text-[12px] text-on-surface-variant">
-                Deep observatory midnight with brass accents.
-              </p>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setTheme('system');
-                setSettings({ ...settings, theme: 'system' });
-              }}
-              className={`p-4 rounded-xl border text-left transition-all ${
-                theme === 'system'
-                  ? 'border-primary bg-primary/10 shadow-sm'
-                  : 'border-outline-variant/40 bg-surface-container-lowest hover:border-outline-variant'
-              }`}
-            >
-              <div className="flex items-center gap-2 font-bold text-on-surface mb-1">
-                <span className="material-symbols-outlined text-[20px] text-primary">settings_brightness</span>
-                <span>System Automatic</span>
-              </div>
-              <p className="text-[12px] text-on-surface-variant">
-                Dynamically matches your operating system preference.
-              </p>
-            </button>
-          </div>
-        </div>
-
-        {/* Sources */}
-        <div className="bg-surface-container border border-outline-variant/30 rounded-xl p-6 space-y-4">
-          <div className="flex items-center gap-3 pb-3 border-b border-outline-variant/20">
-            <span className="material-symbols-outlined text-primary text-[22px]">travel_explore</span>
-            <div>
-              <h2 className="font-headline-sm text-body-lg font-bold text-on-surface">Sources</h2>
-              <p className="font-body-sm text-body-sm text-on-surface-variant">
-                Where your digests come from. Indian agencies and calls for papers are on by default; US sources are mostly for US institutions.
-              </p>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-            {SOURCE_OPTIONS.map((source) => {
-              const checked = settings.preferred_sources.includes(source.id);
-              return (
-                <label
-                  key={source.id}
-                  className="flex items-start gap-3 p-3.5 rounded-lg bg-surface-container-lowest border border-outline-variant/30 cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        preferred_sources: e.target.checked
-                          ? [...settings.preferred_sources, source.id]
-                          : settings.preferred_sources.filter((id) => id !== source.id)
-                      })
-                    }
-                    className="w-5 h-5 mt-0.5 accent-primary rounded"
-                  />
-                  <span>
-                    <span className="font-bold text-on-surface text-body-md block">
-                      {source.label}
-                      {source.region === 'us' && <span className="ml-2 text-[11px] font-normal text-on-surface-variant">US</span>}
-                    </span>
-                    <span className="font-body-sm text-body-sm text-on-surface-variant">{source.description}</span>
+      <form onSubmit={handleSave} className="flex flex-col gap-8">
+        <Panel title="Notifications" description="Digests are sent after each scan, on Monday and Thursday mornings (IST).">
+          <div className="flex flex-col divide-y divide-outline-variant -my-3">
+            <Switch
+              checked={settings.email_alerts}
+              onChange={(v) => update({ email_alerts: v })}
+              label="Email"
+              description="New matching calls and reminders 3 days before deadlines."
+            />
+            <div className="flex flex-col gap-3 pb-3">
+              <Switch
+                checked={settings.telegram_alerts}
+                onChange={(v) => update({ telegram_alerts: v })}
+                label={
+                  <span className="inline-flex items-center gap-2">
+                    Telegram {settings.telegram_chat_id && <Badge tone="success">Connected</Badge>}
                   </span>
-                </label>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Section 2: Relevance Calibration Threshold */}
-        <div className="bg-surface-container border border-outline-variant/30 rounded-xl p-6 space-y-4">
-          <div className="flex items-center gap-3 pb-3 border-b border-outline-variant/20">
-            <span className="material-symbols-outlined text-primary text-[22px]">tune</span>
-            <div>
-              <h2 className="font-headline-sm text-body-lg font-bold text-on-surface">
-                Minimum Relevance Score
-              </h2>
-              <p className="font-body-sm text-body-sm text-on-surface-variant">
-                Filter opportunities below this composite match score (0 - 100)
-              </p>
+                }
+                description="The same digests and reminders, in a Telegram chat."
+              />
+              {(settings.telegram_alerts || settings.telegram_chat_id) && (
+                <TelegramConnect
+                  connected={Boolean(settings.telegram_chat_id)}
+                  onConnectionChange={(change) => setSettings((prev) => ({ ...prev, ...change }))}
+                />
+              )}
             </div>
+            <div className="py-4">
+              <Field label="Digest">
+                {(c) => (
+                  <select
+                    {...c}
+                    value={settings.digest_frequency === 'daily' ? 'weekly' : settings.digest_frequency}
+                    onChange={(e) => update({ digest_frequency: e.target.value as SettingsData['digest_frequency'] })}
+                    className={controlClass}
+                  >
+                    <option value="weekly">After every scan (twice a week)</option>
+                    <option value="never">Off (deadline reminders only)</option>
+                  </select>
+                )}
+              </Field>
+            </div>
+            <fieldset className="py-4 flex flex-col gap-2">
+              <legend className="text-body-md font-semibold text-on-surface">Deadline reminders</legend>
+              <p className="text-body-sm text-on-surface-variant">
+                For calls you saved, are applying to, or that match you strongly, and for your own deadlines. Reminders go out with
+                the next scan (Monday or Thursday morning) after a deadline comes this close.
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {REMINDER_OPTIONS.map((days) => {
+                  const on = settings.reminder_days.includes(days);
+                  return (
+                    <label
+                      key={days}
+                      className={`inline-flex items-center gap-2 min-h-11 sm:min-h-9 px-3 rounded-lg border cursor-pointer text-body-sm transition-colors ${
+                        on ? 'border-primary bg-primary-soft text-primary font-semibold' : 'border-outline text-on-surface hover:bg-surface-container'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={(e) =>
+                          update({
+                            reminder_days: (e.target.checked
+                              ? [...settings.reminder_days, days]
+                              : settings.reminder_days.filter((d) => d !== days)
+                            ).sort((a, b) => b - a)
+                          })
+                        }
+                        className="w-4 h-4 accent-primary"
+                      />
+                      {days === 1 ? '1 day before' : `${days} days before`}
+                    </label>
+                  );
+                })}
+              </div>
+              {settings.reminder_days.length === 0 && (
+                <p className="text-body-sm text-tertiary">Deadline reminders are off. You will not be warned before any deadline.</p>
+              )}
+            </fieldset>
           </div>
+        </Panel>
 
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between font-data-mono-sm text-data-mono-sm">
-              <span className="text-on-surface-variant">THRESHOLD FILTER</span>
-              <span className="text-primary font-bold text-headline-sm">{settings.min_score} / 100</span>
+        <Panel
+          title="Score threshold"
+          description={
+            <>
+              Calls below this score are left out of your digest. It works together with the{' '}
+              <Link href="/profile#digest" className="text-primary underline underline-offset-4">
+                minimum match level
+              </Link>{' '}
+              in your profile.
+            </>
+          }
+        >
+          <div className="flex flex-col gap-3">
+            <div className="flex items-baseline justify-between">
+              <label htmlFor="min-score" className="text-body-sm font-semibold text-on-surface">
+                Minimum score
+              </label>
+              <span className="text-headline-sm font-semibold text-primary tabular-nums">{settings.min_score}</span>
             </div>
             <input
+              id="min-score"
               type="range"
               min="0"
               max="95"
               step="5"
               value={settings.min_score}
-              onChange={(e) => setSettings({ ...settings, min_score: parseInt(e.target.value, 10) })}
-              className="w-full accent-primary"
+              onChange={(e) => update({ min_score: parseInt(e.target.value, 10) })}
+              aria-valuetext={`${settings.min_score} out of 100`}
+              className="w-full accent-primary h-11 sm:h-6"
             />
-            <div className="flex justify-between text-[11px] text-on-surface-variant font-data-mono-sm">
-              <span>0 (All Opportunities)</span>
-              <span>50 (Watch Band)</span>
-              <span>75 (Strong Matches Only)</span>
+            <div className="flex justify-between text-body-sm text-on-surface-variant">
+              <span>0, every call</span>
+              <span>50, watch and above</span>
+              <span>80, high only</span>
             </div>
           </div>
-        </div>
+        </Panel>
 
-        {/* Section 3: Notification & Alert Channels */}
-        <div className="bg-surface-container border border-outline-variant/30 rounded-xl p-6 space-y-4">
-          <div className="flex items-center gap-3 pb-3 border-b border-outline-variant/20">
-            <span className="material-symbols-outlined text-primary text-[22px]">notifications_active</span>
-            <div>
-              <h2 className="font-headline-sm text-body-lg font-bold text-on-surface">
-                Alert Channels & Digest Schedule
-              </h2>
-              <p className="font-body-sm text-body-sm text-on-surface-variant">
-                Digests are sent after each scheduled scan (Monday and Thursday mornings, IST)
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-4 pt-2">
-            <label className="flex items-center justify-between p-3.5 rounded-lg bg-surface-container-lowest border border-outline-variant/30 cursor-pointer">
-              <div>
-                <span className="font-bold text-on-surface text-body-md block">Email Dispatch Alerts</span>
-                <span className="font-body-sm text-body-sm text-on-surface-variant">
-                  Receive critical deadline warnings and new high-relevance calls via email.
-                </span>
+        <Panel title="Sources" description="Where we search. Indian agencies and calls for papers are on by default.">
+          <div className="flex flex-col gap-5">
+            {sourceList(indiaSources)}
+            {usSources.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <h3 className="text-body-sm font-semibold text-on-surface">United States</h3>
+                <p className="text-body-sm text-on-surface-variant">Mostly open to US institutions only.</p>
+                {sourceList(usSources)}
               </div>
-              <input
-                type="checkbox"
-                checked={settings.email_alerts}
-                onChange={(e) => setSettings({ ...settings, email_alerts: e.target.checked })}
-                className="w-5 h-5 accent-primary rounded"
-              />
-            </label>
-
-            <label className="flex items-center justify-between p-3.5 rounded-lg bg-surface-container-lowest border border-outline-variant/30 cursor-pointer">
-              <div>
-                <span className="font-bold text-on-surface text-body-md block">Telegram Bot Alerts</span>
-                <span className="font-body-sm text-body-sm text-on-surface-variant">
-                  Digests and 3-day deadline warnings in Telegram.
-                </span>
-              </div>
-              <input
-                type="checkbox"
-                checked={settings.telegram_alerts}
-                onChange={(e) => setSettings({ ...settings, telegram_alerts: e.target.checked })}
-                className="w-5 h-5 accent-primary rounded"
-              />
-            </label>
-
-            {(settings.telegram_alerts || settings.telegram_chat_id) && (
-              <TelegramConnect
-                connected={Boolean(settings.telegram_chat_id)}
-                onConnectionChange={(update) => setSettings((prev) => ({ ...prev, ...update }))}
-              />
             )}
-
-            <div className="p-3.5 rounded-lg bg-surface-container-lowest border border-outline-variant/30 space-y-2">
-              <label className="font-label-caps text-label-caps text-on-surface-variant uppercase">
-                Digest Frequency
-              </label>
-              <select
-                value={settings.digest_frequency === 'daily' ? 'weekly' : settings.digest_frequency}
-                onChange={(e) => setSettings({ ...settings, digest_frequency: e.target.value as any })}
-                className="w-full px-3.5 py-2.5 rounded-lg bg-surface-container border border-outline-variant/40 text-on-surface text-body-sm focus:outline-none"
-              >
-                <option value="weekly">After every scan (twice a week)</option>
-                <option value="never">Never (deadline alerts only)</option>
-              </select>
-            </div>
           </div>
-        </div>
+        </Panel>
 
-        {/* Section 4: Account & Node Information */}
-        <div className="bg-surface-container border border-outline-variant/30 rounded-xl p-6 space-y-4">
-          <div className="flex items-center gap-3 pb-3 border-b border-outline-variant/20">
-            <span className="material-symbols-outlined text-primary text-[22px]">badge</span>
-            <div>
-              <h2 className="font-headline-sm text-body-lg font-bold text-on-surface">
-                Investigator Identity & Node
-              </h2>
-              <p className="font-body-sm text-body-sm text-on-surface-variant">
-                Active account credentials and node binding
-              </p>
-            </div>
+        <Panel title="Appearance" description="Applies right away on this device.">
+          <SegmentedControl
+            label="Theme"
+            value={theme}
+            onChange={(v) => {
+              setTheme(v);
+              update({ theme: v });
+            }}
+            options={[
+              { value: 'light', label: 'Light' },
+              { value: 'dark', label: 'Dark' },
+              { value: 'system', label: 'Match device' }
+            ]}
+          />
+        </Panel>
+
+        <div className="sticky bottom-20 lg:bottom-4 z-30">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl surface-card bg-surface/95 backdrop-blur px-4 sm:px-5 py-3">
+            <p role="status" aria-live="polite" className={`text-body-sm ${saveSuccess && !dirty ? 'text-secondary' : 'text-on-surface-variant'}`}>
+              {dirty ? 'You have unsaved changes.' : saveSuccess ? 'Settings saved.' : 'All changes saved.'}
+            </p>
+            <Button type="submit" variant="primary" disabled={saving || !dirty}>
+              {saving ? 'Saving…' : 'Save settings'}
+            </Button>
           </div>
-
-          <div className="space-y-2 text-body-sm font-data-mono-sm">
-            <div className="flex justify-between py-2 border-b border-outline-variant/20">
-              <span className="text-on-surface-variant">INVESTIGATOR:</span>
-              <span className="text-on-surface font-bold">{user?.name || 'Academic Investigator'}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-outline-variant/20">
-              <span className="text-on-surface-variant">EMAIL:</span>
-              <span className="text-on-surface">{user?.email || 'unconfigured'}</span>
-            </div>
-            <div className="flex justify-between py-2">
-              <span className="text-on-surface-variant">NODE ID:</span>
-              <span className="text-on-surface">{user?.id ? `${user.id.slice(0, 16)}...` : 'local-node'}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Save Button */}
-        <div className="flex justify-end pt-4">
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-6 py-3 rounded-lg bg-primary text-on-primary font-bold font-body-md hover:bg-primary-fixed-dim transition-all shadow-md flex items-center gap-2 disabled:opacity-50"
-          >
-            {saving ? (
-              <>
-                <span className="w-4 h-4 border-2 border-on-primary border-t-transparent rounded-full animate-spin"></span>
-                <span>Saving Preferences...</span>
-              </>
-            ) : (
-              <>
-                <span className="material-symbols-outlined text-[18px]">save</span>
-                <span>Save All Settings</span>
-              </>
-            )}
-          </button>
         </div>
       </form>
-    </div>
+
+      <Panel title="Account">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <dl className="flex flex-col gap-0.5 min-w-0">
+            <dt className="sr-only">Name</dt>
+            <dd className="text-body-md font-semibold text-on-surface">{user?.name || 'Researcher'}</dd>
+            <dt className="sr-only">Email</dt>
+            <dd className="text-body-sm text-on-surface-variant truncate">{user?.email || 'Not signed in'}</dd>
+          </dl>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/profile" className="inline-flex items-center min-h-11 sm:min-h-9 px-4 rounded-lg border border-outline-variant text-body-sm font-semibold text-on-surface hover:bg-surface-container">
+              Edit research profile
+            </Link>
+            {user && (
+              <Button variant="danger" icon="logout" onClick={handleSignOut}>
+                Sign out
+              </Button>
+            )}
+          </div>
+        </div>
+      </Panel>
+    </Page>
   );
 }
