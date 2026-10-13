@@ -1,8 +1,11 @@
 """The configurable listing adapter and the funders it covers."""
+import pytest
+
 from radar import config
 from radar.sources.agencies import gov_cms_adapter, listing_adapter
 from radar.sources.agencies.gov_cms_adapter import MoESAdapter
-from radar.sources.agencies.listing_adapter import ListingAdapter, ListingSource, parse_listing
+from radar.sources.agencies.listing_adapter import ListingAdapter, ListingSource, call_pdf, parse_listing
+from radar.sources.agency_scraper_base import latest_cued_deadline
 from radar.tools.funding_deadline_scan import AGENCY_REGISTRY
 
 PAGE = """
@@ -88,3 +91,21 @@ def test_new_default_funders_reach_users_who_kept_the_old_defaults():
     assert set(config.with_new_defaults(list(config.LEGACY_DEFAULT_SOURCES))) == set(config.DEFAULT_SOURCES)
     opted_out = ["ANRF", "DBT", "WikiCFP"]  # turned DST and others off
     assert config.with_new_defaults(opted_out) == opted_out
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    ("proposals should be submitted latest by 31st December, 2025. Indian", "2025-12-31"),
+    ("the application must reach not later than 15.11.2026", "2026-11-15"),
+    ("Applications close on 30 Nov 2026.", "2026-11-30"),
+    ("The symposium will be held on 28th October 2026 in Delhi.", None),  # an event, not a deadline
+])
+def test_indian_deadline_phrasings(text, expected):
+    assert latest_cued_deadline(text) == expected
+
+
+def test_call_pdf_skips_sidebar_and_unrelated_pdfs():
+    html = """<aside><a href="/chart.pdf">Organisational Chart</a></aside>
+    <main><a href="/form.pdf">Application Form</a> <a href="/other.pdf">Guidelines for Professor of Practice</a>
+    <a href="/history.pdf">Call for Research Proposal on History of Science 2026</a></main>"""
+    assert call_pdf(html, "Call for Research Proposal on History of Science 2026") == "/history.pdf"
+    assert call_pdf(html, "UGC Research Awards") is None

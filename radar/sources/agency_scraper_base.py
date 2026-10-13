@@ -66,7 +66,15 @@ def is_scraping_allowed(url: str, user_agent: str = "ResearchOpportunityRadar") 
         return True
 
 
-_DEADLINE_CUE = re.compile(r"(last\s+date|deadline|closing\s+date|cut-?\s?off\s+date|due\s+date|on\s+or\s+before|submission\s+date)", re.I)
+# Phrases that introduce a submission deadline in Indian call notices ("latest by 31st December, 2025",
+# "not later than 15.11.2026"). Shared with the PDF reader (radar.sources.pdf_details).
+DEADLINE_CUE = re.compile(
+    r"(last\s+date|deadline|closing\s+date|cut-?\s?off\s+date|due\s+date|on\s+or\s+before|submission\s+(?:date|deadline)|"
+    r"latest\s+by|not\s+later\s+than|no\s+later\s+than|(?:submitted|received|reach\w*|apply)\s+(?:on\s+or\s+)?(?:by|before)|"
+    r"(?:applications?|portal|call)\s+(?:will\s+)?close[sd]?\s+(?:on|by))",
+    re.I,
+)
+_DEADLINE_CUE = DEADLINE_CUE
 
 
 def latest_cued_deadline(text: str) -> str | None:

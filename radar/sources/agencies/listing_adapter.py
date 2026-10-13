@@ -95,7 +95,7 @@ def parse_listing(html: str, source: ListingSource) -> list[dict[str, Any]]:
     return calls
 
 
-def parse_call_page(html: str, base_url: str) -> dict[str, Any]:
+def parse_call_page(html: str, base_url: str, title: str = "") -> dict[str, Any]:
     """Deadline, summary, eligibility and attached PDF from a call's own page."""
     text = page_text(html)
     details: dict[str, Any] = {}
@@ -107,11 +107,40 @@ def parse_call_page(html: str, base_url: str) -> dict[str, Any]:
     eligibility = eligibility_excerpt(text)
     if eligibility:
         details["eligibility_clause"] = eligibility
-    soup = BeautifulSoup(html, "html.parser")
-    pdf = next((a["href"] for a in soup.find_all("a", href=True) if urlparse(a["href"]).path.lower().endswith(".pdf")), None)
+    pdf = call_pdf(html, title)
     if pdf:
         details["pdf_url"] = urljoin(base_url, pdf)
     return details
+
+
+_WORD = re.compile(r"[a-z]{4,}")
+# Words in nearly every call title: sharing one says nothing about whether a PDF belongs to this call
+_GENERIC = {"call", "calls", "research", "proposal", "proposals", "application", "applications", "invited",
+            "inviting", "invites", "scheme", "programme", "program", "fellowship", "fellowships", "notice",
+            "public", "regarding", "under", "with", "from", "india", "indian", "national", "nominations"}
+_NOT_THE_CALL_PDF = re.compile(r"(organi[sz]ational chart|citizen'?s? charter|annual report|application form|proforma|format)", re.I)
+
+
+def call_pdf(html: str, title: str) -> str | None:
+    """The call's own PDF on its page: from the main content (not sidebars), preferring the link
+    whose text or file name shares the most words with the call title. None if no link shares any."""
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["nav", "header", "footer", "aside"]):
+        tag.decompose()
+    main = soup.find("main") or soup.select_one("#content, .region-content, #main-content, article") or soup.body or soup
+    title_words = set(_WORD.findall(title.lower())) - _GENERIC
+    best, best_score = None, 0  # a PDF sharing no word with the title belongs to something else
+    for link in main.find_all("a", href=True):
+        href = link["href"]
+        if not urlparse(href).path.lower().endswith(".pdf"):
+            continue
+        label = f"{link.get_text(' ', strip=True)} {href}"
+        if _NOT_THE_CALL_PDF.search(label):
+            continue
+        score = len(title_words & set(_WORD.findall(label.lower())))
+        if score > best_score:
+            best, best_score = href, score
+    return best
 
 
 class ListingAdapter(AgencyAdapter):
@@ -129,7 +158,7 @@ class ListingAdapter(AgencyAdapter):
             if not call["pdf_url"] and detail_pages < self.source.max_detail_pages:
                 detail_pages += 1
                 try:
-                    details = parse_call_page(fetch(call["url"]).text, call["url"])
+                    details = parse_call_page(fetch(call["url"]).text, call["url"], call["title"])
                     call.update({k: v for k, v in details.items() if v and (k != "deadline" or not call["deadline"])})
                 except FetchError:
                     pass
