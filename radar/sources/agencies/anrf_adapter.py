@@ -3,6 +3,9 @@
 anrfonline.in fills its "Ongoing / Upcoming calls" panels from a small JavaScript data file,
 ``schemeinterval.js``: ``var schemeobj = {"items": [{"1": [name, code, "YYYY/MM/DD hh:mm:ss" start,
 end, detail path]}, ...]}``. ``schemeintervalnew.js`` lists programmes open all year (no dates).
+
+Each call's detail page states its objective and eligibility (Indian national, regular post, years
+to superannuation, PhD, ...). Those pages are read so the eligibility check has the call's own words.
 """
 import json
 import re
@@ -10,12 +13,13 @@ from datetime import datetime
 from typing import Any
 
 from radar.deadlines.deadline_engine import today_ist
-from radar.sources.agency_scraper_base import AgencyAdapter
-from radar.sources.http import fetch
+from radar.sources.agency_scraper_base import AgencyAdapter, eligibility_excerpt, page_text
+from radar.sources.http import FetchError, fetch
 
 BASE = "https://anrfonline.in"
 DATED_CALLS_URL = f"{BASE}/ANRF/resources/app_srv/serb/gl/jssrc/schemeinterval.js"
 ROLLING_CALLS_URL = f"{BASE}/ANRF/resources/app_srv/serb/gl/jssrc/schemeintervalnew.js"
+MAX_DETAIL_PAGES = 15
 
 
 def parse_scheme_js(text: str) -> list[list[Any]]:
@@ -33,6 +37,18 @@ def _date(raw: str) -> str | None:
         return None
     year, month, day = (int(g) for g in match.groups())
     return datetime(year, month, day).date().isoformat()
+
+
+def parse_anrf_detail(html: str) -> dict[str, Any]:
+    """Summary, eligibility and full guideline text from a call's detail page."""
+    text = page_text(html)
+    if len(text.split()) < 50:
+        return {}  # a stub or error page
+    details: dict[str, Any] = {"summary": text[:800], "solicitation_guidelines": text[:12000]}
+    eligibility = eligibility_excerpt(text)
+    if eligibility:
+        details["eligibility_clause"] = eligibility
+    return details
 
 
 def _clean(name: str) -> str:
@@ -80,4 +96,10 @@ class ANRFAdapter(AgencyAdapter):
                     })
         except Exception:
             pass
+
+        for call in [c for c in calls if c["url"] != self.url][:MAX_DETAIL_PAGES]:
+            try:
+                call.update(parse_anrf_detail(fetch(call["url"]).text))
+            except FetchError:
+                pass  # the listing entry is still usable
         return calls

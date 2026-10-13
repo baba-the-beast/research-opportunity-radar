@@ -81,6 +81,18 @@ def latest_cued_deadline(text: str) -> str | None:
     return max(found).isoformat() if found else None
 
 
+_ELIGIBILITY_HEADING = re.compile(r"\b(eligibility(?:\s+criteria)?|who\s+can\s+apply|who\s+is\s+eligible)\b\s*:?", re.I)
+
+
+def eligibility_excerpt(text: str, chars: int = 1500) -> str | None:
+    """The text after a call page's "Eligibility" / "Who can apply" heading, for the eligibility check."""
+    match = _ELIGIBILITY_HEADING.search(text)
+    if not match:
+        return None
+    excerpt = text[match.start():match.start() + chars].strip()
+    return excerpt or None
+
+
 def page_text(html: str) -> str:
     """Readable text of a page's main content (navigation, scripts and footers removed)."""
     soup = BeautifulSoup(html, "html.parser")
