@@ -1,0 +1,46 @@
+name: opportunity-radar-rescore
+# Scores the stored catalog for a profile that was just created or edited, so a new user sees
+# matches within minutes instead of waiting for the next scheduled scan. Dispatched by the dashboard
+# (POST /api/profile/rescore). Reads no external source and sends no alerts.
+on:
+  workflow_dispatch:
+    inputs:
+      user_id:
+        description: 'Auth user id whose profile to rescore (empty: every profile waiting)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+# One rescore at a time; a queued one picks up every profile still waiting
+concurrency:
+  group: radar-rescore
+  cancel-in-progress: false
+
+jobs:
+  rescore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Cache sentence-transformers model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-minilm-l6-v2
+      - name: Install dependencies (CPU PyTorch)
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+      - name: Rescore
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          USER_ID: ${{ inputs.user_id }}
+        run: |
+          if [ -n "$USER_ID" ]; then python -m radar.orchestrator.rescore --user "$USER_ID"; else python -m radar.orchestrator.rescore; fi

@@ -95,6 +95,44 @@ def _check_source_health(run_id: str, stats: list[SourceStat], summary: Any, not
         logger.error(f"Source health check failed: {e}", run_id=run_id, source_name="source_health")
 
 
+def rescore_catalog(
+    profiles: list[FacultyProfile],
+    terms_by_profile: dict[str, list[ProfileTerm]],
+    eligibility_agent: EligibilityAgent,
+    skip_ids: set[str],
+    run_id: str | None,
+    errors: list[str],
+) -> int:
+    """Score the stored catalog for profiles that are new or were edited, so their dashboard reflects
+    the current profile. Used by full scans and by the quick rescore job (radar.orchestrator.rescore).
+
+    Isolated per profile: a failure must not stop the rest. A profile that fails keeps its cleared
+    embedding, so the next run retries it. Returns how many profiles were rescored.
+    """
+    try:
+        catalog = [o for o in db.load_recent_opportunities(limit=RESCORE_CATALOG_LIMIT) if o.id and o.id not in skip_ids]
+        component_scorer.encode_opportunities_batch(catalog, batch_size=32)
+    except Exception as e:
+        logger.error(f"Catalog load for rescoring failed: {e}", run_id=run_id, source_name="orchestrator", error_category="rescore_error")
+        errors.append(f"Rescore error: {e}")
+        return 0
+
+    done = 0
+    for profile in profiles:
+        try:
+            for opp in catalog:
+                opp.profile_scores = {}
+            _score_for_profiles(catalog, [profile], terms_by_profile, eligibility_agent)
+            db.insert_scores_bulk([(opp.id, {profile.id: opp.profile_scores[profile.id]}) for opp in catalog])
+            faculty_profile_store.save_profile_embedding(profile)
+            done += 1
+            logger.info(f"Rescored {len(catalog)} catalog opportunities for profile {profile.id}", run_id=run_id, source_name="orchestrator")
+        except Exception as e:
+            logger.error(f"Rescoring failed for profile {profile.id}: {e}", run_id=run_id, source_name="orchestrator", error_category="rescore_error")
+            errors.append(f"Rescore error for profile {profile.id}: {e}")
+    return done
+
+
 def _run_number(day: date) -> int:
     """Consecutive number for each scheduled run (Monday and Thursday), used to rotate keywords."""
     # toordinal() 1 is a Monday, so (ordinal - 1) // 7 counts Monday-to-Sunday weeks
@@ -367,37 +405,7 @@ def run_pipeline(
         # dashboard reflects the current profile rather than scores computed for someone else.
         refreshed = [p for p in profiles if p.embedding_refreshed]
         if refreshed and not dry_run:
-            # Isolated per profile: a failure here must not abort the run before alerts go out.
-            # A profile that fails keeps its cleared embedding, so the next run retries it.
-            catalog: list[Opportunity] = []
-            try:
-                scored_this_run = {o.id for o, _ in accepted}
-                catalog = [
-                    o for o in db.load_recent_opportunities(limit=RESCORE_CATALOG_LIMIT)
-                    if o.id and o.id not in scored_this_run
-                ]
-                component_scorer.encode_opportunities_batch(catalog, batch_size=32)
-            except Exception as e:
-                logger.error(f"Catalog load for rescoring failed: {e}", run_id=run_id,
-                             source_name="orchestrator", error_category="rescore_error")
-                summary.errors.append(f"Rescore error: {e}")
-                refreshed = []
-
-            for profile in refreshed:
-                try:
-                    for opp in catalog:
-                        opp.profile_scores = {}
-                    _score_for_profiles(catalog, [profile], terms_by_profile, eligibility_agent)
-                    db.insert_scores_bulk([(opp.id, {profile.id: opp.profile_scores[profile.id]}) for opp in catalog])
-                    faculty_profile_store.save_profile_embedding(profile)
-                    logger.info(
-                        f"Rescored {len(catalog)} catalog opportunities for profile {profile.id}",
-                        run_id=run_id, source_name="orchestrator"
-                    )
-                except Exception as e:
-                    logger.error(f"Rescoring failed for profile {profile.id}: {e}", run_id=run_id,
-                                 source_name="orchestrator", error_category="rescore_error")
-                    summary.errors.append(f"Rescore error for profile {profile.id}: {e}")
+            rescore_catalog(refreshed, terms_by_profile, eligibility_agent, {o.id for o, _ in accepted}, run_id, summary.errors)
 
         # ALERT (per faculty profile, to that user's own channels)
         if lease.lost:

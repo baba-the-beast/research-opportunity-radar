@@ -8,6 +8,7 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { SendToTelegram } from '@/components/SendToTelegram';
 import { eligibilityLabel, eligibilityLine, type EligibilityVerdict } from '@/lib/eligibility';
+import { rescorePending } from '@/lib/rescore';
 import { callShareText } from '@/lib/share';
 import { BANDS, BAND_RANK, bandLabel, bandTextClass, isGoodMatch, kindName } from '@/lib/match';
 import { Icon, Notice, SegmentedControl, controlClass } from '@/components/ui';
@@ -114,6 +115,10 @@ export default function DashboardPage() {
   const queryRef = useRef('');
   const requestSeq = useRef(0);
   const searchInput = useRef<HTMLInputElement>(null);
+  // Shown after a profile save until the recalculated scores arrive (or the note expires)
+  const [rescoreAsked, setRescoreAsked] = useState(false);
+  useEffect(() => setRescoreAsked(rescorePending()), []);
+  const matchingNow = rescoreAsked && opportunities.length > 0 && opportunities.some((o) => o.final_score === null);
 
   /** Loads a page of calls for the current search. A newer request makes older responses stale. */
   const loadOpportunities = async (cursor?: string) => {
@@ -369,6 +374,15 @@ export default function DashboardPage() {
                 </Link>
               </Notice>
             </div>
+          )}
+
+          {matchingNow && (
+            <Notice tone="info" title="Matching your profile against open calls">
+              This usually takes a few minutes after you save your profile. Scores appear here when it finishes.{' '}
+              <button type="button" onClick={() => void loadOpportunities().catch(() => {})} className="font-semibold underline underline-offset-4">
+                Refresh
+              </button>
+            </Notice>
           )}
 
           {/* Search */}

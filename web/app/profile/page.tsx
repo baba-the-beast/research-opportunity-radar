@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { BANDS } from '@/lib/match';
+import { requestRescore } from '@/lib/rescore';
 import { useUnsavedChanges } from '@/lib/useUnsavedChanges';
 import { Button, Field, Icon, LoadingRows, Notice, Page, PageHeader, Panel, SegmentedControl, controlClass } from '@/components/ui';
 
@@ -199,7 +200,14 @@ export default function ProfilePage() {
         return;
       }
       setProfile((prev: any) => ({ ...prev, id: body?.profile_id || prev.id, research_keywords: keywords }));
-      setSaveMessage({ ok: true, text: 'Profile saved. Match scores update on the next scan.' });
+      const rescore = await requestRescore();
+      setSaveMessage({
+        ok: true,
+        text:
+          rescore === 'started'
+            ? 'Profile saved. Your matches are being recalculated and appear in your feed in a few minutes.'
+            : 'Profile saved. Match scores update on the next scan.'
+      });
       markSaved();
     } catch (err: any) {
       setSaveMessage({ ok: false, text: `Not saved: ${err.message}. Check your connection and try again.` });

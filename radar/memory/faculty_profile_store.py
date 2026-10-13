@@ -63,12 +63,19 @@ def _row_to_profile(row: dict) -> FacultyProfile:
 
     # The web profile editor clears profile_embedding on every save, so a missing embedding
     # means "new or edited profile": recompute it and flag the profile for catalog rescoring.
-    if not profile.profile_embedding and profile.profile_text:
+    # A profile with keywords but no written summary is embedded from its keywords, so it is scored too.
+    text = embedding_text(profile)
+    if not profile.profile_embedding and text:
         model = component_scorer.get_sentence_transformer()
-        profile.profile_embedding = model.encode(profile.profile_text).tolist()
+        profile.profile_embedding = model.encode(text).tolist()
         profile.embedding_refreshed = True
 
     return profile
+
+
+def embedding_text(profile: FacultyProfile) -> str:
+    """What the profile embedding is computed from: the research summary, or else the keywords."""
+    return (profile.profile_text or "").strip() or ", ".join(k for k in profile.research_keywords or [] if k.strip())
 
 
 def save_profile_embedding(profile: FacultyProfile) -> None:
