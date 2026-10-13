@@ -15,6 +15,8 @@ from radar.governance import rules as governance
 from radar.logging_config import get_logger
 from radar.memory import faculty_profile_store
 from radar.models import FacultyProfile, Opportunity, ProfileTerm, RunSummary
+from radar.monitoring import source_health
+from radar.monitoring.source_health import SourceStat
 from radar.notify import deadline_alert, digest_builder, email_brevo, recipients, telegram  # noqa: F401
 from radar.scoring import component_scorer
 from radar.sources import pdf_details
@@ -74,6 +76,22 @@ def _union_keywords(profiles: list[FacultyProfile], rotation: int = 0) -> list[s
         return merged
     start = (rotation * MAX_SCAN_KEYWORDS) % len(merged)
     return [merged[(start + i) % len(merged)] for i in range(MAX_SCAN_KEYWORDS)]
+
+
+def _check_source_health(run_id: str, stats: list[SourceStat], summary: Any, notify: bool) -> None:
+    """Record what each source listed, and alert the operator when one failed or suddenly went empty.
+    Never fails the run."""
+    try:
+        history = db.load_source_history([s.source_name for s in stats])
+        db.record_source_health(run_id, stats)
+        issues = source_health.find_issues(stats, history)
+        for issue in issues:
+            if issue.kind == "suddenly_empty":  # errors are already in summary.errors
+                summary.errors.append(issue.message)
+        if issues and notify:
+            telegram.send(source_health.alert_text(issues))  # operator chat (TELEGRAM_CHAT_ID)
+    except Exception as e:
+        logger.error(f"Source health check failed: {e}", run_id=run_id, source_name="source_health")
 
 
 def _run_number(day: date) -> int:
@@ -202,7 +220,10 @@ def run_pipeline(
         t0 = datetime.now()
         try:
             agency_errors: list[dict[str, str]] = []
-            funding_items = funding_deadline_scan(sorted(agencies), errors=agency_errors)
+            source_stats: list[SourceStat] = []
+            funding_items = funding_deadline_scan(sorted(agencies), errors=agency_errors, stats=source_stats)
+            if not dry_run:
+                _check_source_health(run_id, source_stats, summary, notify=not suppress_alerts)
             found.extend(funding_items)
             lat = int((datetime.now() - t0).total_seconds() * 1000)
             failed_sources.extend(agency_errors)

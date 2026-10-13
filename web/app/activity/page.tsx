@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { formatIstDateTime } from '@/lib/dates';
+import type { SourceHealth } from '@/app/api/sources/health/route';
 import { Badge, EmptyState, Icon, LoadingRows, Page, PageHeader, Panel, type Tone } from '@/components/ui';
 
 interface SourceRunItem {
@@ -53,6 +54,14 @@ export default function ActivityPage() {
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [expandedRun, setExpandedRun] = useState<string>('');
+  const [health, setHealth] = useState<SourceHealth[]>([]);
+
+  useEffect(() => {
+    fetch('/api/sources/health')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setHealth(Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : []))
+      .catch(() => setHealth([]));
+  }, []);
 
   useEffect(() => {
     fetch('/api/activity?scope=system')
@@ -113,6 +122,36 @@ export default function ActivityPage() {
             <Stat label="New calls" value={String(newLast10)} hint={`across the last ${Math.min(10, runs.length)} scans`} />
             <Stat label="Sources reached" value={latest.sources.length ? `${sourcesOk}/${latest.sources.length}` : '—'} hint="in the last scan" />
           </div>
+
+          {health.length > 0 && (
+            <section className="flex flex-col gap-3" aria-labelledby="sources-heading">
+              <div className="flex flex-col gap-1">
+                <h2 id="sources-heading" className="font-headline-sm text-headline-sm text-on-surface">
+                  Funding sources
+                </h2>
+                <p className="text-body-sm text-on-surface-variant">
+                  What each funder&rsquo;s website showed on its last check: calls that are open or not yet closed.
+                </p>
+              </div>
+              <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {health.map((s) => (
+                  <li key={s.source_name} className="rounded-xl surface-card bg-surface px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-body-md font-semibold text-on-surface truncate">{s.source_name}</span>
+                      <span className="text-body-sm text-on-surface-variant">Checked {formatIstDateTime(s.checked_at).replace(' IST', '')}</span>
+                    </div>
+                    {s.ok ? (
+                      <span className="text-body-sm text-on-surface-variant text-right shrink-0">
+                        <strong className="text-on-surface tabular-nums">{s.kept_count}</strong> current
+                      </span>
+                    ) : (
+                      <Badge tone="danger">Could not be read</Badge>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           <section className="flex flex-col gap-3" aria-labelledby="runs-heading">
             <h2 id="runs-heading" className="font-headline-sm text-headline-sm text-on-surface">

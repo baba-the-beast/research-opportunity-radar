@@ -186,6 +186,47 @@ def start_source_run(run_id: str, source_name: str) -> str:
     }).execute()
     return res.data[0]["id"]
 
+def record_source_health(run_id: str | None, stats: list[Any]) -> None:
+    """One source_health row per source for this run. Skipped (logged) if the table does not exist yet."""
+    if not stats:
+        return
+    rows = [{
+        "run_id": run_id,
+        "source_name": s.source_name,
+        "listed_count": s.listed_count,
+        "kept_count": s.kept_count,
+        "error": sanitize_log_text(s.error) if s.error else None,
+        "latency_ms": s.latency_ms,
+        "checked_at": datetime.now(UTC).isoformat(),
+    } for s in stats]
+    try:
+        get_client().table("source_health").insert(rows).execute()
+    except Exception as e:
+        logger.warning(f"source_health not recorded (migration 20261013000000 applied?): {e}")
+
+
+def load_source_history(source_names: list[str], runs: int = 3) -> dict[str, list[int]]:
+    """listed_count of each source's most recent runs, newest first. {} if unavailable."""
+    if not source_names:
+        return {}
+    try:
+        rows = (
+            get_client().table("source_health").select("source_name, listed_count, error, checked_at")
+            .in_("source_name", source_names).order("checked_at", desc=True).limit(runs * len(source_names) * 4).execute()
+        ).data or []
+    except Exception as e:
+        logger.warning(f"source_health history unavailable: {e}")
+        return {}
+    history: dict[str, list[int]] = {}
+    for row in sorted(rows, key=lambda r: str(r.get("checked_at") or ""), reverse=True):
+        if row.get("error"):
+            continue  # a failed run says nothing about how many calls the source usually lists
+        bucket = history.setdefault(row["source_name"], [])
+        if len(bucket) < runs:
+            bucket.append(int(row.get("listed_count") or 0))
+    return history
+
+
 def finish_source_run(source_run_id: str, status: str, request_count: int = 0, inserted_count: int = 0, updated_count: int = 0, error_count: int = 0, error_category: str | None = None, latency_ms: int | None = None) -> None:
     client = get_client()
     client.table("source_runs").update({

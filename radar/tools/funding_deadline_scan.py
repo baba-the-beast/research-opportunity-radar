@@ -1,10 +1,12 @@
 """funding_deadline_scan tool for scanning funding agency calls."""
 import logging
 import re
+import time
 
 from radar.deadlines.deadline_engine import lifecycle_status, parse_deadline, today_ist
 from radar.dedup import fingerprint
 from radar.models import Opportunity, OpportunityDeadline, OpportunitySource
+from radar.monitoring.source_health import SourceStat
 from radar.sources import grants_gov_client
 from radar.sources.agencies.anrf_adapter import ANRFAdapter
 from radar.sources.agencies.birac_adapter import BIRACAdapter
@@ -91,12 +93,17 @@ def _call_to_opportunity(call: dict, agency_name: str) -> tuple[Opportunity | No
     return opp, lifecycle
 
 
-def funding_deadline_scan(agency_list: list[str], errors: list[dict[str, str]] | None = None) -> list[Opportunity]:
+def funding_deadline_scan(
+    agency_list: list[str],
+    errors: list[dict[str, str]] | None = None,
+    stats: list[SourceStat] | None = None,
+) -> list[Opportunity]:
     """
     Scans funding agencies for calls for proposals.
 
     Pass ``errors`` to collect {"source", "error"} entries for agencies that could not be read, so a
     broken source shows up in the run log and digest instead of looking like "no calls today".
+    Pass ``stats`` to collect what each agency listed and kept, for the source health check.
     """
     opportunities: list[Opportunity] = []
 
@@ -155,7 +162,9 @@ def funding_deadline_scan(agency_list: list[str], errors: list[dict[str, str]] |
                     errors.append({"source": "Grants.gov", "error": str(e)})
         elif agency in AGENCY_REGISTRY:
             adapter = AGENCY_REGISTRY[agency]()
+            started = time.monotonic()
             calls = adapter.fetch_open_calls()
+            kept_before = len(opportunities)
             if adapter.last_error and errors is not None:
                 errors.append({"source": adapter.agency_name, "error": adapter.last_error})
             skipped: dict[str, int] = {}
@@ -167,6 +176,11 @@ def funding_deadline_scan(agency_list: list[str], errors: list[dict[str, str]] |
                     opportunities.append(opp)
             if skipped:
                 logger.info(f"{adapter.agency_name}: skipped {skipped}")
+            if stats is not None:
+                stats.append(SourceStat(
+                    adapter.agency_name, listed_count=len(calls), kept_count=len(opportunities) - kept_before,
+                    error=adapter.last_error, latency_ms=int((time.monotonic() - started) * 1000),
+                ))
         else:
             logger.warning(f"Unknown funding agency name '{agency}' skipped.")
 
