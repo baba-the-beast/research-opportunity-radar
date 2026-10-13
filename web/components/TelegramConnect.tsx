@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Button, Notice } from '@/components/ui';
 
 const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 3 * 60 * 1000;
@@ -114,48 +115,38 @@ export function TelegramConnect({
     }
   };
 
-  const button =
-    'px-3.5 py-2 rounded-lg text-body-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
-
   return (
-    <div className="p-3.5 rounded-lg bg-surface-container-high border border-outline-variant/40 space-y-3">
+    <div className="rounded-xl bg-surface-container-low border border-outline-variant p-4 flex flex-col gap-3">
       {connected ? (
-        <>
-          <div className="flex items-center gap-2 text-body-sm text-on-surface">
-            <span className="material-symbols-outlined text-[18px] text-secondary">check_circle</span>
-            <span>Telegram connected</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={sendTest} disabled={busy} className={`${button} bg-primary text-on-primary hover:bg-primary-fixed-dim`}>
-              Send test message
-            </button>
-            <button type="button" onClick={disconnect} disabled={busy} className={`${button} border border-outline-variant text-on-surface hover:bg-surface-container`}>
-              Disconnect
-            </button>
-          </div>
-        </>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" icon="send" onClick={sendTest} disabled={busy}>
+            Send test message
+          </Button>
+          <Button variant="ghost" onClick={disconnect} disabled={busy}>
+            Disconnect Telegram
+          </Button>
+        </div>
       ) : (
         <>
-          <p className="font-body-sm text-body-sm text-on-surface-variant">
-            Opens our bot in Telegram. Press <b>Start</b> there and this page connects automatically.
+          <p className="text-body-sm text-on-surface-variant">
+            Opens our bot in Telegram. Press <strong className="text-on-surface">Start</strong> there and this page connects by itself.
           </p>
-          <button type="button" onClick={connect} disabled={busy || status.kind === 'waiting'} className={`${button} bg-primary text-on-primary hover:bg-primary-fixed-dim`}>
+          <Button variant="primary" icon="link" onClick={connect} disabled={busy || status.kind === 'waiting'} className="self-start">
             {status.kind === 'waiting' ? 'Waiting for Telegram…' : 'Connect Telegram'}
-          </button>
+          </Button>
         </>
       )}
 
       {status.kind === 'waiting' && (
-        <p className="font-body-sm text-body-sm text-on-surface-variant">
-          Tab didn&apos;t open?{' '}
-          <a href={status.url} target="_blank" rel="noopener noreferrer" className="text-primary font-bold hover:underline">
+        <p className="text-body-sm text-on-surface-variant">
+          No new tab?{' '}
+          <a href={status.url} target="_blank" rel="noopener noreferrer" className="text-primary font-semibold underline underline-offset-4">
             Open the Telegram link
           </a>
-          .
         </p>
       )}
-      {status.kind === 'info' && <p className="font-body-sm text-body-sm text-secondary" role="status">{status.message}</p>}
-      {status.kind === 'error' && <p className="font-body-sm text-body-sm text-error" role="alert">{status.message}</p>}
+      {status.kind === 'info' && <Notice tone="success">{status.message}</Notice>}
+      {status.kind === 'error' && <Notice tone="danger">{status.message}</Notice>}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 /**
- * Server-only Telegram Bot API helpers for the connect flow and test messages.
+ * Server-only Telegram Bot API helpers for the connect flow, test messages and sending calls to yourself.
  * The bot token lives in the request URL, so errors never include the URL or response body verbatim.
  */
 
@@ -55,4 +55,43 @@ export function newLinkCode(): string {
   const bytes = new Uint8Array(24);
   crypto.getRandomValues(bytes);
   return Buffer.from(bytes).toString('base64url');
+}
+
+/** Share text (plain text with *bold* markers, see lib/share.ts) as Telegram HTML. */
+export function shareTextToTelegramHtml(text: string): string {
+  return escapeTelegramHtml(text).replace(/\*([^*\n]+)\*/g, '<b>$1</b>');
+}
+
+export type OwnTelegramResult = 'sent' | 'not_connected' | 'blocked';
+
+/**
+ * Sends to the signed-in user's own connected chat (never to an arbitrary chat id). A blocked or
+ * deleted chat is disconnected so the pipeline stops trying. Other Telegram failures throw.
+ */
+export async function sendToOwnTelegram(
+  supabase: { from: (table: string) => any },
+  userId: string,
+  token: string,
+  html: string
+): Promise<OwnTelegramResult> {
+  const { data: prefs, error } = await supabase
+    .from('user_preferences')
+    .select('telegram_chat_id')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!prefs?.telegram_chat_id) return 'not_connected';
+  try {
+    await sendTelegramMessage(token, prefs.telegram_chat_id, html);
+    return 'sent';
+  } catch (err) {
+    if (err instanceof TelegramSendError && err.status === 403) {
+      await supabase
+        .from('user_preferences')
+        .update({ telegram_chat_id: null, telegram_alerts: false, updated_at: new Date().toISOString() })
+        .eq('user_id', userId);
+      return 'blocked';
+    }
+    throw err;
+  }
 }

@@ -3,7 +3,7 @@ import { authenticateRequest } from '@/lib/auth';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { consumeRateLimit } from '@/lib/rateLimit';
 import { getRequestSupabase, requireUserAccount } from '@/lib/routeContext';
-import { getTelegramConfig, sendTelegramMessage, TelegramSendError } from '@/lib/telegram';
+import { getTelegramConfig, sendToOwnTelegram } from '@/lib/telegram';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,32 +29,17 @@ export async function POST(req: NextRequest) {
       return createErrorResponse('RATE_LIMIT_EXCEEDED', 'Please wait a minute before sending another test.', 429, req);
     }
 
-    const supabase = getRequestSupabase(auth.user);
-    const { data: prefs, error } = await supabase
-      .from('user_preferences')
-      .select('telegram_chat_id')
-      .eq('user_id', auth.user!.id)
-      .maybeSingle();
-    if (error) {
-      return createErrorResponse('DATABASE_ERROR', error.message, 500, req);
-    }
-    if (!prefs?.telegram_chat_id) {
-      return createErrorResponse('NOT_CONNECTED', 'Connect Telegram first.', 400, req);
-    }
-
     try {
-      await sendTelegramMessage(
+      const result = await sendToOwnTelegram(
+        getRequestSupabase(auth.user),
+        auth.user!.id,
         telegram.token,
-        prefs.telegram_chat_id,
         '🔔 <b>Test alert</b>\n\nTelegram notifications from Research Opportunity Radar are working.'
       );
-    } catch (err) {
-      if (err instanceof TelegramSendError && err.status === 403) {
-        // Blocked or deleted chat: disconnect so the pipeline stops trying
-        await supabase
-          .from('user_preferences')
-          .update({ telegram_chat_id: null, telegram_alerts: false, updated_at: new Date().toISOString() })
-          .eq('user_id', auth.user!.id);
+      if (result === 'not_connected') {
+        return createErrorResponse('NOT_CONNECTED', 'Connect Telegram first.', 400, req);
+      }
+      if (result === 'blocked') {
         return createErrorResponse(
           'TELEGRAM_BLOCKED',
           'The bot can no longer message this chat (it was blocked or deleted). Connect Telegram again.',
@@ -62,6 +47,7 @@ export async function POST(req: NextRequest) {
           req
         );
       }
+    } catch (err) {
       return createErrorResponse('TELEGRAM_ERROR', (err as Error).message, 502, req);
     }
 

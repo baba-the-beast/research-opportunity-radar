@@ -20,37 +20,41 @@ export async function GET(req: NextRequest) {
     }
     const supabase = getRequestSupabase(auth.user);
 
-    const { data: runs, error: runErr } = await supabase
-      .from('run_log')
-      .select('id, status, started_at, finished_at, opportunities_found, opportunities_new')
-      // partial_failure runs still ingest and write opportunities
-      .in('status', ['success', 'partial_failure'])
-      .order('started_at', { ascending: false })
-      .limit(1);
+    // Independent reads run together; each Supabase round trip is ~200 ms
+    const [{ data: runs, error: runErr }, profileId, { data: prefs }] = await Promise.all([
+      supabase
+        .from('run_log')
+        .select('id, status, started_at, finished_at, opportunities_found, opportunities_new')
+        // partial_failure runs still ingest and write opportunities
+        .in('status', ['success', 'partial_failure'])
+        .order('started_at', { ascending: false })
+        .limit(1),
+      getOwnProfileId(supabase, auth.user),
+      auth.user?.isServiceRole
+        ? Promise.resolve({ data: null })
+        : supabase.from('user_preferences').select('min_score').eq('user_id', auth.user?.id ?? '').maybeSingle()
+    ]);
     if (runErr) {
       return createErrorResponse('DATABASE_ERROR', runErr.message, 500, req);
     }
     const run = runs?.[0] ?? null;
 
-    const profileId = await getOwnProfileId(supabase, auth.user);
     if (!run || !profileId) {
       return createSuccessResponse({ run, items: [], markdown: '', needs_profile: !profileId }, req);
     }
 
-    const { data: profile } = await supabase.from('faculty_profile').select('min_relevance_band').eq('id', profileId).single();
-    const { data: prefs } = auth.user?.isServiceRole
-      ? { data: null }
-      : await supabase.from('user_preferences').select('min_score').eq('user_id', auth.user?.id ?? '').maybeSingle();
-    const minBand = profile?.min_relevance_band || 'watch';
-    const minScore = prefs?.min_score ?? 50;
-
-    const { data: scores, error: scoreErr } = await supabase
+    const [{ data: profile }, { data: scores, error: scoreErr }] = await Promise.all([
+      supabase.from('faculty_profile').select('min_relevance_band').eq('id', profileId).single(),
+      supabase
       .from('scoring_log')
       .select('final_score, band, matched_terms, opportunities!inner(id, title, kind, agency_or_publisher, venue_name, status, opportunity_deadlines(deadline_date, confidence), opportunity_sources(source_url))')
       .eq('faculty_id', profileId)
       .gte('scored_at', run.started_at)
       .order('final_score', { ascending: false })
-      .limit(50);
+      .limit(50)
+    ]);
+    const minBand = profile?.min_relevance_band || 'watch';
+    const minScore = (prefs as { min_score?: number } | null)?.min_score ?? 50;
     if (scoreErr) {
       return createErrorResponse('DATABASE_ERROR', scoreErr.message, 500, req);
     }

@@ -132,8 +132,6 @@ def no_real_alert_delivery(monkeypatch):
     from radar import config
     for name in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "BREVO_API_KEY", "BREVO_RECIPIENT_EMAIL"):
         monkeypatch.setattr(config, name, "", raising=False)
-    for name in ("WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_ACCESS_TOKEN"):
-        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture(autouse=True)
