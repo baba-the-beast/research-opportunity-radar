@@ -1,4 +1,5 @@
-"""ANRF and DST adapters against saved live snapshots (29 Sep 2026)."""
+"""ANRF and DST adapters against saved live snapshots (ANRF 29 Sep 2026, DST 13 Oct 2026)."""
+import json
 from datetime import date
 from pathlib import Path
 
@@ -6,7 +7,7 @@ import pytest
 
 from radar.sources.agencies import anrf_adapter, dst_adapter
 from radar.sources.agencies.anrf_adapter import ANRFAdapter, parse_scheme_js
-from radar.sources.agencies.dst_adapter import DSTAdapter, parse_dst_calls
+from radar.sources.agencies.dst_adapter import DSTAdapter, parse_dst_posts
 from radar.sources.http import FetchError
 from radar.tools import funding_deadline_scan as scan
 
@@ -15,8 +16,12 @@ TODAY = date(2026, 9, 29)
 
 
 class _Response:
-    def __init__(self, text: str):
+    def __init__(self, text: str = "", payload=None):
         self.text = text
+        self._payload = payload
+
+    def json(self):
+        return self._payload
 
 
 @pytest.fixture
@@ -32,7 +37,8 @@ def anrf_snapshot(monkeypatch):
         anrf_adapter.DATED_CALLS_URL: (FIXTURES / "anrf_schemeinterval_2026-09.js").read_text(encoding="utf-8"),
         anrf_adapter.ROLLING_CALLS_URL: (FIXTURES / "anrf_schemeintervalnew_2026-09.js").read_text(encoding="utf-8"),
     }
-    monkeypatch.setattr(anrf_adapter, "fetch", lambda url, **kw: _Response(files[url]))
+    detail = (FIXTURES / "anrf_inrg_detail_2026-10.html").read_text(encoding="utf-8")
+    monkeypatch.setattr(anrf_adapter, "fetch", lambda url, **kw: _Response(files.get(url, detail)))
 
 
 def test_parse_scheme_js_reads_every_item():
@@ -66,6 +72,19 @@ def test_anrf_scan_produces_confirmed_deadlines(frozen_today, anrf_snapshot):
     assert opps["Seminar/Symposia"].deadlines == []
 
 
+def test_anrf_detail_page_gives_eligibility_text():
+    details = anrf_adapter.parse_anrf_detail((FIXTURES / "anrf_inrg_detail_2026-10.html").read_text(encoding="utf-8"))
+    assert details["eligibility_clause"].startswith("Eligibility: The applicant should be an Indian National.")
+    assert "superannuation" in details["eligibility_clause"]
+    assert details["summary"].startswith("Inclusivity Research Grant")
+
+
+def test_anrf_calls_carry_their_page_text(frozen_today, anrf_snapshot):
+    calls = ANRFAdapter().fetch_open_calls()
+    dated = [c for c in calls if c.get("deadline")]
+    assert dated and all(c.get("eligibility_clause") for c in dated)
+
+
 def test_anrf_fetch_failure_is_reported(monkeypatch):
     def boom(url, **kw):
         raise FetchError("https://anrfonline.in returned HTTP 503")
@@ -76,25 +95,55 @@ def test_anrf_fetch_failure_is_reported(monkeypatch):
     assert errors == [{"source": "ANRF", "error": "https://anrfonline.in returned HTTP 503"}]
 
 
-def test_dst_parses_call_table():
-    calls = parse_dst_calls((FIXTURES / "dst_archive_calls_2026-09.html").read_text(encoding="utf-8"))
-    assert len(calls) == 6
-    base = next(c for c in calls if c["title"] == "Bhaskara Advanced Solar Energy Fellowship Program")
-    assert base["url"] == "https://dst.gov.in/callforproposals/bhaskara-advanced-solar-energy-fellowship-program"
-    assert base["pdf_url"] == "https://dst.gov.in/sites/default/files/BASE-Program-Flyer-2017.pdf"
-    assert base["opens_on"] == "19/01/2017"
-    assert base["deadline"] == "15/03/2017"
+def _dst_news():
+    return json.loads((FIXTURES / "dst_whats_new_2026-10.json").read_text(encoding="utf-8"))
 
 
-def test_dst_empty_listing_is_not_menu_links(monkeypatch):
-    html = (FIXTURES / "dst_calls_empty_2026-09.html").read_text(encoding="utf-8")
-    monkeypatch.setattr(dst_adapter, "fetch", lambda url, **kw: _Response(html))
+def _dst_api(monkeypatch, calls_payload=None, news_payload=None):
+    def fake_fetch(url, **kw):
+        if url == dst_adapter.CALLS_URL:
+            return _Response(payload=calls_payload if calls_payload is not None else {"posts": [], "total_items": 0})
+        if url == dst_adapter.NEWS_URL:
+            return _Response(payload=news_payload if news_payload is not None else _dst_news())
+        if "post-page/post?id=" in url:
+            file_id = url.rsplit("=", 1)[1]
+            return _Response(payload={"posts": {"acf_data": {"pdf": {"url": f"https://www.dst.gov.in/static/uploads/{file_id}.pdf"}}}})
+        raise AssertionError(url)
+
+    monkeypatch.setattr(dst_adapter, "fetch", fake_fetch)
+
+
+def test_dst_news_keeps_calls_and_drops_job_adverts():
+    calls = parse_dst_posts(_dst_news()["posts"], from_news=True)
+    titles = [c["title"] for c in calls]
+    assert "Call for applications for ASEAN-India Research Training Fellowships" in titles
+    assert "SERB Research Scientist Scheme" in titles
+    assert not any("posts of" in t or "Director" in t or "(Form)" in t for t in titles)
+    asean = next(c for c in calls if c["title"].startswith("Call for applications for ASEAN"))
+    assert asean["url"] == "https://aistic.gov.in/ASEAN/aistdfFellowship"
+    assert asean["published"] == "2026-02-03"
+
+
+def test_dst_drops_stale_announcements_without_a_deadline(monkeypatch):
+    # The fixture's calls were posted in Feb 2026, more than MAX_AGE_DAYS before 13 Oct 2026
+    monkeypatch.setattr(dst_adapter, "today_ist", lambda: date(2026, 10, 13))
+    _dst_api(monkeypatch)
     adapter = DSTAdapter()
     assert adapter.fetch_open_calls() == []
     assert adapter.last_error is None
 
 
-def test_dst_archive_calls_are_closed(frozen_today, monkeypatch):
-    html = (FIXTURES / "dst_archive_calls_2026-09.html").read_text(encoding="utf-8")
-    monkeypatch.setattr(dst_adapter, "fetch", lambda url, **kw: _Response(html))
-    assert scan.funding_deadline_scan(["DST"]) == []
+def test_dst_recent_calls_get_their_pdf(monkeypatch):
+    monkeypatch.setattr(dst_adapter, "today_ist", lambda: date(2026, 3, 1))
+    _dst_api(monkeypatch)
+    calls = DSTAdapter().fetch_open_calls()
+    stem = next(c for c in calls if c["title"] == "Call for proposal under Innovation & STEM Demonstration")
+    assert stem["pdf_url"] and stem["url"] == stem["pdf_url"]
+    assert len({c["url"] for c in calls}) == len(calls)  # every call has its own URL
+
+
+def test_dst_api_change_is_reported_not_silent(monkeypatch):
+    _dst_api(monkeypatch, news_payload={"unexpected": True})
+    adapter = DSTAdapter()
+    assert adapter.fetch_open_calls() == []
+    assert adapter.last_error and "DST API changed" in adapter.last_error
