@@ -98,10 +98,20 @@ _AGE_LIMIT = re.compile(
     rf"|\b{_LIMIT_WORDS}\s*(\d{{2}})\s*(?:years|yrs)\s*(?:of\s+age|old)\b",
     re.I,
 )
+_NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+                 "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "fifteen": 15}
+_COUNT = r"(\d{1,2}|" + "|".join(_NUMBER_WORDS) + r")"
+
+
+def _count(value: str) -> int:
+    return int(value) if value.isdigit() else _NUMBER_WORDS[value.lower()]
+
+
 # Years left before superannuation must name superannuation/retirement: "a minimum of 5 years of
-# regular service in the institution" is an experience requirement, not a years-left one.
+# regular service in the institution" is an experience requirement, not a years-left one. Calls write
+# the number as a word too ("at least four years of service remaining before superannuation").
 _SERVICE_LEFT = re.compile(
-    r"\b(?:at\s+least|minimum(?:\s+of)?|not\s+less\s+than)\s*(\d{1,2})\s*years?\s*(?:of\s+)?(?:regular\s+)?"
+    r"\b(?:at\s+least|minimum(?:\s+of)?|not\s+less\s+than)\s*" + _COUNT + r"\s*years?\s*(?:of\s+)?(?:regular\s+)?"
     r"(?:service\s+)?(?:left\s+|remaining\s+)?(?:before|prior\s+to|till|until|for)\s+(?:the\s+)?(?:(?:date\s+of\s+)?superannuation|retirement)",
     re.I,
 )
@@ -119,6 +129,30 @@ _LIMITED_SUBMISSION = re.compile(
     r"(limit on number of proposals per organization:\s*(\d+)|institutions? may submit no more than\s*(\d+)|limited submission|"
     r"maximum of\s*(\d+)\s*proposals?\s*per\s*institution|only\s*(\d+|one|two)\s*proposals?\s*(?:per|from each|from an?)\s*(?:campus|institution|organisation|organization))",
     re.I,
+)
+# Schemes reserved for a group. The profile never stores gender or social category: these calls are
+# flagged for the researcher to confirm, with the call's own words quoted.
+_WOMEN_ONLY = re.compile(
+    r"\b(?:(?:only|exclusively|solely|meant|reserved|exclusive)\s+(?:for\s+)?women|women[\s-]+(?:only|exclusive)|"
+    r"(?:for|to)\s+women\s+(?:scientists?|researchers?|faculty|technologists?|investigators?)|"
+    r"women\s+scientists?\s+(?:scheme|programme|program)|applicant\s+(?:must|should)\s+be\s+(?:a\s+)?wom[ae]n)\b",
+    re.I,
+)
+_RESERVED_CATEGORY = re.compile(
+    r"\b(?:belonging\s+to\s+(?:the\s+)?(?:scheduled\s+castes?|sc)\s*(?:/|or|and)\s*(?:scheduled\s+tribes?|st)|"
+    r"(?:only|exclusively)\s+(?:for\s+)?(?:sc\s*/\s*st|scheduled\s+castes?\s+(?:and|or|/)\s+scheduled\s+tribes?)|"
+    r"sc\s*/\s*st\s+(?:researchers?|scientists?|faculty|applicants?|category\s+(?:researchers?|applicants?)))\b",
+    re.I,
+)
+_STATE_UNIVERSITY_ONLY = re.compile(
+    r"\b(?:(?:only|exclusively)\s+(?:for\s+)?state\s+(?:public\s+|government\s+)?universit(?:y|ies)|"
+    r"state\s+(?:public\s+|government\s+)?universit(?:y|ies)\s+only|"
+    r"(?:meant|eligible|open)\s+(?:only\s+)?(?:for|to)\s+(?:faculty\s+(?:of|in|from)\s+)?state\s+(?:public\s+|government\s+)?universit(?:y|ies))\b",
+    re.I,
+)
+_PHD_REQUIRED = re.compile(r"\b(?:should|must|shall)\s+(?:hold|possess|have)\s+(?:a\s+)?ph\.?\s?d\b", re.I)
+_ONGOING_PROJECT_BAR = re.compile(
+    r"\b(?:ongoing|running|active)\s+(?:projects?|grants?)\s+under\s+(?:the\s+)?[^.]{0,140}?(?:are|is|will\s+be)\s+not\s+eligible", re.I,
 )
 _COST_SHARING = re.compile(r"(cost[\s-]sharing is (?:required|mandatory)|mandatory cost match|matching (?:contribution|share) (?:is )?(?:required|mandatory))", re.I)
 
@@ -161,6 +195,21 @@ def _is_senior(stage: str) -> bool:
 
 def _age_on(dob: date, on: date) -> int:
     return on.year - dob.year - ((on.month, on.day) < (dob.month, dob.day))
+
+
+# What to check, in the words shown as the report summary ("Check before applying: ...")
+CHECK_LABELS = {
+    "CITIZENSHIP_SECURITY_CLEARANCE": "nationality",
+    "AGE_LIMIT": "the age limit",
+    "SERVICE_BEFORE_SUPERANNUATION": "years of service left before retirement",
+    "REGULAR_POSITION": "whether your post is regular",
+    "REGION": "the North-East-only condition",
+    "CAREER_STAGE_ELIGIBILITY": "the career-stage condition",
+    "WOMEN_ONLY": "only for women researchers",
+    "RESERVED_CATEGORY": "only for SC/ST researchers",
+    "INSTITUTION_TYPE": "the institution-type condition",
+    "PHD_REQUIRED": "the PhD requirement",
+}
 
 
 @dataclass
@@ -235,6 +284,10 @@ class EligibilityAgent:
         self._check_service_left(text, profile, reference_day, checks, actions)
         self._check_regular_position(text, profile, checks, actions)
         self._check_region(text, profile, checks, actions)
+        self._check_reserved_groups(text, checks, actions)
+        self._check_institution_type(text, profile, checks, actions)
+        self._check_phd_required(text, profile, checks, actions)
+        self._check_ongoing_project(text, checks, actions)
         # The scheme's own identity: its title and the first sentence of its summary
         identity = opp.title + " " + (opp.summary or "").split(".")[0]
         self._check_career_stage(text, identity, profile, checks, actions)
@@ -246,9 +299,9 @@ class EligibilityAgent:
             failed = [c.rule_name.replace("_", " ").lower() for c in checks if c.verdict == "FAIL"]
             report = EligibilityReport("DISQUALIFIED", 0.9, f"Not eligible: the call's {', '.join(failed)} requirement is not met.", checks, actions)
         elif "NEEDS_MANUAL_REVIEW" in verdicts:
+            to_check = [CHECK_LABELS.get(c.rule_name, c.rule_name.replace("_", " ").lower()) for c in checks if c.verdict == "NEEDS_MANUAL_REVIEW"]
             report = EligibilityReport(
-                "NEEDS_MANUAL_REVIEW", 0.6,
-                "Eligibility unconfirmed: check the points below against the official call before applying.", checks, actions,
+                "NEEDS_MANUAL_REVIEW", 0.6, f"Check before applying: {'; '.join(dict.fromkeys(to_check))}.", checks, actions,
             )
         elif has_limited:
             report = EligibilityReport(
@@ -334,7 +387,7 @@ class EligibilityAgent:
         match = _SERVICE_LEFT.search(text)
         if not match:
             return
-        required = int(match.group(1))
+        required = _count(match.group(1))
         excerpt = _excerpt(text, match)
         if not profile.superannuation_year:
             checks.append(ComplianceCheckResult("SERVICE_BEFORE_SUPERANNUATION", "NEEDS_MANUAL_REVIEW",
@@ -373,6 +426,51 @@ class EligibilityAgent:
             checks.append(ComplianceCheckResult("REGION", "PASS", f"Institution is in {profile.state} (North-Eastern Region).", excerpt))
         else:
             checks.append(ComplianceCheckResult("REGION", "FAIL", f"The call is only for the North-Eastern Region; the institution is in {profile.state}.", excerpt))
+
+    def _check_reserved_groups(self, text, checks, actions) -> None:
+        women = _WOMEN_ONLY.search(text)
+        if women:
+            checks.append(ComplianceCheckResult("WOMEN_ONLY", "NEEDS_MANUAL_REVIEW",
+                "This call is only for women researchers. Confirm it applies to you before applying.", _excerpt(text, women)))
+        category = _RESERVED_CATEGORY.search(text)
+        if category:
+            checks.append(ComplianceCheckResult("RESERVED_CATEGORY", "NEEDS_MANUAL_REVIEW",
+                "This call is only for researchers from the SC/ST categories. Confirm it applies to you before applying.",
+                _excerpt(text, category)))
+
+    def _check_institution_type(self, text, profile, checks, actions) -> None:
+        match = _STATE_UNIVERSITY_ONLY.search(text)
+        if not match:
+            return
+        excerpt = _excerpt(text, match)
+        kind = (profile.institution_type or "").lower()
+        if not kind:
+            checks.append(ComplianceCheckResult("INSTITUTION_TYPE", "NEEDS_MANUAL_REVIEW",
+                "The call is only for state universities; set your institution type in Profile.", excerpt))
+            actions.append("Set your institution type in Profile.")
+        elif "state university" in kind:
+            checks.append(ComplianceCheckResult("INSTITUTION_TYPE", "PASS", "The call is for state universities; the profile says state university.", excerpt))
+        else:
+            checks.append(ComplianceCheckResult("INSTITUTION_TYPE", "FAIL",
+                f"The call is only for state universities; the profile says '{profile.institution_type}'.", excerpt))
+
+    def _check_phd_required(self, text, profile, checks, actions) -> None:
+        match = _PHD_REQUIRED.search(text)
+        if not match:
+            return
+        excerpt = _excerpt(text, match)
+        if profile.phd_year:
+            checks.append(ComplianceCheckResult("PHD_REQUIRED", "PASS", f"The call needs a PhD; the profile has a PhD ({profile.phd_year}).", excerpt))
+        else:
+            checks.append(ComplianceCheckResult("PHD_REQUIRED", "NEEDS_MANUAL_REVIEW", "The call needs a PhD; add your PhD year in Profile.", excerpt))
+            actions.append("Add your PhD year in Profile.")
+
+    def _check_ongoing_project(self, text, checks, actions) -> None:
+        match = _ONGOING_PROJECT_BAR.search(text)
+        if match:
+            checks.append(ComplianceCheckResult("ONGOING_PROJECT", "WARNING",
+                "You cannot apply while you hold an ongoing project under this scheme.", _excerpt(text, match)))
+            actions.append("Check that you have no ongoing project under this scheme.")
 
     def _check_career_stage(self, text, title, profile, checks, actions) -> None:
         stage = (profile.designation or profile.career_stage or "").lower()

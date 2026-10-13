@@ -285,3 +285,64 @@ def test_minimum_and_average_ages_are_not_age_limits(frozen_today, text):
 def test_maximum_age_phrasing_is_found(frozen_today):
     report = EligibilityAgent().evaluate_opportunity(_indian_call("Maximum age of 45 years."), _faculty(date_of_birth=date(1960, 1, 1)))
     assert next(c for c in report.checks if c.rule_name == "AGE_LIMIT").verdict == "FAIL"
+
+
+# --- Rules added Oct 2026: reserved schemes, institution type, PhD, ongoing projects ---------------
+
+from pathlib import Path  # noqa: E402
+
+from radar.deadlines.deadline_engine import today_ist  # noqa: E402
+from radar.sources.agencies.anrf_adapter import parse_anrf_detail  # noqa: E402
+
+_FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
+
+
+def _call(text: str, title: str = "Research Grant") -> Opportunity:
+    return Opportunity(kind="funding", title=title, summary="", agency_or_publisher="X",
+                       metadata={"solicitation_guidelines": text})
+
+
+def _indian(**kw) -> FacultyProfile:
+    return FacultyProfile(full_name="A", institution="X", citizenship_status="Indian citizen", **kw)
+
+
+def _verdicts(report) -> dict[str, str]:
+    return {c.rule_name: c.verdict for c in report.checks}
+
+
+def test_anrf_inclusivity_grant_real_text():
+    details = parse_anrf_detail((_FIXTURES / "anrf_inrg_detail_2026-10.html").read_text(encoding="utf-8"))
+    opp = Opportunity(kind="funding", title="Inclusivity Research Grant", summary=details["summary"], agency_or_publisher="ANRF",
+                      metadata={k: details[k] for k in ("eligibility_clause", "solicitation_guidelines")})
+    profile = _indian(employment_type="regular", superannuation_year=2040, phd_year=2015, designation="Associate Professor")
+    report = EligibilityAgent().evaluate_opportunity(opp, profile)
+    verdicts = _verdicts(report)
+    assert verdicts["CITIZENSHIP_SECURITY_CLEARANCE"] == "PASS"
+    assert verdicts["SERVICE_BEFORE_SUPERANNUATION"] == "PASS"  # "at least four years", written as a word
+    assert verdicts["REGULAR_POSITION"] == "PASS"
+    assert verdicts["PHD_REQUIRED"] == "PASS"
+    assert verdicts["RESERVED_CATEGORY"] == "NEEDS_MANUAL_REVIEW"
+    assert verdicts["ONGOING_PROJECT"] == "WARNING"
+    assert report.summary == "Check before applying: only for SC/ST researchers."
+
+
+def test_women_only_scheme_is_flagged_but_encouragement_is_not():
+    agent = EligibilityAgent()
+    only = agent.evaluate_opportunity(_call("This scheme is exclusively for women scientists working in India."), _indian())
+    assert _verdicts(only)["WOMEN_ONLY"] == "NEEDS_MANUAL_REVIEW"
+    encouraged = agent.evaluate_opportunity(_call("Women scientists are encouraged to apply. Open to all faculty."), _indian())
+    assert "WOMEN_ONLY" not in _verdicts(encouraged)
+
+
+def test_state_university_only_call_checks_institution_type():
+    agent = EligibilityAgent()
+    text = "This call is open only to state public universities in India."
+    assert _verdicts(agent.evaluate_opportunity(_call(text), _indian(institution_type="State University")))["INSTITUTION_TYPE"] == "PASS"
+    assert _verdicts(agent.evaluate_opportunity(_call(text), _indian(institution_type="Central University")))["INSTITUTION_TYPE"] == "FAIL"
+    assert _verdicts(agent.evaluate_opportunity(_call(text), _indian()))["INSTITUTION_TYPE"] == "NEEDS_MANUAL_REVIEW"
+
+
+def test_service_left_reads_number_words():
+    text = "Applicants should have at least three years of service left before superannuation."
+    report = EligibilityAgent().evaluate_opportunity(_call(text), _indian(superannuation_year=today_ist().year + 2))
+    assert _verdicts(report)["SERVICE_BEFORE_SUPERANNUATION"] == "FAIL"
