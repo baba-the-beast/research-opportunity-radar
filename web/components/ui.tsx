@@ -55,6 +55,32 @@ export function PageHeader({
 }
 
 /** A bordered surface. Give it a title for a titled section; `flush` removes inner padding (for lists). */
+/** A Panel that starts folded: for optional sections that most people never need to open. */
+export function CollapsiblePanel({
+  title,
+  summary,
+  defaultOpen = false,
+  children
+}: {
+  title: ReactNode;
+  summary?: ReactNode;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <details open={defaultOpen} className="group rounded-2xl surface-card bg-surface overflow-hidden">
+      <summary className="list-none cursor-pointer px-5 sm:px-6 py-5 flex items-start justify-between gap-3 hover:bg-surface-container-low transition-colors [&::-webkit-details-marker]:hidden">
+        <span className="flex flex-col gap-0.5 min-w-0">
+          <span className="font-headline-sm text-headline-sm text-on-surface">{title}</span>
+          {summary && <span className="text-body-sm text-on-surface-variant max-w-[64ch]">{summary}</span>}
+        </span>
+        <Icon name="expand_more" className="mt-1 text-on-surface-variant transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="px-5 sm:px-6 pb-5">{children}</div>
+    </details>
+  );
+}
+
 export function Panel({
   title,
   description,

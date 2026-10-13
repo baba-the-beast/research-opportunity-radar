@@ -100,7 +100,8 @@ const updateProfileSchema = z.object({
   min_relevance_band: z.enum(['high', 'strong', 'watch', 'low']).optional(),
   deadline_alert_window_days: z.number().int().min(1).max(180).optional(),
   research_keywords: z.array(z.string().trim().min(1).max(100)).min(1).max(50),
-  profile_text: z.string().trim().min(1).max(10000),
+  // Optional: keywords alone are enough to be matched; a summary ranks calls more precisely
+  profile_text: z.string().trim().max(10000),
   profile_terms: z
     .array(
       z.object({

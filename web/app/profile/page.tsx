@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { BANDS } from '@/lib/match';
 import { requestRescore } from '@/lib/rescore';
 import { useUnsavedChanges } from '@/lib/useUnsavedChanges';
-import { Button, Field, Icon, LoadingRows, Notice, Page, PageHeader, Panel, SegmentedControl, controlClass } from '@/components/ui';
+import { Button, CollapsiblePanel, Field, Icon, LoadingRows, Notice, Page, PageHeader, Panel, SegmentedControl, controlClass } from '@/components/ui';
 
 type TermType = 'topic' | 'method' | 'application' | 'venue' | 'funding_theme';
 
@@ -161,7 +161,6 @@ export default function ProfilePage() {
     if (!profile.full_name?.trim()) nextErrors.full_name = 'Enter your name.';
     if (!profile.institution?.trim()) nextErrors.institution = 'Enter your institution.';
     if (keywords.length === 0) nextErrors.keywords = 'Add at least one research keyword.';
-    if (!profile.profile_text?.trim()) nextErrors.profile_text = 'Write a few sentences about your research.';
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) {
       setSaveMessage({ ok: false, text: `Not saved. Fix the ${Object.keys(nextErrors).length === 1 ? 'highlighted field' : `${Object.keys(nextErrors).length} highlighted fields`}.` });
@@ -242,6 +241,11 @@ export default function ProfilePage() {
   }
 
   const terms: ProfileTermItem[] = profile.profile_terms || [];
+  // Open the eligibility section once any of its fields is filled; new users can skip it
+  const eligibilityFilled = [
+    profile.designation, profile.employment_type, profile.institution_type, profile.state,
+    profile.citizenship_status, profile.date_of_birth, profile.phd_year, profile.superannuation_year
+  ].some((v) => v !== null && v !== undefined && String(v).trim() !== '');
   // Errors stay until fixed; a success message gives way to the unsaved-changes notice
   const statusText = saveMessage && (!saveMessage.ok || !dirty)
     ? saveMessage.text
@@ -326,7 +330,12 @@ export default function ProfilePage() {
               />
             )}
           </Field>
-          <Field label="Research summary" hint="A few sentences in your own words. Calls are ranked by how close their text is to this." error={errors.profile_text}>
+          <Field
+            label="Research summary"
+            optional
+            hint="A few sentences in your own words. Keywords are enough to get started; a summary ranks calls more precisely."
+            error={errors.profile_text}
+          >
             {(c) => (
               <textarea
                 {...c}
@@ -341,9 +350,10 @@ export default function ProfilePage() {
         </div>
       </Panel>
 
-      <Panel
+      <CollapsiblePanel
         title="Fine-tune matching"
-        description="Optional. Add terms that should raise a call's score, or exclude terms you never want (for example a field that shares your keywords)."
+        summary="Optional. Raise or exclude specific terms, for example a field that shares your keywords."
+        defaultOpen={terms.length > 0}
       >
         <div className="flex flex-col gap-4">
           {terms.length > 0 && (
@@ -412,9 +422,17 @@ export default function ProfilePage() {
             </Button>
           </div>
         </div>
-      </Panel>
+      </CollapsiblePanel>
 
-      <Panel title="Eligibility details" description="Checked against each call's rules: nationality, age limit, years to retirement, regular post, region-only calls and years since PhD. All optional.">
+      <CollapsiblePanel
+        title="Eligibility details"
+        summary={
+          eligibilityFilled
+            ? "Checked against each call's rules: nationality, age limit, years to retirement, regular post, region-only calls and years since PhD."
+            : 'Optional, and you can skip it for now. When a call has a rule that needs one of these, its page asks you for it.'
+        }
+        defaultOpen={eligibilityFilled}
+      >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Field label="Designation">{(c) => select(profile.designation, (v) => set({ designation: v }), DESIGNATIONS, c)}</Field>
           <Field label="Position">
@@ -463,7 +481,7 @@ export default function ProfilePage() {
             )}
           </Field>
         </div>
-      </Panel>
+      </CollapsiblePanel>
 
       <div id="digest">
         <Panel title="What goes in your digest">

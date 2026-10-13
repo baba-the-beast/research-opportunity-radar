@@ -509,6 +509,11 @@ export default function OpportunityDetailPage({ params }: { params: Promise<{ id
                       <li key={i}>{a}</li>
                     ))}
                   </ul>
+                  {opp.eligibility_report.action_items.some((a) => /in Profile/.test(a)) && (
+                    <Link href="/profile" className="self-start text-body-sm text-primary underline underline-offset-4">
+                      Add these to your profile
+                    </Link>
+                  )}
                 </div>
               )}
             </div>
