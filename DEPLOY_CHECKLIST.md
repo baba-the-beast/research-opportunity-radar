@@ -67,6 +67,14 @@ Per-user settings (relevance band, minimum score, sources, channels) live in the
    where email = 'you@example.com';
   ```
   (sign out and in again afterwards).
+- Research office (R&D cell) accounts: `python scripts/set_role.py dean.rnd@university.ac.in research_office`.
+  The account's own profile must name the institution exactly as its faculty write it (case and
+  spacing do not matter); the call page shows how many faculty profiles match.
+- October 2026 migrations, all safe to re-run: `20261013000000_source_health.sql` (source checks),
+  `20261013000100_eligibility_corrections.sql` ("Is this wrong?" on eligibility checks),
+  `20261013000200_research_office.sql` (institution notes and internal deadlines),
+  `20261013000300_pilot_metrics.sql` (the Pilot results page). Until they are applied those features
+  are hidden or say a database update is needed; nothing else breaks.
 
 ---
 
