@@ -5,9 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from radar.sources.agencies import anrf_adapter, dst_adapter
+from radar.sources.agencies import anrf_adapter
+from radar.sources.agencies import gov_cms_adapter as dst_adapter
 from radar.sources.agencies.anrf_adapter import ANRFAdapter, parse_scheme_js
-from radar.sources.agencies.dst_adapter import DSTAdapter, parse_dst_posts
+from radar.sources.agencies.gov_cms_adapter import DSTAdapter, parse_gov_cms_posts
 from radar.sources.http import FetchError
 from radar.tools import funding_deadline_scan as scan
 
@@ -101,9 +102,9 @@ def _dst_news():
 
 def _dst_api(monkeypatch, calls_payload=None, news_payload=None):
     def fake_fetch(url, **kw):
-        if url == dst_adapter.CALLS_URL:
+        if url == DSTAdapter.base + dst_adapter.CALLS_PATH:
             return _Response(payload=calls_payload if calls_payload is not None else {"posts": [], "total_items": 0})
-        if url == dst_adapter.NEWS_URL:
+        if url == DSTAdapter.base + dst_adapter.NEWS_PATH:
             return _Response(payload=news_payload if news_payload is not None else _dst_news())
         if "post-page/post?id=" in url:
             file_id = url.rsplit("=", 1)[1]
@@ -114,7 +115,7 @@ def _dst_api(monkeypatch, calls_payload=None, news_payload=None):
 
 
 def test_dst_news_keeps_calls_and_drops_job_adverts():
-    calls = parse_dst_posts(_dst_news()["posts"], from_news=True)
+    calls = parse_gov_cms_posts(_dst_news()["posts"], from_news=True)
     titles = [c["title"] for c in calls]
     assert "Call for applications for ASEAN-India Research Training Fellowships" in titles
     assert "SERB Research Scientist Scheme" in titles
@@ -146,4 +147,4 @@ def test_dst_api_change_is_reported_not_silent(monkeypatch):
     _dst_api(monkeypatch, news_payload={"unexpected": True})
     adapter = DSTAdapter()
     assert adapter.fetch_open_calls() == []
-    assert adapter.last_error and "DST API changed" in adapter.last_error
+    assert adapter.last_error and "site API changed" in adapter.last_error

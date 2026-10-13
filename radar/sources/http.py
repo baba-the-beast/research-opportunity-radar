@@ -16,7 +16,9 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 
 from radar.sources.rate_limiter import scraper_limiter
 
-HONEST_USER_AGENT = "ResearchOpportunityRadar/1.0 (+https://github.com/baba-the-beast/research-opportunity-radar)"
+# No "https://" in the agent string: government WAFs (e.g. moes.gov.in, meity.gov.in) reject
+# headers containing URLs as an injection pattern. The project is still named and findable.
+HONEST_USER_AGENT = "ResearchOpportunityRadar/1.0 (+github.com/baba-the-beast/research-opportunity-radar)"
 DEFAULT_TIMEOUT = 25
 MAX_BYTES = 10 * 1024 * 1024  # listing pages and call PDFs larger than this are not worth parsing
 
