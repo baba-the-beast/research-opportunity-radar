@@ -7,6 +7,7 @@ import { getSupabaseBrowserClient } from '@/lib/supabaseBrowserClient';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { SendToTelegram } from '@/components/SendToTelegram';
+import { eligibilityLabel, eligibilityLine, type EligibilityVerdict } from '@/lib/eligibility';
 import { callShareText } from '@/lib/share';
 import { BANDS, BAND_RANK, bandLabel, bandTextClass, isGoodMatch, kindName } from '@/lib/match';
 import { Icon, Notice, SegmentedControl, controlClass } from '@/components/ui';
@@ -33,6 +34,7 @@ interface OpportunitySummary {
   final_score: number | null; // null until the pipeline scores this opportunity for the user
   band: string;
   matched_terms: string[];
+  eligibility?: EligibilityVerdict | null;
   status: string;
   saved?: boolean;
 }
@@ -503,6 +505,17 @@ export default function DashboardPage() {
                           <span className="material-symbols-outlined text-[15px]">{badge.tone === 'urgent' ? 'timer' : 'event'}</span>
                           {badge.text}
                         </span>
+                        {(() => {
+                          const line = eligibilityLine(opp.eligibility);
+                          if (!line) return null;
+                          const label = eligibilityLabel(opp.eligibility);
+                          return (
+                            <span className={`flex items-center gap-1 ${label.tone === 'danger' ? 'text-error' : 'text-on-surface-variant'}`}>
+                              <span className="material-symbols-outlined text-[15px]" aria-hidden="true">{label.icon}</span>
+                              {line}
+                            </span>
+                          );
+                        })()}
                         {opp.matched_terms.length > 0 && (
                           <span className="text-on-surface-variant truncate">Matches: {opp.matched_terms.slice(0, 3).join(', ')}</span>
                         )}

@@ -61,8 +61,10 @@ export function Panel({
   actions,
   children,
   flush = false,
-  as: Tag = 'section'
+  as: Tag = 'section',
+  id
 }: {
+  id?: string;
   title?: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
@@ -71,7 +73,7 @@ export function Panel({
   as?: 'section' | 'div' | 'aside';
 }) {
   return (
-    <Tag className="rounded-2xl surface-card bg-surface overflow-hidden">
+    <Tag id={id} className="rounded-2xl surface-card bg-surface overflow-hidden scroll-mt-20">
       {(title || actions) && (
         <div className={cx('flex flex-wrap items-start justify-between gap-3 px-5 sm:px-6 pt-5', flush && 'pb-4 border-b border-outline-variant')}>
           <div className="flex flex-col gap-0.5 min-w-0">

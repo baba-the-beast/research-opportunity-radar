@@ -176,6 +176,10 @@ export async function GET(req: NextRequest) {
         final_score: personalScore === null ? null : Number(personalScore),
         band: scoring?.band ?? 'unscored',
         matched_terms: scoring?.matched_terms || [],
+        // The eligibility check for this user (stored with the score); null until scored
+        eligibility: scoring?.components?.eligibility_report
+          ? { status: scoring.components.eligibility_report.status, summary: scoring.components.eligibility_report.summary }
+          : null,
         status: userState?.status || 'new',
         saved: Boolean(userState?.saved),
         notes: userState?.notes || ''
