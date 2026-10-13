@@ -228,3 +228,32 @@ def test_only_wrong_topic_dismissals_reach_the_scorer():
     db.record_feedback("o-2", "prof-f", "neutral", "[dismissed:not_eligible]", [])
     signals = db.load_feedback_signals(rating="not_relevant", faculty_id="prof-f")
     assert [s["opportunity_id"] for s in signals] == ["o-1"]
+
+
+def test_institution_deadline_reminds_with_its_own_heading_and_key():
+    today = date(2026, 10, 1)
+    internal = [deadline_alert.PersonalDeadline(
+        opportunity_id="w-7", deadline_date=today + timedelta(days=3), label="Your institution's internal deadline",
+        title="Call w-7", kind="institution",
+    )]
+    sent = deadline_alert.check_and_send_urgent_deadline_alerts(
+        faculty_id="prof-w", reference_date=today, target=_target(3), opportunities=[], personal_deadlines=internal,
+    )
+    assert len(sent) == 1
+    assert sent[0]["dedupe_key"].startswith("prof-w:w-7:institution_deadline_3:")
+
+
+def test_load_institution_deadlines_only_for_calls_being_applied_to():
+    client = db.get_client()
+    for opp_id in ("i-1", "i-2"):
+        client.table("opportunities").insert({"id": opp_id, "title": f"Call {opp_id}", "agency_or_publisher": "ANRF"}).execute()
+    client.table("user_opportunity_state").insert([
+        {"user_id": "u-9", "opportunity_id": "i-1", "status": "pursuing"},
+        {"user_id": "u-9", "opportunity_id": "i-2", "status": "new"},
+    ]).execute()
+    client.table("institution_call_notes").insert([
+        {"institution_key": "coep technological university", "opportunity_id": "i-1", "internal_deadline": "2026-10-10", "note": "", "recommended": True},
+        {"institution_key": "coep technological university", "opportunity_id": "i-2", "internal_deadline": "2026-10-11", "note": "", "recommended": True},
+    ]).execute()
+    rows = db.load_institution_deadlines("u-9", "  COEP   Technological University ", date(2026, 10, 1), date(2026, 10, 31))
+    assert [(r["opportunity_id"], r["kind"]) for r in rows] == [("i-1", "institution")]

@@ -35,6 +35,7 @@ interface OpportunitySummary {
   band: string;
   matched_terms: string[];
   eligibility?: EligibilityVerdict | null;
+  office?: { recommended: boolean; internal_deadline: string | null } | null; // from the user's research office
   status: string;
   saved?: boolean;
 }
@@ -505,6 +506,13 @@ export default function DashboardPage() {
                           <span className="material-symbols-outlined text-[15px]">{badge.tone === 'urgent' ? 'timer' : 'event'}</span>
                           {badge.text}
                         </span>
+                        {opp.office?.recommended && (
+                          <span className="flex items-center gap-1 text-primary font-semibold">
+                            <span className="material-symbols-outlined text-[15px]" aria-hidden="true">verified</span>
+                            Recommended by your research office
+                            {opp.office.internal_deadline && `, internal deadline ${formatDeadline(opp.office.internal_deadline)}`}
+                          </span>
+                        )}
                         {(() => {
                           const line = eligibilityLine(opp.eligibility);
                           if (!line) return null;

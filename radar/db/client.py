@@ -591,6 +591,69 @@ def insert_scores_bulk(scored: list[tuple[str, dict[str, ScoreResult]]], chunk_s
         client.table("scoring_log").insert(rows[i:i + chunk_size]).execute()
 
 
+def institution_key(name: str | None) -> str:
+    """Same normalisation as public.institution_key() in migration 20261013000200."""
+    return " ".join((name or "").split()).lower()
+
+
+def load_institution_notes(institution: str | None, opportunity_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """The research office's notes for these calls at this institution, by opportunity id.
+    {} if there are none or the table does not exist yet (migration not applied)."""
+    key = institution_key(institution)
+    if not key or not opportunity_ids:
+        return {}
+    try:
+        rows = (
+            get_client().table("institution_call_notes")
+            .select("opportunity_id, internal_deadline, note, recommended")
+            .eq("institution_key", key).in_("opportunity_id", opportunity_ids).execute()
+        ).data or []
+    except Exception as e:
+        logger.warning(f"Institution notes unavailable: {e}")
+        return {}
+    return {r["opportunity_id"]: r for r in rows}
+
+
+def load_institution_deadlines(user_id: str, institution: str | None, start: date, end: date) -> list[dict[str, Any]]:
+    """Internal deadlines the user's research office set, in [start, end], for calls the user is
+    applying to (pursuing or applied). Shaped like load_personal_deadlines rows."""
+    try:
+        tracked = (
+            get_client().table("user_opportunity_state").select("opportunity_id, status")
+            .eq("user_id", user_id).in_("status", ["pursuing", "applied"]).execute()
+        ).data or []
+    except Exception as e:
+        logger.warning(f"Tracked calls unavailable for user {user_id}: {e}")
+        return []
+    notes = load_institution_notes(institution, [r["opportunity_id"] for r in tracked])
+    due = {
+        opp_id: n for opp_id, n in notes.items()
+        if n.get("internal_deadline") and start.isoformat() <= str(n["internal_deadline"])[:10] <= end.isoformat()
+    }
+    if not due:
+        return []
+    try:
+        opps = (
+            get_client().table("opportunities").select("id, title, agency_or_publisher, venue_name")
+            .in_("id", list(due)).execute()
+        ).data or []
+    except Exception as e:
+        logger.warning(f"Call details for institution deadlines unavailable: {e}")
+        return []
+    out = []
+    for opp in opps:
+        note = due[opp["id"]]
+        out.append({
+            "opportunity_id": opp["id"],
+            "deadline_date": date.fromisoformat(str(note["internal_deadline"])[:10]),
+            "label": "Your institution's internal deadline",
+            "title": opp.get("title") or "",
+            "agency_or_publisher": opp.get("agency_or_publisher") or opp.get("venue_name") or "",
+            "kind": "institution",
+        })
+    return out
+
+
 def load_personal_deadlines(user_id: str, start: date, end: date) -> list[dict[str, Any]]:
     """A user's own deadlines (user_opportunity_state.my_deadline) in [start, end], with call details.
 

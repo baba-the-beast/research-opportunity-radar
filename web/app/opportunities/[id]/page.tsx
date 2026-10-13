@@ -8,6 +8,7 @@ import { bandLabel, bandTextClass, isGoodMatch, kindName } from '@/lib/match';
 import { SendToTelegram } from '@/components/SendToTelegram';
 import { eligibilityLabel } from '@/lib/eligibility';
 import { EligibilityCorrection } from '@/components/EligibilityCorrection';
+import { InstitutionNotePanel } from '@/components/InstitutionNotePanel';
 import { ApplicationPanel } from '@/components/ApplicationPanel';
 import { DismissPanel, type DismissChoice } from '@/components/DismissPanel';
 import { PENALISING_REASON } from '@/lib/feedback';
@@ -385,6 +386,7 @@ export default function OpportunityDetailPage({ params }: { params: Promise<{ id
               busy={trackBusy}
             />
           )}
+          <InstitutionNotePanel opportunityId={opp.id} />
           <div className="lg:hidden">{deadlinesPanel}</div>
           <Panel title="About this call">
             <div className="flex flex-col gap-4">

@@ -149,6 +149,19 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // The research office's notes for the caller's institution (RLS returns only that institution's
+    // rows). Optional: before migration 20261013000200 the table is missing and the feed carries on.
+    const officeNotes: Record<string, { recommended: boolean; internal_deadline: string | null }> = {};
+    if (userId && pageRows.length > 0) {
+      const { data: notes } = await supabase
+        .from('institution_call_notes')
+        .select('opportunity_id, recommended, internal_deadline')
+        .in('opportunity_id', pageRows.map((r: any) => r.id));
+      for (const n of notes || []) {
+        officeNotes[n.opportunity_id] = { recommended: Boolean(n.recommended), internal_deadline: n.internal_deadline };
+      }
+    }
+
     const today = istDate();
     const formatted = pageRows.map((row: any) => {
       const src = row.opportunity_sources?.[0];
@@ -182,6 +195,7 @@ export async function GET(req: NextRequest) {
           : null,
         status: userState?.status || 'new',
         saved: Boolean(userState?.saved),
+        office: officeNotes[row.id] ?? null,
         notes: userState?.notes || ''
       };
     });

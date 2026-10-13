@@ -444,7 +444,8 @@ def run_pipeline(
                     to_alert = [o for o in to_alert if o.id in unsent]
                 if to_alert and should_send_alerts and target.digest_enabled:
                     digest_md = digest_builder.build(
-                        to_alert, failed_sources=_public_source_failures(failed_sources), faculty_id=profile.id
+                        to_alert, failed_sources=_public_source_failures(failed_sources), faculty_id=profile.id,
+                        institution_notes=db.load_institution_notes(profile.institution, [o.id for o in to_alert if o.id]),
                     )
                     # Counted before sending: dispatch() disconnects a blocked Telegram chat mid-send
                     channels = target.enabled_channels
@@ -461,6 +462,14 @@ def run_pipeline(
                     personal = [
                         deadline_alert.PersonalDeadline(**row)
                         for row in db.load_personal_deadlines(profile.user_id, today, today + timedelta(days=max(target.reminder_days, default=DEFAULT_REMINDER_WINDOW_DAYS)))
+                    ]
+                    # Internal deadlines the user's research office set on calls they are applying to
+                    personal += [
+                        deadline_alert.PersonalDeadline(**row)
+                        for row in db.load_institution_deadlines(
+                            profile.user_id, profile.institution, today,
+                            today + timedelta(days=max(target.reminder_days, default=DEFAULT_REMINDER_WINDOW_DAYS)),
+                        )
                     ]
                 urgent_alerts.extend(deadline_alert.check_and_send_urgent_deadline_alerts(
                     faculty_id=profile.id,

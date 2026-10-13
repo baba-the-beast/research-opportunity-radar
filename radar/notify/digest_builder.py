@@ -32,17 +32,25 @@ def build(
     opportunities: list[Opportunity],
     failed_sources: list[dict[str, str]] | None = None,
     faculty_id: str | None = None,
+    institution_notes: dict[str, dict] | None = None,
 ) -> str:
     """Render a digest. Pass faculty_id so each recipient sees their own score and matched terms
-    (opp.score_result is the best score across all faculty and would expose other users' terms)."""
+    (opp.score_result is the best score across all faculty and would expose other users' terms).
+    institution_notes: the recipient's research office notes by opportunity id (recommended calls
+    go first and say so, with the office's internal deadline)."""
     today = today_ist()
 
     def score_of(opp: Opportunity):
         return opp.profile_scores.get(faculty_id) if faculty_id else opp.score_result
 
+    notes = institution_notes or {}
     ranked = sorted(
         opportunities,
-        key=lambda o: (o.earliest_confirmed_deadline() or date.max, -(score_of(o).final_score if score_of(o) else 0)),
+        key=lambda o: (
+            not notes.get(o.id or "", {}).get("recommended"),
+            o.earliest_confirmed_deadline() or date.max,
+            -(score_of(o).final_score if score_of(o) else 0),
+        ),
     )
     shown = ranked[:MAX_CALLS]
 
@@ -59,6 +67,16 @@ def build(
         if score:
             matched = ", ".join(score.matched_terms[:3]) if score.matched_terms else "your research summary"
             lines.append(f"- Match {score.final_score:.1f}/100: {matched}")
+        office = notes.get(opp.id or "")
+        if office and (office.get("recommended") or office.get("internal_deadline")):
+            parts = ["Recommended by your research office"] if office.get("recommended") else ["Your research office"]
+            if office.get("internal_deadline"):
+                internal = date.fromisoformat(str(office["internal_deadline"])[:10])
+                parts.append(f"internal deadline {internal.strftime('%d %b %Y').lstrip('0')}")
+            text = ", ".join(parts)
+            if office.get("note"):
+                text += f": {office['note']}"
+            lines.append(f"- 🏛️ {text}")
         note = _eligibility_note(score.eligibility_report if score else None)
         if note:
             lines.append(f"- ⚠️ {note}")

@@ -37,3 +37,13 @@ def test_long_digests_are_capped():
     md = digest_builder.build([_opp(f"Call {i}", i + 1) for i in range(14)], faculty_id="me")
     assert md.count("### ") == digest_builder.MAX_CALLS
     assert "…and 4 more in your feed." in md
+
+
+def test_research_office_recommendations_come_first_with_internal_deadline(monkeypatch):
+    monkeypatch.setattr(digest_builder, "today_ist", lambda: TODAY)
+    soon, recommended = _opp("Soon", 3), _opp("Recommended", 30)
+    soon.id, recommended.id = "o-1", "o-2"
+    notes = {"o-2": {"recommended": True, "internal_deadline": "2026-11-01", "note": "Send drafts to the Dean (R&D)"}}
+    md = digest_builder.build([soon, recommended], faculty_id="me", institution_notes=notes)
+    assert md.index("Recommended") < md.index("Soon")
+    assert "🏛️ Recommended by your research office, internal deadline 1 Nov 2026: Send drafts to the Dean (R&D)" in md

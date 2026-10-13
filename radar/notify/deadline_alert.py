@@ -25,6 +25,7 @@ class PersonalDeadline:
     title: str
     agency_or_publisher: str = ""
     url: str = ""
+    kind: str = "own"  # "own" (the user's my_deadline) or "institution" (set by their research office)
 
 
 def reminder_window(days_left: int, windows: tuple[int, ...]) -> int | None:
@@ -39,7 +40,9 @@ def reminder_window(days_left: int, windows: tuple[int, ...]) -> int | None:
     return min(entered) if entered else None
 
 
-def _dedupe_key(faculty_id: str | None, opp_id: str, window: int, deadline: date, personal: bool) -> str:
+def _dedupe_key(faculty_id: str | None, opp_id: str, window: int, deadline: date, personal: bool, kind: str = "own") -> str:
+    if personal and kind == "institution":
+        return f"{faculty_id}:{opp_id}:institution_deadline_{window}:{deadline.isoformat()}"
     if personal:
         return f"{faculty_id}:{opp_id}:my_deadline_{window}:{deadline.isoformat()}"
     if window == LEGACY_WINDOW_DAYS:
@@ -99,7 +102,8 @@ def check_and_send_urgent_deadline_alerts(
         opportunities = db.load_recent_opportunities(limit=500)
 
     # (opp_id, title, agency, url, source, deadline date, what the date is, personal?)
-    candidates: list[tuple[str, str, str, str, str, date, str, bool]] = []
+    # (..., personal?, kind) where kind is "agency", "own" or "institution"
+    candidates: list[tuple[str, str, str, str, str, date, str, bool, str]] = []
     for opp in opportunities:
         if not opp.id or (opportunity_ids is not None and opp.id not in opportunity_ids):
             continue
@@ -108,7 +112,7 @@ def check_and_send_urgent_deadline_alerts(
                 candidates.append((
                     opp.id, opp.title, opp.agency_or_publisher or opp.venue_name or "Unknown agency",
                     opp.primary_source_url or "", opp.primary_source_name or "Official page",
-                    dl.deadline_date, dl.deadline_type.replace("_", " ").capitalize(), False,
+                    dl.deadline_date, dl.deadline_type.replace("_", " ").capitalize(), False, "agency",
                 ))
     # A personal date that matches an agency date on the same call is already covered by that reminder
     agency_dates = {(c[0], c[5]) for c in candidates}
@@ -117,22 +121,22 @@ def check_and_send_urgent_deadline_alerts(
             continue
         candidates.append((
             pd.opportunity_id, pd.title, pd.agency_or_publisher or "", pd.url, "Official page",
-            pd.deadline_date, pd.label or "Your deadline", True,
+            pd.deadline_date, pd.label or "Your deadline", True, pd.kind,
         ))
 
     dispatched_alerts: list[dict[str, Any]] = []
-    for opp_id, title, agency, url, source_name, deadline_date, what, personal in candidates:
+    for opp_id, title, agency, url, source_name, deadline_date, what, personal, kind in candidates:
         days_left = (deadline_date - today).days
         window = reminder_window(days_left, windows)
         if window is None:
             continue
-        dedupe_key = _dedupe_key(faculty_id, opp_id, window, deadline_date, personal)
+        dedupe_key = _dedupe_key(faculty_id, opp_id, window, deadline_date, personal, kind)
 
         try:
             # A reminder already sent for this window or a tighter one counts too, so changing
             # reminder days (e.g. 3 -> 7 when 2 days are left) does not repeat it
             keys = [
-                _dedupe_key(faculty_id, opp_id, w, deadline_date, personal)
+                _dedupe_key(faculty_id, opp_id, w, deadline_date, personal, kind)
                 for w in sorted({*recipients.ALLOWED_REMINDER_DAYS, LEGACY_WINDOW_DAYS, window})
                 if w <= window
             ]
@@ -160,7 +164,8 @@ def check_and_send_urgent_deadline_alerts(
         }
 
         icon = "🚨" if days_left <= LEGACY_WINDOW_DAYS else "⏰"
-        heading = f"{icon} *Your deadline {_when(days_left)}*" if personal else f"{icon} *Deadline {_when(days_left)}*"
+        whose = "Your institution's deadline" if kind == "institution" else "Your deadline" if personal else "Deadline"
+        heading = f"{icon} *{whose} {_when(days_left)}*"
         lines = [heading, "", f"*{title}*"]
         if agency:
             lines.append(agency)
@@ -172,7 +177,7 @@ def check_and_send_urgent_deadline_alerts(
         if not dry_run:
             # Counted before sending: dispatch() disconnects a blocked Telegram chat mid-send
             channels = target.enabled_channels
-            subject = f"{'Your deadline' if personal else 'Deadline'} {_when(days_left)}: {title[:60]}"
+            subject = f"{whose} {_when(days_left)}: {title[:60]}"
             send_errors = recipients.dispatch(target, subject, alert_text)
             if send_errors and errors is not None:
                 errors.extend(send_errors)
