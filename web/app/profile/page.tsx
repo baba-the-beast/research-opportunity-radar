@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BANDS } from '@/lib/match';
 import { requestRescore } from '@/lib/rescore';
 import { useUnsavedChanges } from '@/lib/useUnsavedChanges';
@@ -155,6 +155,20 @@ export default function ProfilePage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Institution suggestions, fetched 250 ms after typing stops
+  const [institutionOptions, setInstitutionOptions] = useState<string[]>([]);
+  const lookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lookupInstitutions = (text: string) => {
+    if (lookupTimer.current) clearTimeout(lookupTimer.current);
+    if (text.trim().length < 2) return setInstitutionOptions([]);
+    lookupTimer.current = setTimeout(() => {
+      fetch(`/api/institutions?q=${encodeURIComponent(text.trim())}`)
+        .then((res) => (res.ok ? res.json() : []))
+        .then((body) => setInstitutionOptions(Array.isArray(body) ? body : Array.isArray(body?.data) ? body.data : []))
+        .catch(() => setInstitutionOptions([]));
+    }, 250);
+  };
+
   const handleSave = async () => {
     const keywords = keywordsFromText(keywordsText);
     const nextErrors: Errors = {};
@@ -303,8 +317,32 @@ export default function ProfilePage() {
           <Field label="Name" error={errors.full_name} className="sm:col-span-2">
             {(c) => <input {...c} className={controlClass} type="text" autoComplete="name" placeholder="Dr. Priya Sharma" value={profile.full_name || ''} onChange={(e) => set({ full_name: e.target.value })} />}
           </Field>
-          <Field label="Institution" error={errors.institution}>
-            {(c) => <input {...c} className={controlClass} type="text" autoComplete="organization" value={profile.institution || ''} onChange={(e) => set({ institution: e.target.value })} />}
+          <Field
+            label="Institution"
+            hint="Pick it from the list if it is there, so you match colleagues and your research office."
+            error={errors.institution}
+          >
+            {(c) => (
+              <>
+                <input
+                  {...c}
+                  className={controlClass}
+                  type="text"
+                  autoComplete="organization"
+                  list="institution-options"
+                  value={profile.institution || ''}
+                  onChange={(e) => {
+                    set({ institution: e.target.value });
+                    lookupInstitutions(e.target.value);
+                  }}
+                />
+                <datalist id="institution-options">
+                  {institutionOptions.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+              </>
+            )}
           </Field>
           <Field label="Department" optional>
             {(c) => <input {...c} className={controlClass} type="text" value={profile.department || ''} onChange={(e) => set({ department: e.target.value })} />}

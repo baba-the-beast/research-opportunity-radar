@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getOwnProfileId, getRequestSupabase } from '@/lib/routeContext';
+import { canonicalInstitution } from '@/lib/institutions';
 import { authenticateRequest, authorizeRole } from '@/lib/auth';
 import { consumeRateLimit, rateLimitKey } from '@/lib/rateLimit';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
@@ -142,7 +143,7 @@ export async function POST(req: NextRequest) {
 
     const row: Record<string, any> = {
       full_name: data.full_name,
-      institution: data.institution,
+      institution: canonicalInstitution(data.institution),
       department: data.department || null,
       research_keywords: data.research_keywords,
       profile_text: data.profile_text,
