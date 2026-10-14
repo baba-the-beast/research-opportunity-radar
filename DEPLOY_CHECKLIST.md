@@ -67,13 +67,17 @@ Per-user settings (relevance band, minimum score, sources, channels) live in the
    where email = 'you@example.com';
   ```
   (sign out and in again afterwards).
-- Research office (R&D cell) accounts: `python scripts/set_role.py dean.rnd@university.ac.in research_office`.
-  The account's own profile must name the institution exactly as its faculty write it (case and
-  spacing do not matter); the call page shows how many faculty profiles match.
+- Research office (R&D cell) accounts:
+  `python scripts/set_role.py dean.rnd@university.ac.in research_office --institution "COEP Technological University"`.
+  Name the institution exactly as its faculty write it (case and spacing do not matter); the call page
+  shows how many faculty profiles match. The office cannot change it from its own profile
+  (migration `20261015000000_office_institution_from_role.sql`); existing office accounts must be re-run
+  with `--institution`.
 - October 2026 migrations, all safe to re-run: `20261013000000_source_health.sql` (source checks),
   `20261013000100_eligibility_corrections.sql` ("Is this wrong?" on eligibility checks),
   `20261013000200_research_office.sql` (institution notes and internal deadlines),
-  `20261013000300_pilot_metrics.sql` (the Pilot results page),
+  `20261013000300_pilot_metrics.sql` (the Pilot results page), `20261015000000_office_institution_from_role.sql`
+  (a research office's institution comes from its role),
   `20261014000000_institution_suggestions.sql` (institution names in the profile picker). Until they are applied those features
   are hidden or say a database update is needed; nothing else breaks.
 

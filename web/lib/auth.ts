@@ -9,6 +9,8 @@ export interface UserIdentity {
   email?: string;
   // research_office: a faculty account that also manages its institution's call notes
   role: AppRole;
+  // research_office only: the institution it manages, from app_metadata (set by scripts/set_role.py)
+  institution?: string;
   isServiceRole: boolean;
   token?: string;
 }
@@ -161,6 +163,7 @@ export async function authenticateRequest(req: Request | NextRequest): Promise<A
             id: user.id,
             email: user.email,
             role: userRole,
+            ...(userRole === 'research_office' ? { institution: String(user.app_metadata?.institution || '') } : {}),
             isServiceRole: false,
             token
           }

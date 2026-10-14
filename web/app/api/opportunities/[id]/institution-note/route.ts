@@ -5,6 +5,7 @@ import { authenticateRequest } from '@/lib/auth';
 import { consumeRateLimit, rateLimitKey } from '@/lib/rateLimit';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { institutionKey } from '@/lib/institution';
+import type { UserIdentity } from '@/lib/auth';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -14,9 +15,13 @@ const noteSchema = z.object({
   recommended: z.boolean()
 });
 
-/** The caller's institution (from their profile), or '' when it is not set. */
-async function myInstitution(supabase: ReturnType<typeof getRequestSupabase>, userId: string): Promise<string> {
-  const { data } = await supabase.from('faculty_profile').select('institution').eq('user_id', userId).maybeSingle();
+/**
+ * The caller's institution, or '' when it is not set. A research office's comes from its role, which
+ * only the service key can change, so editing its profile cannot move it to another institution.
+ */
+async function myInstitution(supabase: ReturnType<typeof getRequestSupabase>, user: UserIdentity): Promise<string> {
+  if (user.role === 'research_office') return user.institution || '';
+  const { data } = await supabase.from('faculty_profile').select('institution').eq('user_id', user.id).maybeSingle();
   return data?.institution || '';
 }
 
@@ -33,7 +38,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     if (!UUID_PATTERN.test(id)) return createErrorResponse('INVALID_IDENTIFIER', 'Invalid opportunity identifier format', 400, req);
 
     const supabase = getRequestSupabase(auth.user);
-    const institution = await myInstitution(supabase, auth.user.id);
+    const institution = await myInstitution(supabase, auth.user);
     const canEdit = auth.user.role === 'research_office' && Boolean(institutionKey(institution));
     if (!institutionKey(institution)) {
       return createSuccessResponse({ institution: '', note: null, can_edit: false }, req);
@@ -80,9 +85,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return createErrorResponse('VALIDATION_ERROR', parsed.error.issues[0]?.message || 'Invalid payload', 400, req, parsed.error.issues);
     }
     const supabase = getRequestSupabase(auth.user);
-    const key = institutionKey(await myInstitution(supabase, auth.user.id));
+    const key = institutionKey(await myInstitution(supabase, auth.user));
     if (!key) {
-      return createErrorResponse('NO_INSTITUTION', 'Set your institution in Profile first: notes apply to that institution.', 400, req);
+      return createErrorResponse('NO_INSTITUTION', 'Your research office account has no institution yet. Ask the administrator to run scripts/set_role.py with --institution.', 400, req);
     }
     const { error } = await supabase.from('institution_call_notes').upsert(
       { institution_key: key, opportunity_id: id, ...parsed.data, updated_by: auth.user.id, updated_at: new Date().toISOString() },
