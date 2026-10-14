@@ -39,7 +39,7 @@ export default function ForgotPasswordPage() {
       <div className="w-full max-w-md bg-surface surface-card rounded-2xl p-8 sm:p-10">
         <div className="flex flex-col items-center text-center mb-6">
           <div className="w-12 h-12 rounded-full bg-surface-container-high border border-primary/40 flex items-center justify-center mb-3">
-            <span className="material-symbols-outlined text-primary text-[24px]">key</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-primary text-[24px]">key</span>
           </div>
           <h1 className="font-headline-lg text-headline-lg text-on-surface">
             Reset Password
@@ -52,7 +52,7 @@ export default function ForgotPasswordPage() {
         {submitted ? (
           <div className="text-center">
             <div className="p-4 rounded-lg bg-surface-container-high border border-outline-variant/40 text-on-surface text-body-sm mb-6">
-              Recovery instructions dispatched! Check your email inbox to proceed with resetting your password.
+              We sent you a link to reset your password. Check your email inbox.
             </div>
             <Link
               href="/login"
@@ -64,16 +64,16 @@ export default function ForgotPasswordPage() {
         ) : (
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             {errorMessage && (
-              <div className="p-3 rounded-lg bg-error-container/40 border border-error/30 text-body-sm text-on-surface">
+              <div role="alert" className="p-3 rounded-lg bg-error-container/40 border border-error/30 text-body-sm text-on-surface">
                 {errorMessage}
               </div>
             )}
 
             <div>
-              <label className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
+              <label htmlFor="forgot-field-1" className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
                 Email Address
               </label>
-              <input
+              <input id="forgot-field-1"
                 type="email"
                 required
                 value={email}
@@ -88,7 +88,7 @@ export default function ForgotPasswordPage() {
               disabled={loading}
               className="w-full mt-2 py-3 px-4 rounded-lg bg-primary text-on-primary font-bold font-body-md hover:bg-primary-fixed-dim transition-all flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              {loading ? 'Dispatching...' : 'Send Recovery Dispatch'}
+              {loading ? 'Sending…' : 'Send reset link'}
             </button>
 
             <div className="text-center mt-4">

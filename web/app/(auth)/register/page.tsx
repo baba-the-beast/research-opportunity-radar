@@ -18,7 +18,7 @@ function RegisterForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [keywords, setKeywords] = useState('Artificial Intelligence, Edge Computing, Embedded Systems');
+  const [keywords, setKeywords] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -108,7 +108,7 @@ function RegisterForm() {
       <div className="w-full max-w-lg bg-surface surface-card rounded-2xl p-8 sm:p-10">
         <div className="flex flex-col items-center text-center mb-8">
           <div className="w-12 h-12 rounded-full bg-surface-container-high border border-primary/40 flex items-center justify-center mb-3">
-            <span className="material-symbols-outlined text-primary text-[24px]">person_add</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-primary text-[24px]">person_add</span>
           </div>
           <h1 className="font-headline-lg text-headline-lg text-on-surface tracking-tight">
             Create your account
@@ -119,18 +119,18 @@ function RegisterForm() {
         </div>
 
         {errorMessage && (
-          <div className="mb-6 p-4 rounded-lg bg-error-container/40 border border-error/30 text-on-surface text-body-sm flex items-start gap-2">
-            <span className="material-symbols-outlined text-error text-[18px] shrink-0 mt-0.5">error</span>
+          <div role="alert" className="mb-6 p-4 rounded-lg bg-error-container/40 border border-error/30 text-on-surface text-body-sm flex items-start gap-2">
+            <span aria-hidden="true" className="material-symbols-outlined text-error text-[18px] shrink-0 mt-0.5">error</span>
             <span>{errorMessage}</span>
           </div>
         )}
 
         <form onSubmit={handleRegister} className="flex flex-col gap-4">
           <div>
-            <label className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
+            <label htmlFor="register-field-1" className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
               Full Name & Title
             </label>
-            <input
+            <input id="register-field-1"
               type="text"
               required
               value={fullName}
@@ -142,37 +142,37 @@ function RegisterForm() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
+              <label htmlFor="register-field-2" className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
                 Institution
               </label>
-              <input
+              <input id="register-field-2"
                 type="text"
                 required
                 value={institution}
                 onChange={(e) => setInstitution(e.target.value)}
-                placeholder="Your university"
+                placeholder="Your university or college"
                 className="w-full rounded-lg border border-outline bg-surface text-body-md text-on-surface px-3 min-h-11 sm:min-h-10 placeholder:text-on-surface-variant/70 hover:border-on-surface-variant focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
               />
             </div>
             <div>
-              <label className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
+              <label htmlFor="register-field-3" className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
                 Department
               </label>
-              <input
+              <input id="register-field-3"
                 type="text"
                 value={department}
                 onChange={(e) => setDepartment(e.target.value)}
-                placeholder="Computer Science"
+                placeholder="e.g. Chemistry"
                 className="w-full rounded-lg border border-outline bg-surface text-body-md text-on-surface px-3 min-h-11 sm:min-h-10 placeholder:text-on-surface-variant/70 hover:border-on-surface-variant focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
               />
             </div>
           </div>
 
           <div>
-            <label className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
+            <label htmlFor="register-field-4" className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
               Email
             </label>
-            <input
+            <input id="register-field-4"
               type="email"
               required
               autoComplete="email"
@@ -184,25 +184,25 @@ function RegisterForm() {
           </div>
 
           <div>
-            <label className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
+            <label htmlFor="register-field-5" className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
               Core Research Keywords (comma separated)
             </label>
-            <input
+            <input id="register-field-5"
               type="text"
               required
               value={keywords}
               onChange={(e) => setKeywords(e.target.value)}
-              placeholder="e.g. Edge AI, Sensor Fusion, Robotics"
+              placeholder="e.g. organic synthesis, crop genomics, power electronics"
               className="w-full rounded-lg border border-outline bg-surface text-body-md text-on-surface px-3 min-h-11 sm:min-h-10 placeholder:text-on-surface-variant/70 hover:border-on-surface-variant focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
             />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
+              <label htmlFor="register-field-6" className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
                 Password
               </label>
-              <input
+              <input id="register-field-6"
                 type="password"
                 required
                 autoComplete="new-password"
@@ -213,10 +213,10 @@ function RegisterForm() {
               />
             </div>
             <div>
-              <label className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
+              <label htmlFor="register-field-7" className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
                 Confirm Password
               </label>
-              <input
+              <input id="register-field-7"
                 type="password"
                 required
                 autoComplete="new-password"
@@ -236,11 +236,11 @@ function RegisterForm() {
             {loading ? (
               <>
                 <span className="w-4 h-4 border-2 border-on-primary border-t-transparent rounded-full animate-spin"></span>
-                <span>Initializing Node...</span>
+                <span>Creating your account…</span>
               </>
             ) : (
               <>
-                <span className="material-symbols-outlined text-[18px]">verified_user</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">verified_user</span>
                 <span>Create account</span>
               </>
             )}

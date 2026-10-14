@@ -53,7 +53,7 @@ export default function ResetPasswordPage() {
       <div className="w-full max-w-md bg-surface surface-card rounded-2xl p-8 sm:p-10">
         <div className="flex flex-col items-center text-center mb-6">
           <div className="w-12 h-12 rounded-full bg-surface-container-high border border-primary/40 flex items-center justify-center mb-3">
-            <span className="material-symbols-outlined text-primary text-[24px]">lock_reset</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-primary text-[24px]">lock_reset</span>
           </div>
           <h1 className="font-headline-lg text-headline-lg text-on-surface">
             Create New Password
@@ -78,16 +78,16 @@ export default function ResetPasswordPage() {
         ) : (
           <form onSubmit={handleReset} className="flex flex-col gap-4">
             {errorMessage && (
-              <div className="p-3 rounded-lg bg-error-container/40 border border-error/30 text-body-sm text-on-surface">
+              <div role="alert" className="p-3 rounded-lg bg-error-container/40 border border-error/30 text-body-sm text-on-surface">
                 {errorMessage}
               </div>
             )}
 
             <div>
-              <label className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
+              <label htmlFor="reset-field-1" className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
                 New Password
               </label>
-              <input
+              <input id="reset-field-1"
                 type="password"
                 required
                 value={password}
@@ -98,10 +98,10 @@ export default function ResetPasswordPage() {
             </div>
 
             <div>
-              <label className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
+              <label htmlFor="reset-field-2" className="block font-label-caps text-label-caps text-on-surface-variant   mb-1">
                 Confirm New Password
               </label>
-              <input
+              <input id="reset-field-2"
                 type="password"
                 required
                 value={confirmPassword}

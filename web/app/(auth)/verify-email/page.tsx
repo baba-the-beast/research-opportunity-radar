@@ -37,7 +37,7 @@ function VerifyEmailForm() {
     <div className="min-h-screen flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md bg-surface surface-card rounded-2xl p-8 sm:p-10 text-center">
         <div className="w-14 h-14 rounded-full bg-secondary-container/40 border border-secondary/40 flex items-center justify-center mx-auto mb-4">
-          <span className="material-symbols-outlined text-secondary text-[30px]">mark_email_unread</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-secondary text-[30px]">mark_email_unread</span>
         </div>
 
         <h1 className="font-headline-lg text-headline-lg text-on-surface mb-2">
@@ -45,7 +45,7 @@ function VerifyEmailForm() {
         </h1>
 
         <p className="font-body-md text-body-md text-on-surface-variant mb-6">
-          A confirmation dispatch has been sent to{' '}
+          We sent a confirmation email to{' '}
           <strong className="text-on-surface">{email || 'your email'}</strong>. Open the link in that email to activate your account.
         </p>
 
@@ -62,7 +62,7 @@ function VerifyEmailForm() {
               disabled={resending}
               className="w-full py-2.5 px-4 rounded-lg bg-surface-container-high border border-outline-variant text-on-surface hover:bg-surface-container-highest transition-colors font-body-sm flex items-center justify-center gap-2"
             >
-              {resending ? 'Sending...' : 'Resend Verification Dispatch'}
+              {resending ? 'Sending...' : 'Resend confirmation email'}
             </button>
           )}
 

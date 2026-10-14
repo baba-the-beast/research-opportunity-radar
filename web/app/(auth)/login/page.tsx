@@ -17,7 +17,7 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(
-    errorParam === 'auth_callback_failed' ? 'Authentication callback failed. Please try again.' : null
+    errorParam === 'auth_callback_failed' ? 'Sign-in did not complete. Please try again.' : null
   );
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -58,7 +58,8 @@ function LoginForm() {
               <circle cx="16" cy="16" r="14" stroke="currentColor" strokeWidth="1.5" strokeDasharray="2 2" opacity="0.6"/>
               <circle cx="16" cy="16" r="8" stroke="currentColor" strokeWidth="1.5" opacity="0.8"/>
               <circle cx="16" cy="16" r="2.5" fill="currentColor"/>
-              <line x1="16" y1="16" x2="27" y2="9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <line x1="16" y1="16" x2="27" y2="9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+
             </svg>
           </div>
           <h1 className="font-headline-lg text-headline-lg text-on-surface tracking-tight">
@@ -70,18 +71,18 @@ function LoginForm() {
         </div>
 
         {errorMessage && (
-          <div className="mb-6 p-4 rounded-lg bg-error-container/40 border border-error/30 text-on-surface text-body-sm flex items-start gap-2">
-            <span className="material-symbols-outlined text-error text-[18px] shrink-0 mt-0.5">error</span>
+          <div role="alert" className="mb-6 p-4 rounded-lg bg-error-container/40 border border-error/30 text-on-surface text-body-sm flex items-start gap-2">
+            <span aria-hidden="true" className="material-symbols-outlined text-error text-[18px] shrink-0 mt-0.5">error</span>
             <span>{errorMessage}</span>
           </div>
         )}
 
         <form onSubmit={handleLogin} className="flex flex-col gap-4">
           <div>
-            <label className="block font-label-caps text-label-caps text-on-surface-variant   mb-1.5">
+            <label htmlFor="login-field-1" className="block font-label-caps text-label-caps text-on-surface-variant   mb-1.5">
               Email
             </label>
-            <input
+            <input id="login-field-1"
               type="email"
               required
               autoComplete="email"
@@ -94,7 +95,7 @@ function LoginForm() {
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="font-label-caps text-label-caps text-on-surface-variant  ">
+              <label htmlFor="login-field-2" className="font-label-caps text-label-caps text-on-surface-variant  ">
                 Password
               </label>
               <Link
@@ -104,7 +105,7 @@ function LoginForm() {
                 Forgot password?
               </Link>
             </div>
-            <input
+            <input id="login-field-2"
               type="password"
               required
               autoComplete="current-password"
@@ -123,11 +124,11 @@ function LoginForm() {
             {loading ? (
               <>
                 <span className="w-4 h-4 border-2 border-on-primary border-t-transparent rounded-full animate-spin"></span>
-                <span>Authenticating...</span>
+                <span>Signing in…</span>
               </>
             ) : (
               <>
-                <span className="material-symbols-outlined text-[18px]">lock_open</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">lock_open</span>
                 <span>Sign in</span>
               </>
             )}
