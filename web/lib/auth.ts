@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 
+export type AppRole = 'faculty' | 'operator' | 'admin' | 'research_office';
+
 export interface UserIdentity {
   id: string;
   email?: string;
-  role: 'faculty' | 'operator' | 'admin';
+  // research_office: a faculty account that also manages its institution's call notes
+  role: AppRole;
+  // research_office only: the institution it manages, from app_metadata (set by scripts/set_role.py)
+  institution?: string;
   isServiceRole: boolean;
   token?: string;
 }
@@ -150,14 +155,15 @@ export async function authenticateRequest(req: Request | NextRequest): Promise<A
       if (!error && user) {
         // Only app_metadata is server-controlled; user_metadata is writable by the user via auth.updateUser()
         const appRole = user.app_metadata?.role;
-        const userRole: 'faculty' | 'operator' | 'admin' =
-          appRole === 'operator' || appRole === 'admin' ? appRole : 'faculty';
+        const userRole: AppRole =
+          appRole === 'operator' || appRole === 'admin' || appRole === 'research_office' ? appRole : 'faculty';
         return {
           authenticated: true,
           user: {
             id: user.id,
             email: user.email,
             role: userRole,
+            ...(userRole === 'research_office' ? { institution: String(user.app_metadata?.institution || '') } : {}),
             isServiceRole: false,
             token
           }
@@ -203,7 +209,7 @@ export async function authenticateRequest(req: Request | NextRequest): Promise<A
  */
 export function authorizeRole(
   identity: UserIdentity | undefined,
-  allowedRoles: Array<'faculty' | 'operator' | 'admin'>
+  allowedRoles: AppRole[]
 ): { authorized: boolean; errorResponse?: NextResponse } {
   if (!identity) {
     return {
@@ -220,7 +226,9 @@ export function authorizeRole(
     };
   }
 
-  if (identity.isServiceRole || identity.role === 'admin' || allowedRoles.includes(identity.role)) {
+  // A research office account is a faculty account with one extra permission
+  const asFaculty = identity.role === 'research_office' && allowedRoles.includes('faculty');
+  if (identity.isServiceRole || identity.role === 'admin' || allowedRoles.includes(identity.role) || asFaculty) {
     return { authorized: true };
   }
 

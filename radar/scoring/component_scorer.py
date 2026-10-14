@@ -306,8 +306,9 @@ def score_opportunity(
         if not opportunity.embedding:
             opportunity.embedding = model.encode(opp_text).tolist()
 
-        if not profile.profile_embedding and profile.profile_text:
-            profile.profile_embedding = model.encode(profile.profile_text).tolist()
+        profile_text = (profile.profile_text or "").strip() or ", ".join(profile.research_keywords or [])
+        if not profile.profile_embedding and profile_text:
+            profile.profile_embedding = model.encode(profile_text).tolist()
 
         cos_sim = embed_cosine(opportunity.embedding, profile.profile_embedding or [])
         topic_sim_pct = cosine_to_pct(cos_sim)

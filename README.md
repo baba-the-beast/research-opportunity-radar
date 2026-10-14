@@ -11,7 +11,7 @@ Research Opportunity Radar finds funding calls and calls for papers for faculty 
 against each person's research profile, checks the eligibility rules stated in each call, and sends
 digests and 3-day deadline warnings by email or Telegram.
 
-- **Sources**: ANRF, DST, DBT and ICMR/DHR calls; conference and journal calls for papers (WikiCFP);
+- **Sources**: 14 Indian funders (ANRF, DST, DBT, ICMR/DHR, BIRAC, CSIR, ICSSR, MeitY, MoES, UGC, AICTE, INSA, DRDO, CEFIPRA); conference and journal calls for papers (WikiCFP);
   optionally Grants.gov and NSF. Details are read from each call's PDF.
 - **Scoring**: similarity to the researcher's summary plus their own terms, deadline and recency
   (see *Scoring & Eligibility*); every component is shown on the opportunity page.
@@ -62,22 +62,32 @@ flowchart TD
 
 ## Data Sources
 
-Indian agencies (ANRF, DST, DBT, ICMR, BIRAC, CSIR, ICSSR) and calls for papers are on by default. Each user picks their sources in **Settings**
+Indian funders and calls for papers are on by default; funders added later switch on for users who kept the old defaults. Each user picks their sources in **Settings**
 (`user_preferences.preferred_sources`); every scan fetches the union of what users chose, and each
 digest only includes the user's own sources. US sources are opt-in.
 
 | Source | Endpoint | What is read | Default |
 |---|---|---|---|
 | **ANRF** (formerly SERB) | `anrfonline.in/.../jssrc/schemeinterval.js` (+ `schemeintervalnew.js`) | Scheme name, opening and closing date, scheme page; all-year schemes (ITS, seminars) | on |
-| **DST** | `dst.gov.in/call-for-proposals` (Drupal table) | Title, call page, PDF, start/end date. An empty listing means no open calls | on |
+| **DST**, **MeitY**, **MoES** | `<site>/cms/wp-json/post-page/call_for_proposals` and `.../whats_new` (the shared ministry-site platform, `gov_cms_adapter.py`) | Call-like announcements (job adverts dropped), external link or PDF; deadline from the PDF. Announcements older than 240 days without a date are dropped | on |
 | **DBT** | `dbt.gov.in/data-view?name=call-for-proposals` (JSON) | Title, PDF, start/end date (`dd-mm-yyyy`) | on |
 | **ICMR / DHR** | `www.icmr.gov.in/call-for-proposals` (table) | Title, last date, apply link, document; "Results:" notices are dropped | on |
 | **BIRAC** | `birac.nic.in/cfp.php` ("Current Calls" table) + each `cfp_view.php` page | Title, opening and last date; full title, introduction and "Who can apply?" from the call page | on |
 | **CSIR (HRDG)** | `csirhrdg.res.in/Home/Index` (What's New / Notices / banner) | Call-like announcements only (research proposals, special calls, nominations); results, NET notices and circulars dropped. Deadline from the PDF or call page | on |
 | **ICSSR** | `icssr.org` announcements + each call page | Research-proposal calls, fellowships and journal calls for papers; the latest "last date" on the page (extensions); award results dropped | on |
+| **UGC**, **AICTE**, **INSA**, **DRDO**, **CEFIPRA** | Each funder's announcements page, configured in `radar/sources/agencies/listings.py` (`listing_adapter.py`) | Call-like links (tenders, results, jobs, videos dropped); the call page's last date and eligibility, or its own PDF. Kept only with a date or a PDF | on |
 | **WikiCFP** | `wikicfp.com/cfp/servlet/tool.search?q=<keyword>` | Conference / journal special-issue calls with a future paper deadline, one search per research keyword (max 12) | on |
 | **Grants.gov** | `api.grants.gov/v1/api/search2` | US federal grants (mostly need a US institution) | opt-in |
 | **NSF** | `nsf.gov/rss/rss_www_funding.xml` | NSF solicitations mentioning a profile keyword | opt-in |
+
+**Adding a funder**: if its site lists announcements as links, add a `ListingSource` to
+`radar/sources/agencies/listings.py` and check what it keeps with
+`python -m radar.sources.agencies.listings <NAME>`; add the name to `AGENCY_LIST` / `SOURCE_NAMES` in
+`radar/config.py` and to `web/lib/sources.ts`.
+
+**Source health**: every scan records what each source listed (`source_health`). When a source fails,
+or lists nothing after listing calls on recent scans (a site redesign usually looks like this), the
+operator's Telegram chat (`TELEGRAM_CHAT_ID`) gets an alert and the Activity page shows it.
 
 For every **new** funding call the pipeline downloads its PDF (10 MB cap) and keeps a summary, the
 eligibility section, the budget and, if the listing had none, the stated last date
@@ -139,7 +149,7 @@ silent pass. Calls for papers are not checked.
 
 ### Prerequisites
 - Python 3.10+ (tested on Python 3.11 & 3.14)
-- Node.js 18+ and npm
+- Node.js 22+ and npm (see `web/.nvmrc`; supabase-js requires Node 22)
 - (Optional) Supabase Project URL & Service Role Key
 
 ### 1. Clone & Configure Environment
@@ -206,7 +216,7 @@ The Research Opportunity Radar co-locates high-throughput academic discovery age
 
 ### Path A: Single Multi-Runtime Container (Implemented & Recommended)
 Co-locates Python 3.11 and Node.js 22 within a multi-stage Docker container (`Dockerfile`):
-- **Base image**: `python:3.11-slim` with Node.js 22 LTS installed.
+- **Base image**: `python:3.11-slim`, with Node.js 22 copied from the pinned `node:22.x-slim` build stage.
 - **Environment**: `PYTHONPATH=/app`, `PROJECT_ROOT=/app`, and pre-cached `all-MiniLM-L6-v2` transformer model weights.
 - **Resource Sizing**:
   - SentenceTransformer model: ~400 MB RAM

@@ -18,12 +18,15 @@ def parse_dbt_calls(items: Any) -> list[dict[str, Any]]:
         file_url = item.get("file_url")
         if len(title) <= 5 or not file_url:
             continue
+        # A rolling advert's end_date is when the advert lapses, not a submission deadline
+        rolling = "rolling" in title.lower()
         calls.append({
             "title": title,
             "url": file_url,
             "pdf_url": file_url if str(file_url).lower().endswith(".pdf") else None,
             "opens_on": item.get("start_date"),
-            "deadline": item.get("end_date"),
+            "deadline": None if rolling else item.get("end_date"),
+            "rolling": rolling,
         })
     return calls
 

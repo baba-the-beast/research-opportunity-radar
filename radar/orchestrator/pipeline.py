@@ -15,6 +15,8 @@ from radar.governance import rules as governance
 from radar.logging_config import get_logger
 from radar.memory import faculty_profile_store
 from radar.models import FacultyProfile, Opportunity, ProfileTerm, RunSummary
+from radar.monitoring import source_health
+from radar.monitoring.source_health import SourceStat
 from radar.notify import deadline_alert, digest_builder, email_brevo, recipients, telegram  # noqa: F401
 from radar.scoring import component_scorer
 from radar.sources import pdf_details
@@ -23,7 +25,8 @@ from radar.tools.funding_deadline_scan import funding_deadline_scan
 logger = get_logger(__name__)
 
 _BAND_RANK = {"not_eligible": -1, "low": 0, "watch": 1, "strong": 2, "high": 3}
-URGENT_WINDOW_DAYS = 3
+# Reminder window when no user has chosen a wider one (radar.notify.recipients default)
+DEFAULT_REMINDER_WINDOW_DAYS = 3
 
 
 def should_alert(score_result, min_band: str = "high") -> bool:
@@ -44,7 +47,8 @@ def _attach_preferred_sources(profiles: list[FacultyProfile]) -> None:
     by_user = db.load_preferred_sources([p.user_id for p in profiles if p.user_id])
     for profile in profiles:
         if profile.user_id in by_user:
-            profile.preferred_sources = [s for s in by_user[profile.user_id] if s in config.SOURCE_NAMES]
+            saved = config.with_new_defaults(by_user[profile.user_id])
+            profile.preferred_sources = [s for s in saved if s in config.SOURCE_NAMES]
 
 
 def _source_names_for(profile: FacultyProfile) -> set[str]:
@@ -73,6 +77,60 @@ def _union_keywords(profiles: list[FacultyProfile], rotation: int = 0) -> list[s
         return merged
     start = (rotation * MAX_SCAN_KEYWORDS) % len(merged)
     return [merged[(start + i) % len(merged)] for i in range(MAX_SCAN_KEYWORDS)]
+
+
+def _check_source_health(run_id: str, stats: list[SourceStat], summary: Any, notify: bool) -> None:
+    """Record what each source listed, and alert the operator when one failed or suddenly went empty.
+    Never fails the run."""
+    try:
+        history = db.load_source_history([s.source_name for s in stats])
+        db.record_source_health(run_id, stats)
+        issues = source_health.find_issues(stats, history)
+        for issue in issues:
+            if issue.kind == "suddenly_empty":  # errors are already in summary.errors
+                summary.errors.append(issue.message)
+        if issues and notify:
+            telegram.send(source_health.alert_text(issues))  # operator chat (TELEGRAM_CHAT_ID)
+    except Exception as e:
+        logger.error(f"Source health check failed: {e}", run_id=run_id, source_name="source_health")
+
+
+def rescore_catalog(
+    profiles: list[FacultyProfile],
+    terms_by_profile: dict[str, list[ProfileTerm]],
+    eligibility_agent: EligibilityAgent,
+    skip_ids: set[str],
+    run_id: str | None,
+    errors: list[str],
+) -> int:
+    """Score the stored catalog for profiles that are new or were edited, so their dashboard reflects
+    the current profile. Used by full scans and by the quick rescore job (radar.orchestrator.rescore).
+
+    Isolated per profile: a failure must not stop the rest. A profile that fails keeps its cleared
+    embedding, so the next run retries it. Returns how many profiles were rescored.
+    """
+    try:
+        catalog = [o for o in db.load_recent_opportunities(limit=RESCORE_CATALOG_LIMIT) if o.id and o.id not in skip_ids]
+        component_scorer.encode_opportunities_batch(catalog, batch_size=32)
+    except Exception as e:
+        logger.error(f"Catalog load for rescoring failed: {e}", run_id=run_id, source_name="orchestrator", error_category="rescore_error")
+        errors.append(f"Rescore error: {e}")
+        return 0
+
+    done = 0
+    for profile in profiles:
+        try:
+            for opp in catalog:
+                opp.profile_scores = {}
+            _score_for_profiles(catalog, [profile], terms_by_profile, eligibility_agent)
+            db.insert_scores_bulk([(opp.id, {profile.id: opp.profile_scores[profile.id]}) for opp in catalog])
+            faculty_profile_store.save_profile_embedding(profile)
+            done += 1
+            logger.info(f"Rescored {len(catalog)} catalog opportunities for profile {profile.id}", run_id=run_id, source_name="orchestrator")
+        except Exception as e:
+            logger.error(f"Rescoring failed for profile {profile.id}: {e}", run_id=run_id, source_name="orchestrator", error_category="rescore_error")
+            errors.append(f"Rescore error for profile {profile.id}: {e}")
+    return done
 
 
 def _run_number(day: date) -> int:
@@ -201,7 +259,10 @@ def run_pipeline(
         t0 = datetime.now()
         try:
             agency_errors: list[dict[str, str]] = []
-            funding_items = funding_deadline_scan(sorted(agencies), errors=agency_errors)
+            source_stats: list[SourceStat] = []
+            funding_items = funding_deadline_scan(sorted(agencies), errors=agency_errors, stats=source_stats)
+            if not dry_run:
+                _check_source_health(run_id, source_stats, summary, notify=not suppress_alerts)
             found.extend(funding_items)
             lat = int((datetime.now() - t0).total_seconds() * 1000)
             failed_sources.extend(agency_errors)
@@ -344,37 +405,7 @@ def run_pipeline(
         # dashboard reflects the current profile rather than scores computed for someone else.
         refreshed = [p for p in profiles if p.embedding_refreshed]
         if refreshed and not dry_run:
-            # Isolated per profile: a failure here must not abort the run before alerts go out.
-            # A profile that fails keeps its cleared embedding, so the next run retries it.
-            catalog: list[Opportunity] = []
-            try:
-                scored_this_run = {o.id for o, _ in accepted}
-                catalog = [
-                    o for o in db.load_recent_opportunities(limit=RESCORE_CATALOG_LIMIT)
-                    if o.id and o.id not in scored_this_run
-                ]
-                component_scorer.encode_opportunities_batch(catalog, batch_size=32)
-            except Exception as e:
-                logger.error(f"Catalog load for rescoring failed: {e}", run_id=run_id,
-                             source_name="orchestrator", error_category="rescore_error")
-                summary.errors.append(f"Rescore error: {e}")
-                refreshed = []
-
-            for profile in refreshed:
-                try:
-                    for opp in catalog:
-                        opp.profile_scores = {}
-                    _score_for_profiles(catalog, [profile], terms_by_profile, eligibility_agent)
-                    db.insert_scores_bulk([(opp.id, {profile.id: opp.profile_scores[profile.id]}) for opp in catalog])
-                    faculty_profile_store.save_profile_embedding(profile)
-                    logger.info(
-                        f"Rescored {len(catalog)} catalog opportunities for profile {profile.id}",
-                        run_id=run_id, source_name="orchestrator"
-                    )
-                except Exception as e:
-                    logger.error(f"Rescoring failed for profile {profile.id}: {e}", run_id=run_id,
-                                 source_name="orchestrator", error_category="rescore_error")
-                    summary.errors.append(f"Rescore error for profile {profile.id}: {e}")
+            rescore_catalog(refreshed, terms_by_profile, eligibility_agent, {o.id for o, _ in accepted}, run_id, summary.errors)
 
         # ALERT (per faculty profile, to that user's own channels)
         if lease.lost:
@@ -388,15 +419,26 @@ def run_pipeline(
         # Every opportunity with a deadline in the sentinel window, however long ago it was found
         # (the old "500 most recent" catalog let saved calls fall out of alerting)
         today = today_ist()
+        targets: dict[str, Any] = {}
+        for profile in profiles if not lease.lost else []:
+            try:
+                targets[profile.id] = recipients.resolve_target(profile)
+            except Exception:
+                pass  # resolved again (and the error recorded) in the per-profile loop below
+        # Load only as far ahead as the widest reminder anyone asked for
+        window_days = max(
+            (max(t.reminder_days) for t in targets.values() if t.reminder_days),
+            default=DEFAULT_REMINDER_WINDOW_DAYS,
+        )
         due_soon = (
-            db.load_opportunities_with_deadlines_between(today, today + timedelta(days=URGENT_WINDOW_DAYS))
+            db.load_opportunities_with_deadlines_between(today, today + timedelta(days=window_days))
             if not lease.lost else []
         )
         for profile in profiles if not lease.lost else []:
             # Isolated per profile: one user's bad preferences or a failed lookup must not stop
             # digests and deadline alerts for everyone after them.
             try:
-                target = recipients.resolve_target(profile)
+                target = targets.get(profile.id) or recipients.resolve_target(profile)
                 wanted = _source_names_for(profile)
                 to_alert = [
                     o for o in new_accepted
@@ -410,7 +452,8 @@ def run_pipeline(
                     to_alert = [o for o in to_alert if o.id in unsent]
                 if to_alert and should_send_alerts and target.digest_enabled:
                     digest_md = digest_builder.build(
-                        to_alert, failed_sources=_public_source_failures(failed_sources), faculty_id=profile.id
+                        to_alert, failed_sources=_public_source_failures(failed_sources), faculty_id=profile.id,
+                        institution_notes=db.load_institution_notes(profile.institution, [o.id for o in to_alert if o.id]),
                     )
                     # Counted before sending: dispatch() disconnects a blocked Telegram chat mid-send
                     channels = target.enabled_channels
@@ -419,10 +462,23 @@ def run_pipeline(
                     if channels and len(send_errors) < channels:
                         db.record_alerts(profile.id, [o.id for o in to_alert if o.id], "new_high_relevance", target.channel)
 
-                # URGENT DEADLINE SENTINEL (<= 72 hours) for what this faculty tracks or scored highly
+                # DEADLINE REMINDERS (on the days this user chose) for what they track or scored highly
                 alertable_ids = None
-                if profile.user_id:
+                personal: list[deadline_alert.PersonalDeadline] = []
+                if profile.user_id and target.reminder_days:  # no reminder days: reminders are off
                     alertable_ids = db.load_alertable_opportunity_ids(profile.id, profile.user_id)
+                    personal = [
+                        deadline_alert.PersonalDeadline(**row)
+                        for row in db.load_personal_deadlines(profile.user_id, today, today + timedelta(days=max(target.reminder_days, default=DEFAULT_REMINDER_WINDOW_DAYS)))
+                    ]
+                    # Internal deadlines the user's research office set on calls they are applying to
+                    personal += [
+                        deadline_alert.PersonalDeadline(**row)
+                        for row in db.load_institution_deadlines(
+                            profile.user_id, profile.institution, today,
+                            today + timedelta(days=max(target.reminder_days, default=DEFAULT_REMINDER_WINDOW_DAYS)),
+                        )
+                    ]
                 urgent_alerts.extend(deadline_alert.check_and_send_urgent_deadline_alerts(
                     faculty_id=profile.id,
                     dry_run=(dry_run or suppress_alerts),
@@ -430,6 +486,7 @@ def run_pipeline(
                     opportunity_ids=alertable_ids,
                     opportunities=due_soon,
                     errors=summary.errors,
+                    personal_deadlines=personal,
                 ))
             except Exception as e:
                 logger.error(f"Alerting failed for profile {profile.id}: {e}", run_id=run_id,
@@ -449,7 +506,7 @@ def run_pipeline(
                 "phase": "ALERT",
                 "level": "INFO",
                 "stepIndex": 4,
-                "message": f"Deadline Sentinel dispatched {len(urgent_alerts)} urgent 72-hour notifications.",
+                "message": f"Deadline Sentinel dispatched {len(urgent_alerts)} deadline reminders.",
                 "timestamp": datetime.now(UTC).isoformat()
             })
 

@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getOwnProfileId, getRequestSupabase } from '@/lib/routeContext';
+import { canonicalInstitution } from '@/lib/institutions';
 import { authenticateRequest, authorizeRole } from '@/lib/auth';
 import { consumeRateLimit, rateLimitKey } from '@/lib/rateLimit';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
@@ -62,14 +63,27 @@ export async function GET(req: NextRequest) {
     // saving it never stores someone else's research terms.
     const profileId = await getOwnProfileId(supabase, auth.user);
     if (!profileId) {
-      return createSuccessResponse(toProfileResponse(null, []), req);
+      // Pre-fill from what they typed at sign-up (kept in user_metadata when email verification
+      // means no session, and so no profile, existed then). Nothing is saved until they press Save.
+      const { data: { user } } = auth.user?.token ? await supabase.auth.getUser(auth.user.token) : { data: { user: null } };
+      const m = user?.user_metadata || {};
+      const text = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 200) : '');
+      const keywords = Array.isArray(m.research_keywords)
+        ? m.research_keywords.map(text).filter(Boolean).slice(0, 50)
+        : [];
+      return createSuccessResponse(
+        toProfileResponse({ full_name: text(m.full_name), institution: text(m.institution), department: text(m.department), research_keywords: keywords }, []),
+        req
+      );
     }
 
-    const { data: prof, error } = await supabase.from('faculty_profile').select('*').eq('id', profileId).single();
+    const [{ data: prof, error }, { data: terms }] = await Promise.all([
+      supabase.from('faculty_profile').select('*').eq('id', profileId).single(),
+      supabase.from('profile_terms').select('*').eq('profile_id', profileId)
+    ]);
     if (error) {
       return createErrorResponse('DATABASE_ERROR', error.message, 500, req);
     }
-    const { data: terms } = await supabase.from('profile_terms').select('*').eq('profile_id', profileId);
     return createSuccessResponse(toProfileResponse(prof, terms || []), req);
   } catch (err: any) {
     return createErrorResponse('INTERNAL_SERVER_ERROR', err.message, 500, req);
@@ -98,7 +112,8 @@ const updateProfileSchema = z.object({
   min_relevance_band: z.enum(['high', 'strong', 'watch', 'low']).optional(),
   deadline_alert_window_days: z.number().int().min(1).max(180).optional(),
   research_keywords: z.array(z.string().trim().min(1).max(100)).min(1).max(50),
-  profile_text: z.string().trim().min(1).max(10000),
+  // Optional: keywords alone are enough to be matched; a summary ranks calls more precisely
+  profile_text: z.string().trim().max(10000),
   profile_terms: z
     .array(
       z.object({
@@ -139,7 +154,7 @@ export async function POST(req: NextRequest) {
 
     const row: Record<string, any> = {
       full_name: data.full_name,
-      institution: data.institution,
+      institution: canonicalInstitution(data.institution),
       department: data.department || null,
       research_keywords: data.research_keywords,
       profile_text: data.profile_text,

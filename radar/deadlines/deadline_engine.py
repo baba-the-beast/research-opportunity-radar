@@ -31,7 +31,7 @@ _DATE_PATTERNS = [
 # Phrases that introduce the closing date inside longer text
 # (whole words only: "till" must not match inside "still")
 _DEADLINE_CUE = re.compile(
-    r"\b(last\s+date|deadline|closing\s+date|cut-?\s?off\s+date|closes\s+on|due\s+date|submission\s+(?:date|deadline)|"
+    r"\b(last\s+date|deadline|closing\s+date|end\s+date|cut-?\s?off\s+date|closes\s+on|due\s+date|submission\s+(?:date|deadline)|"
     r"apply\s+(?:by|before)|on\s+or\s+before)\b",
     re.I,
 )
@@ -48,6 +48,18 @@ _RESULT_NOTICE = re.compile(
     r"selected\s+(?:proposals|candidates|projects)|shortlisted|sanctioned\s+projects)\b",
     re.I,
 )
+
+
+# A call page or document that says the call is over ("has now concluded", "no longer accepting")
+_ENDED = re.compile(
+    r"\b(?:has|have)\s+(?:now\s+)?(?:concluded|closed|ended)\b|\bno\s+longer\s+accepting\b|"
+    r"\b(?:applications?|call|portal|submissions?)\s+(?:is|are|has\s+been|have\s+been)\s+(?:now\s+)?closed\b",
+    re.I,
+)
+
+
+def says_closed(text: str | None) -> bool:
+    return bool(text and _ENDED.search(text))
 
 
 def today_ist() -> date:

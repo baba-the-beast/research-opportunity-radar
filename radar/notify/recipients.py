@@ -20,7 +20,11 @@ _DEFAULT_PREFS = {
     "telegram_alerts": False,
     "telegram_chat_id": None,
     "digest_frequency": "weekly",
+    "reminder_days": [3],
 }
+
+# Reminder windows a user may pick (mirrors the user_preferences check constraint)
+ALLOWED_REMINDER_DAYS = (1, 3, 7, 14, 30)
 
 
 @dataclass
@@ -31,6 +35,8 @@ class AlertTarget:
     email: str | None = None
     min_score: int = 0
     digest_enabled: bool = True
+    # Days-before-deadline windows to remind in; (3,) is the original 72-hour alert
+    reminder_days: tuple[int, ...] = (3,)
 
     @property
     def enabled_channels(self) -> int:
@@ -59,6 +65,20 @@ def _load_user_email(user_id: str) -> str | None:
         return None
     res = auth.admin.get_user_by_id(user_id)
     return getattr(getattr(res, "user", None), "email", None)
+
+
+def _as_reminder_days(value) -> tuple[int, ...]:
+    """Valid, sorted, de-duplicated reminder windows; anything malformed falls back to (3,)."""
+    if not isinstance(value, (list, tuple)):
+        return (3,)
+    # An explicit empty list means the user turned deadline reminders off
+    if len(value) == 0:
+        return ()
+    try:
+        days = sorted({int(v) for v in value if int(v) in ALLOWED_REMINDER_DAYS})
+    except (TypeError, ValueError):
+        return (3,)
+    return tuple(days) or (3,)
 
 
 def _as_score(value) -> int:
@@ -91,6 +111,7 @@ def resolve_target(profile: FacultyProfile) -> AlertTarget:
         email=email,
         min_score=_as_score(prefs.get("min_score")),
         digest_enabled=prefs["digest_frequency"] != "never",
+        reminder_days=_as_reminder_days(prefs.get("reminder_days")),
     )
 
 

@@ -81,3 +81,85 @@ def test_enrich_skips_non_pdf_and_survives_fetch_errors(monkeypatch):
 
     assert pdf_details.enrich_with_pdf_details([html_page, broken_pdf]) == 0
     assert broken_pdf.summary == "Call for proposals from DBT"
+
+
+# Real passages from call documents found on 2026-10-14
+
+MOES_TEXT = (
+    "Call 1: Advancing understanding, modelling and prediction of extreme events in a changing climate Topic ID: "
+    "HORIZON-CL5-2027-01-D1-07 | Type: RIA Opening: 17 November 2026 | Deadline: 4 March 2027 Call 2: Unlocking a safe "
+    "operating space for Antarctica and the Southern Ocean Topic ID: HORIZON-CL6-2027-02-CLIMATE-04 | Type: RIA Opening: "
+    "20 April 2027 | Deadline: 23 September 2027 Issued by the Ministry of Earth Sciences (MoES) Table of Contents "
+    "Introduction ........ 1 Section 2: Eligibility ................................ 2 2.3 Eligibility of European Partners "
+    "................ 2 Section 1: Introduction The call co-funds Indian partners. Section 2: Eligibility 2.1 Indian Entities "
+    "Eligible for MoES Funding The following categories of Indian entities are eligible: academic institutions and R&D labs."
+)
+
+
+def test_eligibility_skips_contents_lines_and_passing_mentions():
+    details = pdf_details.extract_call_details(MOES_TEXT)
+    assert details["eligibility_clause"].startswith("Eligibility 2.1 Indian Entities")
+    aicte = ("the Institute shall verify the application and approve for eligibility of disbursement of the scholarship. "
+             "All eligible candidates shall upload their information on or before 20th October, 2026.")
+    assert "eligibility_clause" not in pdf_details.extract_call_details(aicte)
+
+
+def test_eligibility_keeps_its_numbered_list():
+    text = ("*All these programmes will be full time Eligibility :- 1. Must be an Indian citizen. 2. Applicants born after "
+            "31st August, 2008 shall not be considered. 3. Must possess at least 60% marks. How to apply Apply online.")
+    clause = pdf_details.extract_call_details(text)["eligibility_clause"]
+    assert "born after 31st August, 2008" in clause and "60% marks" in clause
+    assert "Apply online" not in clause
+
+
+def test_every_stated_deadline_is_kept_and_opening_date_marks_forecasted(monkeypatch):
+    monkeypatch.setattr(pdf_details, "fetch", lambda url, **kw: type("R", (), {"content": b"%PDF"})())
+    monkeypatch.setattr(pdf_details, "pdf_text", lambda content: MOES_TEXT)
+    opp = _dbt_call()
+    pdf_details.enrich_with_pdf_details([opp])
+    assert [d.deadline_date for d in opp.deadlines] == [date(2027, 3, 4), date(2027, 9, 23)]
+    assert opp.status == "forecasted"  # the first call opens on 17 November 2026
+    assert opp.metadata["opens_on"] == "2026-11-17"
+
+
+def test_extended_deadline_keeps_only_the_new_date(monkeypatch):
+    text = "CALL FOR PROPOSALS Last date of submission extended from 15.10.2026 to 31.10.2026. Deadline for hard copy: 31.10.2026."
+    monkeypatch.setattr(pdf_details, "fetch", lambda url, **kw: type("R", (), {"content": b"%PDF"})())
+    monkeypatch.setattr(pdf_details, "pdf_text", lambda content: text)
+    opp = _dbt_call()
+    pdf_details.enrich_with_pdf_details([opp])
+    assert [d.deadline_date for d in opp.deadlines] == [date(2026, 10, 31)]
+
+
+def test_document_saying_the_call_has_ended_marks_it_closed(monkeypatch):
+    text = "The Globalink Research Internship call for Summer 2027 student applications has now concluded, and we are no longer accepting applications."
+    monkeypatch.setattr(pdf_details, "fetch", lambda url, **kw: type("R", (), {"content": b"%PDF"})())
+    monkeypatch.setattr(pdf_details, "pdf_text", lambda content: text)
+    opp = _dbt_call()
+    pdf_details.enrich_with_pdf_details([opp])
+    assert opp.status == "closed"
+
+
+def test_mention_of_an_earlier_round_closing_does_not_close_a_dated_call(monkeypatch):
+    text = "The 2025 round has closed. CALL FOR PROPOSALS 2026 Last date of submission: 30.11.2026."
+    monkeypatch.setattr(pdf_details, "fetch", lambda url, **kw: type("R", (), {"content": b"%PDF"})())
+    monkeypatch.setattr(pdf_details, "pdf_text", lambda content: text)
+    opp = _dbt_call()
+    pdf_details.enrich_with_pdf_details([opp])
+    assert opp.status == "open"
+
+
+def test_project_dates_do_not_outrank_the_stated_deadline():
+    # UGC Indo-Norwegian INCP2 notice: closed on 13 August 2024
+    text = ("The deadline for submission of applications is 13th August 2024, 13:00 (UTC). Projects must have planned "
+            "start-up no later than 1 November 2024 and be scheduled to end by 31 December 2027.")
+    assert pdf_details._deadline_dates(text) == [date(2024, 8, 13)]
+
+
+def test_later_travel_dates_do_not_replace_the_registration_deadline():
+    # UGC notice for the OPCW Symposium on Women in Chemistry: register by 24 April 2026
+    text = ("Applicants may create their account and register for the event no later than Friday, 24th April 2026, on "
+            "https://apps.opcw.org/eventus. Further information may also be obtained from the International Cooperation "
+            "Branch of the Technical Secretariat. Travel: participants must arrive by 27 October and depart no later than "
+            "Friday, 30 October 2026.")
+    assert pdf_details._deadline_dates(text) == [date(2026, 4, 24)]

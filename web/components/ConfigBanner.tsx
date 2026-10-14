@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
+/** Shown only when the deployment has no working database, so a misconfiguration is obvious. */
 export function ConfigBanner() {
   const [status, setStatus] = useState<{
     configured: boolean;
@@ -23,30 +24,18 @@ export function ConfigBanner() {
   }
 
   return (
-    <div className="bg-surface-container border-b border-primary/40 text-on-surface px-space-xl py-space-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-space-sm z-50 sticky top-14">
-      <div className="flex items-center gap-space-sm">
-        <span className="material-symbols-outlined text-[18px] text-primary shrink-0">info</span>
-        <div className="flex flex-wrap items-center gap-x-space-sm gap-y-1">
-          <span className="font-data-mono-sm text-data-mono-sm font-bold text-primary uppercase tracking-wider">
-            [ OBSERVATORY CALIBRATION NOTICE ]
-          </span>
-          <span className="text-body-sm text-on-surface-variant font-mono text-xs">
-            Supabase credentials unconfigured ({status.missing.join(', ')}). Live database sync paused.
-          </span>
-        </div>
-      </div>
-      <div className="flex items-center gap-space-md self-end sm:self-center">
-        <span className="font-data-mono-sm text-data-mono-sm text-xs text-outline">
-          Copy <code className="text-primary font-mono">.env.example</code> to <code className="text-primary font-mono">.env.local</code>
-        </span>
-        <button
-          onClick={() => setDismissed(true)}
-          className="text-on-surface-variant hover:text-on-surface text-xs font-mono uppercase px-2 py-0.5 rounded border border-surface-container-high hover:bg-surface-container-high transition-colors"
-          title="Dismiss notice"
-        >
-          Dismiss
-        </button>
-      </div>
+    <div className="mx-4 sm:mx-8 mt-4 rounded-xl border border-tertiary/30 bg-tertiary-container px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-body-sm text-on-tertiary-container">
+      <span className="material-symbols-outlined text-[18px] shrink-0" aria-hidden="true">warning</span>
+      <p className="flex-1">
+        <span className="font-semibold">Database not connected.</span> Missing {status.missing.join(', ')}. Copy{' '}
+        <code>.env.example</code> to <code>.env.local</code> and fill them in.
+      </p>
+      <button
+        onClick={() => setDismissed(true)}
+        className="self-start sm:self-center font-semibold hover:underline"
+      >
+        Dismiss
+      </button>
     </div>
   );
 }

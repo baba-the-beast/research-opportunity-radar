@@ -1,86 +1,114 @@
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Libre+Caslon+Text:ital,wght@0,400;0,700;1,400&family=Public+Sans:ital,wght@0,300..800;1,300..800&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&family=Spline+Sans+Mono:ital,wght@0,300..700;1,300..700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* --------------------------------------------------------------------------
-   DESIGN SYSTEM TOKENS — LIGHT MODE (DEFAULT / ROOT)
+/* Colour tokens are bare RGB channels ("47 62 158") so Tailwind can apply opacity: bg-primary/40.
+
+   --------------------------------------------------------------------------
+   DESIGN TOKENS — LIGHT (default)
+   Cool paper, ink text, indigo-ink primary. Green / amber / red carry match
+   and deadline meaning only; nothing else is coloured.
    -------------------------------------------------------------------------- */
 :root {
-  --color-ink: #10151B;
-  --color-panel: #FFFFFF;
-  --color-parchment: #1A202C;
-  --color-brass: #9E6B23;
-  --color-verdigris: #3D7060;
-  --color-rust: #A33A23;
-  --font-display: 'Fraunces', serif;
-  --font-body: 'Public Sans', sans-serif;
-  --font-numeric: 'Spline Sans Mono', monospace;
+  --font-sans: 'Schibsted Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
 
-  /* Semantic UI tokens for Light Theme */
-  --bg-background: #F9F8F5;
-  --bg-surface: #FFFFFF;
-  --bg-surface-container: #F2EFE8;
-  --bg-surface-container-low: #F6F4EE;
-  --bg-surface-container-high: #E8E4DA;
-  --bg-surface-container-highest: #DCD7CB;
-  --bg-surface-container-lowest: #FFFFFF;
-  --text-on-surface: #141920;
-  --text-on-surface-variant: #59616D;
-  --border-outline: #B6B0A4;
-  --border-outline-variant: #D8D2C4;
+  --bg-background: 245 246 248;
+  --bg-surface: 255 255 255;
+  --bg-surface-container-lowest: 255 255 255;
+  --bg-surface-container-low: 249 250 251;
+  --bg-surface-container: 240 242 245;
+  --bg-surface-container-high: 231 234 239;
+  --bg-surface-container-highest: 221 225 232;
 
-  --color-primary: #9E6B23;
-  --color-primary-container: #EADBC0;
-  --color-on-primary: #FFFFFF;
-  --color-on-primary-container: #4E3106;
-  --color-secondary: #3D7060;
-  --color-secondary-container: #CFE4DC;
+  --text-on-surface: 21 24 33;
+  --text-on-surface-variant: 86 94 108;
+  --border-outline: 95 103 116;
+  --border-outline-variant: 218 222 229;
+
+  --color-primary: 47 62 158;
+  --color-primary-hover: 36 49 138;
+  --color-on-primary: 255 255 255;
+  --color-primary-container: 47 62 158;
+  --color-on-primary-container: 255 255 255;
+  --color-primary-soft: 230 233 248;
+
+  --color-secondary: 28 122 90;
+  --color-secondary-container: 221 241 232;
+  --color-on-secondary-container: 15 81 57;
+
+  --color-tertiary: 154 91 0;
+  --color-tertiary-container: 251 235 208;
+  --color-on-tertiary-container: 107 63 0;
+
+  --color-error: 180 35 24;
+  --color-on-error: 255 255 255;
+  --color-error-container: 253 231 228;
+  --color-on-error-container: 122 26 18;
 }
 
 /* --------------------------------------------------------------------------
-   DESIGN SYSTEM TOKENS — DARK MODE
+   DESIGN TOKENS — DARK
    -------------------------------------------------------------------------- */
-html.dark, .dark {
-  --color-ink: #10151B;
-  --color-panel: #171E27;
-  --color-parchment: #EDE6D6;
-  --color-brass: #C08A3E;
-  --color-verdigris: #5B8C7B;
-  --color-rust: #B5482F;
+html.dark,
+.dark {
+  --bg-background: 14 17 23;
+  --bg-surface: 18 22 29;
+  --bg-surface-container-lowest: 20 24 33;
+  --bg-surface-container-low: 23 28 37;
+  --bg-surface-container: 27 33 43;
+  --bg-surface-container-high: 35 42 53;
+  --bg-surface-container-highest: 44 52 65;
 
-  /* Semantic UI tokens for Dark Theme */
-  --bg-background: #0f141a;
-  --bg-surface: #0f141a;
-  --bg-surface-container: #1b2026;
-  --bg-surface-container-low: #171c22;
-  --bg-surface-container-high: #252a31;
-  --bg-surface-container-highest: #30353c;
-  --bg-surface-container-lowest: #0a0f14;
-  --text-on-surface: #dee3eb;
-  --text-on-surface-variant: #d4c4b3;
-  --border-outline: #9d8e7f;
-  --border-outline-variant: #504538;
+  --text-on-surface: 232 235 241;
+  --text-on-surface-variant: 160 168 182;
+  --border-outline: 139 148 164;
+  --border-outline-variant: 42 49 60;
 
-  --color-primary: #f8bb6a;
-  --color-primary-container: #c08a3e;
-  --color-on-primary: #462b00;
-  --color-on-primary-container: #412800;
-  --color-secondary: #9ed1be;
-  --color-secondary-container: #205143;
+  --color-primary: 165 177 255;
+  --color-primary-hover: 142 156 245;
+  --color-on-primary: 16 24 74;
+  --color-primary-container: 74 91 208;
+  --color-on-primary-container: 255 255 255;
+  --color-primary-soft: 31 37 70;
+
+  --color-secondary: 111 209 168;
+  --color-secondary-container: 18 58 44;
+  --color-on-secondary-container: 157 227 196;
+
+  --color-tertiary: 242 182 97;
+  --color-tertiary-container: 61 42 14;
+  --color-on-tertiary-container: 247 212 158;
+
+  --color-error: 255 138 122;
+  --color-on-error: 58 11 5;
+  --color-error-container: 62 22 18;
+  --color-on-error-container: 255 196 187;
 }
 
 @layer base {
-  html, body {
+  html,
+  body {
     margin: 0;
     padding: 0;
     overscroll-behavior: none;
-    background-color: var(--bg-background);
-    color: var(--text-on-surface);
-    font-family: var(--font-body, 'Public Sans', sans-serif);
-    transition: background-color 0.2s ease, color 0.2s ease;
+    background-color: rgb(var(--bg-background));
+    color: rgb(var(--text-on-surface));
+    font-family: var(--font-sans);
+    font-feature-settings: 'ss01', 'cv11';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
   }
 
   main > :first-child {
@@ -90,24 +118,27 @@ html.dark, .dark {
     margin-bottom: 0 !important;
   }
 
-  /* Accessibility focus ring */
   *:focus-visible {
-    outline: 2px solid var(--color-brass, #C08A3E);
+    outline: 2px solid rgb(var(--color-primary));
     outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: rgb(var(--color-primary-soft));
+    color: rgb(var(--text-on-surface));
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, ::before, ::after {
+  *,
+  ::before,
+  ::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-}
-
-::-webkit-scrollbar {
-  display: none;
 }
 
 @layer utilities {
@@ -124,4 +155,38 @@ html.dark, .dark {
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
+}
+
+/* Numbers line up in columns without a monospace face. */
+@layer utilities {
+  .font-data-mono-sm,
+  .font-data-mono-md,
+  .font-data-mono-lg,
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Elevation (from the beautiful-shadows skill). The 1px ring in each shadow replaces a border, so a
+   surface never has both a border and a shadow defining the same edge. Dark mode keeps the ring only:
+   black shadows do not read on a dark background. */
+@layer utilities {
+  .surface-raised {
+    box-shadow: 0px 2px 3px -1px rgba(0, 0, 0, 0.1), 0px 1px 0px 0px rgba(25, 28, 33, 0.02), 0px 0px 0px 1px rgba(25, 28, 33, 0.08);
+  }
+  .surface-card {
+    box-shadow: 0px 0px 0px 1px rgba(0, 0, 0, 0.06), 0px 1px 1px -0.5px rgba(0, 0, 0, 0.06), 0px 3px 3px -1.5px rgba(0, 0, 0, 0.06),
+      0px 6px 6px -3px rgba(0, 0, 0, 0.06), 0px 12px 12px -6px rgba(0, 0, 0, 0.06), 0px 24px 24px -12px rgba(0, 0, 0, 0.06);
+  }
+  html.dark .surface-raised,
+  html.dark .surface-card {
+    box-shadow: 0 0 0 1px rgb(var(--border-outline-variant));
+  }
+}
+
+/* Search fields use our own clear button; hide the browser's built-in one so there are not two. */
+input[type='search']::-webkit-search-cancel-button,
+input[type='search']::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
 }

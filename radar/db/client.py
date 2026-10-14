@@ -186,6 +186,47 @@ def start_source_run(run_id: str, source_name: str) -> str:
     }).execute()
     return res.data[0]["id"]
 
+def record_source_health(run_id: str | None, stats: list[Any]) -> None:
+    """One source_health row per source for this run. Skipped (logged) if the table does not exist yet."""
+    if not stats:
+        return
+    rows = [{
+        "run_id": run_id,
+        "source_name": s.source_name,
+        "listed_count": s.listed_count,
+        "kept_count": s.kept_count,
+        "error": sanitize_log_text(s.error) if s.error else None,
+        "latency_ms": s.latency_ms,
+        "checked_at": datetime.now(UTC).isoformat(),
+    } for s in stats]
+    try:
+        get_client().table("source_health").insert(rows).execute()
+    except Exception as e:
+        logger.warning(f"source_health not recorded (migration 20261013000000 applied?): {e}")
+
+
+def load_source_history(source_names: list[str], runs: int = 3) -> dict[str, list[int]]:
+    """listed_count of each source's most recent runs, newest first. {} if unavailable."""
+    if not source_names:
+        return {}
+    try:
+        rows = (
+            get_client().table("source_health").select("source_name, listed_count, error, checked_at")
+            .in_("source_name", source_names).order("checked_at", desc=True).limit(runs * len(source_names) * 4).execute()
+        ).data or []
+    except Exception as e:
+        logger.warning(f"source_health history unavailable: {e}")
+        return {}
+    history: dict[str, list[int]] = {}
+    for row in sorted(rows, key=lambda r: str(r.get("checked_at") or ""), reverse=True):
+        if row.get("error"):
+            continue  # a failed run says nothing about how many calls the source usually lists
+        bucket = history.setdefault(row["source_name"], [])
+        if len(bucket) < runs:
+            bucket.append(int(row.get("listed_count") or 0))
+    return history
+
+
 def finish_source_run(source_run_id: str, status: str, request_count: int = 0, inserted_count: int = 0, updated_count: int = 0, error_count: int = 0, error_category: str | None = None, latency_ms: int | None = None) -> None:
     client = get_client()
     client.table("source_runs").update({
@@ -548,6 +589,125 @@ def insert_scores_bulk(scored: list[tuple[str, dict[str, ScoreResult]]], chunk_s
             })
     for i in range(0, len(rows), chunk_size):
         client.table("scoring_log").insert(rows[i:i + chunk_size]).execute()
+
+
+def institution_key(name: str | None) -> str:
+    """Same normalisation as public.institution_key() in migration 20261013000200."""
+    return " ".join((name or "").split()).lower()
+
+
+def load_institution_notes(institution: str | None, opportunity_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """The research office's notes for these calls at this institution, by opportunity id.
+    {} if there are none or the table does not exist yet (migration not applied)."""
+    key = institution_key(institution)
+    if not key or not opportunity_ids:
+        return {}
+    try:
+        rows = (
+            get_client().table("institution_call_notes")
+            .select("opportunity_id, internal_deadline, note, recommended")
+            .eq("institution_key", key).in_("opportunity_id", opportunity_ids).execute()
+        ).data or []
+    except Exception as e:
+        logger.warning(f"Institution notes unavailable: {e}")
+        return {}
+    return {r["opportunity_id"]: r for r in rows}
+
+
+def load_institution_deadlines(user_id: str, institution: str | None, start: date, end: date) -> list[dict[str, Any]]:
+    """Internal deadlines the user's research office set, in [start, end], for calls the user is
+    applying to (pursuing or applied). Shaped like load_personal_deadlines rows."""
+    try:
+        tracked = (
+            get_client().table("user_opportunity_state").select("opportunity_id, status")
+            .eq("user_id", user_id).in_("status", ["pursuing", "applied"]).execute()
+        ).data or []
+    except Exception as e:
+        logger.warning(f"Tracked calls unavailable for user {user_id}: {e}")
+        return []
+    notes = load_institution_notes(institution, [r["opportunity_id"] for r in tracked])
+    due = {
+        opp_id: n for opp_id, n in notes.items()
+        if n.get("internal_deadline") and start.isoformat() <= str(n["internal_deadline"])[:10] <= end.isoformat()
+    }
+    if not due:
+        return []
+    try:
+        opps = (
+            get_client().table("opportunities").select("id, title, agency_or_publisher, venue_name")
+            .in_("id", list(due)).execute()
+        ).data or []
+    except Exception as e:
+        logger.warning(f"Call details for institution deadlines unavailable: {e}")
+        return []
+    out = []
+    for opp in opps:
+        note = due[opp["id"]]
+        out.append({
+            "opportunity_id": opp["id"],
+            "deadline_date": date.fromisoformat(str(note["internal_deadline"])[:10]),
+            "label": "Your institution's internal deadline",
+            "title": opp.get("title") or "",
+            "agency_or_publisher": opp.get("agency_or_publisher") or opp.get("venue_name") or "",
+            "kind": "institution",
+        })
+    return out
+
+
+def load_personal_deadlines(user_id: str, start: date, end: date) -> list[dict[str, Any]]:
+    """A user's own deadlines (user_opportunity_state.my_deadline) in [start, end], with call details.
+
+    Only calls still being worked on (pursuing or applied) count: once the user stops tracking a call,
+    dismisses it or records an outcome, its date no longer sends reminders. Returns [] if the columns
+    do not exist yet (migration not applied) or a lookup fails, so agency reminders keep working.
+    """
+    client = get_client()
+    try:
+        rows = (
+            client.table("user_opportunity_state")
+            .select("opportunity_id, my_deadline, my_deadline_label, status")
+            .eq("user_id", user_id)
+            .gte("my_deadline", start.isoformat())
+            .lte("my_deadline", end.isoformat())
+            .execute()
+        ).data or []
+    except Exception as e:
+        logger.warning(f"Personal deadlines unavailable for user {user_id}: {e}")
+        return []
+    rows = [r for r in rows if r.get("my_deadline") and r.get("status") in ("pursuing", "applied")]
+    if not rows:
+        return []
+    try:
+        opps = (
+            client.table("opportunities").select("id, title, agency_or_publisher, venue_name")
+            .in_("id", [r["opportunity_id"] for r in rows]).execute()
+        ).data or []
+    except Exception as e:
+        logger.warning(f"Call details for personal deadlines unavailable for user {user_id}: {e}")
+        return []
+    by_id = {o["id"]: o for o in opps}
+    urls: dict[str, str] = {}
+    try:
+        for src in (client.table("opportunity_sources").select("opportunity_id, source_url")
+                    .in_("opportunity_id", list(by_id)).execute()).data or []:
+            urls.setdefault(src["opportunity_id"], src.get("source_url") or "")
+    except Exception:
+        pass
+    out = []
+    for r in rows:
+        opp = by_id.get(r["opportunity_id"])
+        if not opp:
+            continue
+        due = r["my_deadline"]
+        out.append({
+            "opportunity_id": r["opportunity_id"],
+            "deadline_date": due if isinstance(due, date) else date.fromisoformat(str(due)[:10]),
+            "label": (r.get("my_deadline_label") or "").strip(),
+            "title": opp.get("title") or "",
+            "agency_or_publisher": opp.get("agency_or_publisher") or opp.get("venue_name") or "",
+            "url": urls.get(r["opportunity_id"], ""),
+        })
+    return out
 
 
 def load_alertable_opportunity_ids(faculty_id: str, user_id: str | None) -> set[str]:

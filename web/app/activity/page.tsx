@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { formatIstDateTime } from '@/lib/dates';
+import type { SourceHealth } from '@/app/api/sources/health/route';
+import { Badge, EmptyState, Icon, LoadingRows, Page, PageHeader, Panel, type Tone } from '@/components/ui';
 
 interface SourceRunItem {
   source_name: string;
@@ -12,293 +14,227 @@ interface SourceRunItem {
   latency_ms: number;
 }
 
-interface RejectedItem {
-  title: string;
-  source: string;
-  reason: string;
-}
-
 interface PipelineRun {
   run_id: string;
   started_at: string;
   finished_at?: string;
-  status: 'success' | 'partial_failure' | 'failed';
+  status: 'success' | 'partial_failure' | 'failed' | 'running';
   opportunities_found: number;
   opportunities_new: number;
   sources: SourceRunItem[];
-  rejected: RejectedItem[];
 }
 
-function formatUtc(value?: string): string {
-  const d = value ? new Date(value) : null;
-  if (!d || isNaN(d.getTime())) return 'Unknown time';
-  return `${d.toISOString().replace('T', ' ').substring(0, 19)} UTC`;
+const RUN_STATUS: Record<string, { tone: Tone; text: string }> = {
+  success: { tone: 'success', text: 'Completed' },
+  partial_failure: { tone: 'warning', text: 'Some sources failed' },
+  failed: { tone: 'danger', text: 'Failed' },
+  running: { tone: 'info', text: 'Running' }
+};
+
+function duration(run: PipelineRun): string | null {
+  if (!run.finished_at) return null;
+  const ms = new Date(run.finished_at).getTime() - new Date(run.started_at).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const min = Math.round(ms / 60000);
+  return min < 1 ? 'under a minute' : `${min} min`;
+}
+
+function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="flex flex-col gap-1 px-5 py-4">
+      <span className="text-body-sm text-on-surface-variant">{label}</span>
+      <span className="text-[1.75rem] leading-8 font-semibold tracking-[-0.02em] text-on-surface tabular-nums">{value}</span>
+      {hint && <span className="text-body-sm text-on-surface-variant">{hint}</span>}
+    </div>
+  );
 }
 
 export default function ActivityPage() {
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
   const [expandedRun, setExpandedRun] = useState<string>('');
+  const [health, setHealth] = useState<SourceHealth[]>([]);
+
+  useEffect(() => {
+    fetch('/api/sources/health')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setHealth(Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : []))
+      .catch(() => setHealth([]));
+  }, []);
 
   useEffect(() => {
     fetch('/api/activity?scope=system')
-      .then((res) => res.json())
-      .then((data) => {
-        const items = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
-        if (items.length > 0) {
-          const mapped: PipelineRun[] = items.map((d: any) => ({
-            run_id: d.run_id,
-            started_at: d.started_at,
-            finished_at: d.finished_at,
-            status: d.status || 'success',
-            opportunities_found: d.opportunities_found || 0,
-            opportunities_new: d.opportunities_new || 0,
-            sources: d.sources || [],
-            rejected: []
-          }));
-          setRuns(mapped);
-          setExpandedRun(mapped[0]?.run_id || '');
-        } else {
-          setRuns([]);
-        }
-        setLoading(false);
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
       })
-      .catch(() => {
-        setRuns([]);
-        setLoading(false);
-      });
+      .then((data) => {
+        const items = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+        const mapped: PipelineRun[] = items.map((d: any) => ({
+          run_id: d.run_id,
+          started_at: d.started_at,
+          finished_at: d.finished_at,
+          status: d.status || 'success',
+          opportunities_found: d.opportunities_found || 0,
+          opportunities_new: d.opportunities_new || 0,
+          sources: d.sources || []
+        }));
+        setRuns(mapped);
+        setExpandedRun(mapped[0]?.run_id || '');
+      })
+      .catch(() => setFailed(true))
+      .finally(() => setLoading(false));
   }, []);
 
-  const toggleRun = (id: string) => {
-    setExpandedRun((prev) => (prev === id ? '' : id));
-  };
+  const latest = runs[0];
+  const sourcesOk = latest ? latest.sources.filter((s) => s.status === 'success').length : 0;
+  const newLast10 = runs.slice(0, 10).reduce((n, r) => n + r.opportunities_new, 0);
 
   return (
-    <div className="w-full max-w-6xl mx-auto px-space-md sm:px-space-xl py-space-md sm:py-space-xl flex flex-col gap-space-lg sm:gap-space-2xl">
-      {/* Header Block */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-space-md pb-space-md sm:pb-space-lg">
-        <div className="flex flex-col gap-space-xs">
-          <div className="flex items-center gap-space-xs text-primary-container font-label-caps text-label-caps uppercase">
-            <span className="w-1.5 h-1.5 rounded-full bg-primary-container"></span>
-            <span>SYSTEM AUDIT LEDGER · LOG ARCHIVE</span>
-          </div>
-          <h1 className="font-headline-lg sm:font-headline-xl text-headline-lg sm:text-headline-xl text-on-surface tracking-tight">
-            Telemetry Activity &amp; Pipeline Governance
-          </h1>
-        </div>
-        <div className="bg-surface-container-low px-space-md py-space-sm flex flex-wrap items-center gap-x-space-sm gap-y-space-xs font-data-mono-sm text-data-mono-sm text-on-surface-variant border border-surface-container">
-          <span className="material-symbols-outlined text-[14px] text-secondary">verified_user</span>
-          <span>Ingestion Engine: <span className="text-on-surface font-semibold">v3.8-kNN</span></span>
-          <span className="text-outline-variant">·</span>
-          <span>Scheduler: <span className="text-on-surface font-semibold">Cron 12h</span></span>
-          <span className="text-outline-variant hidden sm:inline">·</span>
-          <span>Mirror Health: <span className="text-secondary font-semibold">100% Verified</span></span>
-        </div>
-      </div>
+    <Page>
+      <PageHeader
+        title="Scan activity"
+        description="Each scan checks every source for new calls. Scans run on Monday and Thursday mornings (IST). Times below are IST."
+      />
 
-      {/* Summary Stat Tiles with Progress Gauges: 2x2 on mobile, 4 across on desktop */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-space-xs sm:gap-space-sm">
-        <div className="bg-surface-container-low p-space-sm sm:p-space-md flex flex-col justify-between border border-surface-container">
-          <span className="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px] sm:text-xs">
-            Aggregated Scans (24h)
-          </span>
-          <div className="flex flex-col sm:flex-row sm:items-baseline justify-between mt-space-xs sm:mt-space-sm font-mono gap-1">
-            <span className="font-data-mono-md sm:font-data-mono-lg text-data-mono-md sm:text-data-mono-lg text-on-surface font-bold">224 Recs</span>
-            <span className="font-data-mono-sm text-[10px] sm:text-data-mono-sm text-secondary font-mono">+14.2%</span>
+      {loading ? (
+        <Panel>
+          <LoadingRows rows={3} label="Loading scan activity" />
+        </Panel>
+      ) : failed ? (
+        <Panel>
+          <EmptyState icon="cloud_off" title="Scan activity did not load">
+            Refresh the page to try again. If it keeps failing, the server may be offline.
+          </EmptyState>
+        </Panel>
+      ) : runs.length === 0 ? (
+        <Panel>
+          <EmptyState icon="history" title="No scans yet">
+            Each scan is recorded here once the first scheduled or manual scan runs.
+          </EmptyState>
+        </Panel>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 rounded-2xl surface-card bg-surface divide-x divide-y lg:divide-y-0 divide-outline-variant overflow-hidden">
+            <Stat label="Last scan" value={latest.finished_at ? formatIstDateTime(latest.finished_at).replace(' IST', '').split(',')[0] : 'Running'} hint={RUN_STATUS[latest.status]?.text} />
+            <Stat label="Calls checked" value={String(latest.opportunities_found)} hint="in the last scan" />
+            <Stat label="New calls" value={String(newLast10)} hint={`across the last ${Math.min(10, runs.length)} scans`} />
+            <Stat label="Sources reached" value={latest.sources.length ? `${sourcesOk}/${latest.sources.length}` : '—'} hint="in the last scan" />
           </div>
-          <div className="w-full bg-surface-container h-1 mt-space-sm">
-            <div className="bg-secondary h-1 w-[82%]"></div>
-          </div>
-        </div>
 
-        <div className="bg-surface-container-low p-space-sm sm:p-space-md flex flex-col justify-between border border-surface-container">
-          <span className="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px] sm:text-xs">
-            Mean HTTP Latency
-          </span>
-          <div className="flex flex-col sm:flex-row sm:items-baseline justify-between mt-space-xs sm:mt-space-sm font-mono gap-1">
-            <span className="font-data-mono-md sm:font-data-mono-lg text-data-mono-md sm:text-data-mono-lg text-primary font-bold">614 ms</span>
-            <span className="font-data-mono-sm text-[10px] sm:text-data-mono-sm text-on-surface-variant font-mono">&lt; 900ms</span>
-          </div>
-          <div className="w-full bg-surface-container h-1 mt-space-sm">
-            <div className="bg-primary-container h-1 w-[68%]"></div>
-          </div>
-        </div>
-
-        <div className="bg-surface-container-low p-space-sm sm:p-space-md flex flex-col justify-between border border-surface-container">
-          <span className="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px] sm:text-xs">
-            Prune &amp; Filter Rate
-          </span>
-          <div className="flex flex-col sm:flex-row sm:items-baseline justify-between mt-space-xs sm:mt-space-sm font-mono gap-1">
-            <span className="font-data-mono-md sm:font-data-mono-lg text-data-mono-md sm:text-data-mono-lg text-on-surface font-bold">64.3%</span>
-            <span className="font-data-mono-sm text-[10px] sm:text-data-mono-sm text-tertiary font-mono">144 Drop</span>
-          </div>
-          <div className="w-full bg-surface-container h-1 mt-space-sm">
-            <div className="bg-tertiary-container h-1 w-[64%]"></div>
-          </div>
-        </div>
-
-        <div className="bg-surface-container-low p-space-sm sm:p-space-md flex flex-col justify-between border border-surface-container">
-          <span className="font-label-caps text-label-caps text-on-surface-variant uppercase text-[10px] sm:text-xs">
-            Telemetry Node Pulse
-          </span>
-          <div className="flex flex-col sm:flex-row sm:items-baseline justify-between mt-space-xs sm:mt-space-sm font-mono gap-1">
-            <span className="font-data-mono-md sm:font-data-mono-lg text-data-mono-md sm:text-data-mono-lg text-secondary font-bold">Nominal</span>
-            <span className="font-data-mono-sm text-[10px] sm:text-data-mono-sm text-secondary flex items-center gap-space-2xs font-bold">
-              <span className="w-1.5 h-1.5 rounded-full bg-secondary inline-block animate-pulse"></span>ACTIVE
-            </span>
-          </div>
-          <div className="w-full bg-surface-container h-1 mt-space-sm">
-            <div className="bg-secondary h-1 w-full"></div>
-          </div>
-        </div>
-      </div>
-
-      {/* Runs Audit List */}
-      <div className="space-y-space-md">
-        <div className="flex items-center justify-between pb-space-xs border-b border-surface-container">
-          <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">
-            Chronological Run Logs (Reverse Historical Order)
-          </span>
-          <span className="font-data-mono-sm text-data-mono-sm text-on-surface-variant font-mono">
-            ASCENDING TIMESTAMPS
-          </span>
-        </div>
-
-        {loading ? (
-          <div className="p-space-2xl text-center font-data-mono-sm text-data-mono-sm text-on-surface-variant bg-surface-container-low border border-surface-container font-mono">
-            FETCHING GOVERNANCE RUN LOGS...
-          </div>
-        ) : runs.length === 0 ? (
-          <div className="p-space-2xl text-center font-data-mono-sm text-data-mono-sm text-on-surface-variant bg-surface-container-low border border-surface-container font-mono">
-            NO PIPELINE AUDIT LOGS IN DATABASE.
-            <p className="mt-2 text-outline text-xs">Run logs will be recorded here automatically once scheduled or manual pipeline scans run.</p>
-          </div>
-        ) : (
-          runs.map((r) => {
-            const isExpanded = expandedRun === r.run_id;
-
-            return (
-              <div
-                key={r.run_id}
-                className="bg-surface-container-low border border-surface-container transition-all overflow-hidden"
-              >
-                {/* Run Summary Bar */}
-                <div
-                  onClick={() => toggleRun(r.run_id)}
-                  className="p-space-sm sm:p-space-md flex flex-col sm:flex-row sm:items-center justify-between gap-space-sm sm:gap-space-md cursor-pointer select-none hover:bg-surface-container transition-colors"
-                >
-                  <div className="flex items-center gap-space-xs sm:gap-space-md flex-wrap font-mono text-xs sm:text-sm">
-                    <span className="font-data-mono-sm sm:font-data-mono-md text-data-mono-sm sm:text-data-mono-md text-on-surface font-bold">
-                      {formatUtc(r.started_at)}
-                    </span>
-                    <span className="text-outline-variant">/</span>
-                    <span className="text-data-mono-sm text-[11px] sm:text-data-mono-sm text-on-surface-variant">ID: #{String(r.run_id ?? '').slice(0, 8)}</span>
-                    <span
-                      className={`text-[10px] sm:text-data-mono-sm uppercase font-bold px-space-xs py-space-2xs ${
-                        r.status === 'success'
-                          ? 'bg-secondary-container/40 text-secondary border border-secondary/30'
-                          : r.status === 'partial_failure'
-                          ? 'bg-primary-container/30 text-brass border border-brass/40'
-                          : 'bg-error-container/30 text-rust border border-rust/30'
-                      }`}
-                    >
-                      {r.status.toUpperCase()}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-space-md font-mono text-xs sm:text-data-mono-sm">
-                    <div className="text-on-surface-variant">
-                      FOUND:{' '}
-                      <strong className="text-primary font-bold">{r.opportunities_found}</strong> · NEW:{' '}
-                      <strong className="text-secondary font-bold">{r.opportunities_new}</strong>
+          {health.length > 0 && (
+            <section className="flex flex-col gap-3" aria-labelledby="sources-heading">
+              <div className="flex flex-col gap-1">
+                <h2 id="sources-heading" className="font-headline-sm text-headline-sm text-on-surface">
+                  Funding sources
+                </h2>
+                <p className="text-body-sm text-on-surface-variant">
+                  What each funder&rsquo;s website showed on its last check: calls that are open or not yet closed.
+                </p>
+              </div>
+              <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {health.map((s) => (
+                  <li key={s.source_name} className="rounded-xl surface-card bg-surface px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-body-md font-semibold text-on-surface truncate">{s.source_name}</span>
+                      <span className="text-body-sm text-on-surface-variant">Checked {formatIstDateTime(s.checked_at).replace(' IST', '')}</span>
                     </div>
-                    <span className="material-symbols-outlined text-primary text-[18px]">
-                      {isExpanded ? 'expand_less' : 'expand_more'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Expanded Detail Panel */}
-                {isExpanded && (
-                  <div className="p-space-sm sm:p-space-lg bg-surface-container-lowest border-t border-surface-container space-y-space-md sm:space-y-space-lg font-mono">
-                    {/* Per-Source Breakdown Table */}
-                    <div>
-                      <span className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider block mb-space-xs text-[10px] sm:text-xs">
-                        Per-Source Health &amp; Ingestion Breakdown
+                    {s.ok ? (
+                      <span className="text-body-sm text-on-surface-variant text-right shrink-0">
+                        <strong className="text-on-surface tabular-nums">{s.kept_count}</strong> current
                       </span>
-                      <div className="overflow-x-auto w-full -mx-space-xs sm:mx-0 border border-surface-container">
-                        <table className="min-w-[560px] w-full text-left border-collapse font-data-mono-sm text-data-mono-sm">
-                          <thead>
-                            <tr className="bg-surface-container border-b border-surface-container text-on-surface-variant font-normal text-xs">
-                              <th className="py-space-xs px-space-sm">Source Ingestion Node</th>
-                              <th className="py-space-xs px-space-sm">Status</th>
-                              <th className="py-space-xs px-space-sm">Requests</th>
-                              <th className="py-space-xs px-space-sm">Inserted</th>
-                              <th className="py-space-xs px-space-sm">Error / Diagnostic</th>
-                              <th className="py-space-xs px-space-sm text-right">Latency</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-surface-container text-on-surface text-xs">
-                            {r.sources.map((s, idx) => (
-                              <tr key={idx} className="hover:bg-surface-container-low">
-                                <td className="py-space-xs px-space-sm font-bold">{s.source_name}</td>
-                                <td className="py-space-xs px-space-sm">
-                                  <span
-                                    className={`px-space-2xs py-0.5 uppercase text-[10px] font-bold ${
-                                      s.status === 'success'
-                                        ? 'text-secondary'
-                                        : 'text-rust'
-                                    }`}
-                                  >
-                                    {s.status}
-                                  </span>
-                                </td>
-                                <td className="py-space-xs px-space-sm">{s.request_count}</td>
-                                <td className="py-space-xs px-space-sm text-secondary font-bold">
-                                  {s.inserted_count}
-                                </td>
-                                <td className="py-space-xs px-space-sm text-on-surface-variant">
-                                  {s.error_category || 'None (Healthy)'}
-                                </td>
-                                <td className="py-space-xs px-space-sm text-right text-primary">
-                                  {s.latency_ms} ms
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
+                    ) : (
+                      <Badge tone="danger">Could not be read</Badge>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
-                    {/* Pre-Alert Rejections (Governance Gate) */}
-                    {r.rejected && r.rejected.length > 0 && (
-                      <div className="pt-space-xs border-t border-surface-container">
-                        <span className="font-label-caps text-label-caps text-rust uppercase tracking-wider block mb-space-xs">
-                          Governance Verification Gate Drops ({r.rejected.length})
+          <section className="flex flex-col gap-3" aria-labelledby="runs-heading">
+            <h2 id="runs-heading" className="font-headline-sm text-headline-sm text-on-surface">
+              Recent scans
+            </h2>
+            <ul className="rounded-2xl surface-card bg-surface divide-y divide-outline-variant overflow-hidden">
+              {runs.map((r) => {
+                const open = expandedRun === r.run_id;
+                const status = RUN_STATUS[r.status] ?? RUN_STATUS.success;
+                const took = duration(r);
+                return (
+                  <li key={r.run_id}>
+                    <button
+                      type="button"
+                      aria-expanded={open}
+                      aria-controls={`run-${r.run_id}`}
+                      onClick={() => setExpandedRun(open ? '' : r.run_id)}
+                      className="w-full text-left px-5 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3 hover:bg-surface-container-low transition-colors"
+                    >
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="text-body-md font-semibold text-on-surface">{formatIstDateTime(r.started_at)}</span>
+                        <Badge tone={status.tone}>{status.text}</Badge>
+                      </div>
+                      <div className="flex items-center gap-4 text-body-sm text-on-surface-variant">
+                        <span>
+                          <strong className="text-on-surface tabular-nums">{r.opportunities_found}</strong> checked
                         </span>
-                        <div className="space-y-space-2xs font-data-mono-sm text-data-mono-sm">
-                          {r.rejected.map((rej, i) => (
-                            <div
-                              key={i}
-                              className="p-space-xs bg-surface-container-low border border-surface-container flex flex-col md:flex-row justify-between gap-space-xs text-on-surface"
-                            >
-                              <span className="font-medium text-on-surface">
-                                [{rej.source}] {rej.title}
-                              </span>
-                              <span className="text-rust italic">{rej.reason}</span>
-                            </div>
-                          ))}
-                        </div>
+                        <span>
+                          <strong className="text-on-surface tabular-nums">{r.opportunities_new}</strong> new
+                        </span>
+                        {took && <span className="hidden sm:inline">{took}</span>}
+                        <Icon name={open ? 'expand_less' : 'expand_more'} />
+                      </div>
+                    </button>
+
+                    {open && (
+                      <div id={`run-${r.run_id}`} className="px-5 sm:px-6 pb-5">
+                        {r.sources.length === 0 ? (
+                          <p className="text-body-sm text-on-surface-variant">No per-source details were recorded for this scan.</p>
+                        ) : (
+                          <div className="overflow-x-auto rounded-xl border border-outline-variant">
+                            <table className="w-full min-w-[560px] text-left text-body-sm">
+                              <caption className="sr-only">Sources checked in the scan of {formatIstDateTime(r.started_at)}</caption>
+                              <thead className="bg-surface-container-low text-on-surface-variant">
+                                <tr>
+                                  <th scope="col" className="px-4 py-2.5 font-semibold">Source</th>
+                                  <th scope="col" className="px-4 py-2.5 font-semibold">Result</th>
+                                  <th scope="col" className="px-4 py-2.5 font-semibold text-right">Requests</th>
+                                  <th scope="col" className="px-4 py-2.5 font-semibold text-right">Calls added</th>
+                                  <th scope="col" className="px-4 py-2.5 font-semibold text-right">Time</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-outline-variant text-on-surface">
+                                {r.sources.map((s, idx) => (
+                                  <tr key={idx}>
+                                    <th scope="row" className="px-4 py-2.5 font-semibold">{s.source_name}</th>
+                                    <td className="px-4 py-2.5">
+                                      {s.status === 'success' ? (
+                                        <span className="text-secondary">Reached</span>
+                                      ) : (
+                                        <span className="text-error">{s.error_category ? `Failed: ${s.error_category.replace(/_/g, ' ')}` : 'Failed'}</span>
+                                      )}
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right tabular-nums">{s.request_count}</td>
+                                    <td className="px-4 py-2.5 text-right tabular-nums">{s.inserted_count}</td>
+                                    <td className="px-4 py-2.5 text-right text-on-surface-variant">
+                                      {s.latency_ms >= 1000 ? `${(s.latency_ms / 1000).toFixed(1)} s` : `${s.latency_ms} ms`}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
                       </div>
                     )}
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
-      </div>
-    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        </>
+      )}
+    </Page>
   );
 }
-

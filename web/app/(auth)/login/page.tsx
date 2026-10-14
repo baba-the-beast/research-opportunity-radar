@@ -17,7 +17,7 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(
-    errorParam === 'auth_callback_failed' ? 'Authentication callback failed. Please try again.' : null
+    errorParam === 'auth_callback_failed' ? 'Sign-in did not complete. Please try again.' : null
   );
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -50,7 +50,7 @@ function LoginForm() {
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md bg-surface-container border border-outline-variant/30 rounded-xl p-8 shadow-2xl backdrop-blur-sm">
+      <div className="w-full max-w-md bg-surface surface-card rounded-2xl p-8 sm:p-10">
         {/* Observatory Emblem */}
         <div className="flex flex-col items-center text-center mb-8">
           <div className="w-12 h-12 rounded-full bg-surface-container-high border border-primary/40 flex items-center justify-center mb-3">
@@ -59,43 +59,43 @@ function LoginForm() {
               <circle cx="16" cy="16" r="8" stroke="currentColor" strokeWidth="1.5" opacity="0.8"/>
               <circle cx="16" cy="16" r="2.5" fill="currentColor"/>
               <line x1="16" y1="16" x2="27" y2="9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              <circle cx="23" cy="11" r="1.5" fill="#5B8C7B"/>
+
             </svg>
           </div>
           <h1 className="font-headline-lg text-headline-lg text-on-surface tracking-tight">
-            Investigator Sign In
+            Sign in
           </h1>
           <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
-            Access your personalized research horizon & telemetry
+            See the funding calls and papers that match your research.
           </p>
         </div>
 
         {errorMessage && (
-          <div className="mb-6 p-4 rounded-lg bg-error-container/40 border border-error/30 text-on-surface text-body-sm flex items-start gap-2">
-            <span className="material-symbols-outlined text-error text-[18px] shrink-0 mt-0.5">error</span>
+          <div role="alert" className="mb-6 p-4 rounded-lg bg-error-container/40 border border-error/30 text-on-surface text-body-sm flex items-start gap-2">
+            <span aria-hidden="true" className="material-symbols-outlined text-error text-[18px] shrink-0 mt-0.5">error</span>
             <span>{errorMessage}</span>
           </div>
         )}
 
         <form onSubmit={handleLogin} className="flex flex-col gap-4">
           <div>
-            <label className="block font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider mb-1.5">
-              Academic Email Address
+            <label htmlFor="login-field-1" className="block font-label-caps text-label-caps text-on-surface-variant   mb-1.5">
+              Email
             </label>
-            <input
+            <input id="login-field-1"
               type="email"
               required
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="faculty@university.edu"
-              className="w-full px-3.5 py-2.5 rounded-lg bg-surface-container-lowest border border-outline-variant/40 text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:outline-none text-body-md transition-colors"
+              placeholder="you@university.ac.in"
+              className="w-full rounded-lg border border-outline bg-surface text-body-md text-on-surface px-3 min-h-11 sm:min-h-10 placeholder:text-on-surface-variant/70 hover:border-on-surface-variant focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
             />
           </div>
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">
+              <label htmlFor="login-field-2" className="font-label-caps text-label-caps text-on-surface-variant  ">
                 Password
               </label>
               <Link
@@ -105,14 +105,14 @@ function LoginForm() {
                 Forgot password?
               </Link>
             </div>
-            <input
+            <input id="login-field-2"
               type="password"
               required
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••••••"
-              className="w-full px-3.5 py-2.5 rounded-lg bg-surface-container-lowest border border-outline-variant/40 text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:outline-none text-body-md transition-colors"
+              className="w-full rounded-lg border border-outline bg-surface text-body-md text-on-surface px-3 min-h-11 sm:min-h-10 placeholder:text-on-surface-variant/70 hover:border-on-surface-variant focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 transition-colors"
             />
           </div>
 
@@ -124,12 +124,12 @@ function LoginForm() {
             {loading ? (
               <>
                 <span className="w-4 h-4 border-2 border-on-primary border-t-transparent rounded-full animate-spin"></span>
-                <span>Authenticating...</span>
+                <span>Signing in…</span>
               </>
             ) : (
               <>
-                <span className="material-symbols-outlined text-[18px]">lock_open</span>
-                <span>Sign In to Observatory</span>
+                <span aria-hidden="true" className="material-symbols-outlined text-[18px]">lock_open</span>
+                <span>Sign in</span>
               </>
             )}
           </button>
@@ -137,9 +137,9 @@ function LoginForm() {
 
         <div className="mt-8 pt-6 border-t border-outline-variant/20 text-center">
           <p className="font-body-sm text-body-sm text-on-surface-variant">
-            New investigator?{' '}
+            New here?{' '}
             <Link href={`/register${next !== '/' ? `?next=${encodeURIComponent(next)}` : ''}`} className="text-primary font-bold hover:underline">
-              Create Research Profile
+              Create an account
             </Link>
           </p>
         </div>

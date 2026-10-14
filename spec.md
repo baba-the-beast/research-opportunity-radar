@@ -1055,7 +1055,7 @@ Work through these **in order** in VS Code with your AI coding tool. Each phase 
 ### Phase 0 — Accounts and environment (no AI coding yet)
 - Create a **public** GitHub repo named `research-opportunity-radar`.
 - Create accounts and collect keys: OpenAlex (openalex.org/settings/api), Semantic Scholar (optional, semanticscholar.org/product/api), Supabase (choose a region near India, e.g. `ap-south-1`), Telegram bot via `@BotFather` (optional), Brevo (optional).
-- Install: VS Code, Python 3.11, Node.js 20+, and your AI coding extension configured against your OpenRouter (or chosen) API key.
+- Install: VS Code, Python 3.11, Node.js 22+, and your AI coding extension configured against your OpenRouter (or chosen) API key.
 - **Definition of done:** you have a `.env` file locally (git-ignored) with every value in Section 7.2 filled in for the services you're using.
 
 ### Phase 1 — Repository scaffold

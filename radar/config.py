@@ -37,13 +37,31 @@ SOURCE_NAMES = {
     "BIRAC": "BIRAC",
     "CSIR": "CSIR",
     "ICSSR": "ICSSR",
+    "MeitY": "MeitY",
+    "MoES": "MoES",
+    "UGC": "UGC",
+    "AICTE": "AICTE",
+    "INSA": "INSA",
+    "DRDO": "DRDO",
+    "CEFIPRA": "CEFIPRA",
     "WikiCFP": "WikiCFP",
     "Grants.gov": "Grants.gov",
     "NSF": "NSF Solicitations Feed",
 }
-DEFAULT_SOURCES = ["ANRF", "DST", "DBT", "ICMR", "BIRAC", "CSIR", "ICSSR", "WikiCFP"]
 # Funding agencies scanned when no user has chosen sources yet
-AGENCY_LIST = ["ANRF", "DST", "DBT", "ICMR", "BIRAC", "CSIR", "ICSSR"]
+AGENCY_LIST = ["ANRF", "DST", "DBT", "ICMR", "BIRAC", "CSIR", "ICSSR", "MeitY", "MoES", "UGC", "AICTE", "INSA", "DRDO", "CEFIPRA"]
+DEFAULT_SOURCES = [*AGENCY_LIST, "WikiCFP"]
+# The defaults before Oct 2026. A user whose saved choice still includes all of these never turned a
+# default off, so Indian funders added since are switched on for them too (see with_new_defaults).
+LEGACY_DEFAULT_SOURCES = ["ANRF", "DST", "DBT", "ICMR", "BIRAC", "CSIR", "ICSSR", "WikiCFP"]
+
+
+def with_new_defaults(saved: list[str]) -> list[str]:
+    """A saved source choice, plus funders added to the defaults since, unless the user had opted out
+    of a default (then their choice is kept exactly)."""
+    if not set(LEGACY_DEFAULT_SOURCES) <= set(saved):
+        return saved
+    return [*saved, *(s for s in DEFAULT_SOURCES if s not in saved)]
 
 
 class ConfigurationError(Exception):

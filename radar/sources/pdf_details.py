@@ -8,12 +8,15 @@ look for them (``solicitation_guidelines`` and ``eligibility_clause``).
 import io
 import logging
 import re
+from datetime import date
 from typing import Any
 
 from pypdf import PdfReader
 
-from radar.deadlines.deadline_engine import lifecycle_status, parse_deadline
+from radar.deadlines import deadline_engine
+from radar.deadlines.deadline_engine import lifecycle_status, parse_deadline, says_closed
 from radar.models import Opportunity, OpportunityDeadline
+from radar.sources.agency_scraper_base import DEADLINE_CUE
 from radar.sources.http import FetchError, fetch
 
 logger = logging.getLogger(__name__)
@@ -25,8 +28,21 @@ EXCERPT_CHARS = 1500
 GUIDELINES_CHARS = 12000
 
 _ELIGIBILITY_HEADING = re.compile(r"\b(eligibility(?:\s+criteria)?|who\s+can\s+apply|eligible\s+(?:applicants|institutions))\b", re.I)
-_NEXT_HEADING = re.compile(r"\s(?:\d{1,2}\.|[IVX]{1,4}\.)\s+[A-Z][A-Za-z ]{3,40}:?\s")
-_DEADLINE_CUE = re.compile(r"(last\s+date|deadline|closing\s+date|cut-?\s?off\s+date|due\s+date|submission\s+(?:date|deadline)|on\s+or\s+before)", re.I)
+# Not the section itself: a contents line ("Eligibility ........ 2") or a passing use ("eligibility of disbursement")
+_NOT_A_HEADING = re.compile(r"\s*(?:\.{4,}|…)|\s+(?:of|for)\b", re.I)
+# Headings of the sections that usually follow eligibility. Numbered items inside the section
+# ("1. Must be an Indian citizen. 2. ...") are not a new section.
+_NEXT_SECTION = re.compile(
+    r"(?:\s(?:\d{1,2}(?:\.\d{1,2})*\.?|[IVX]{1,4}\.)\s+|[.?:]\s+)"
+    r"(?:How to [Aa]pply|HOW TO APPLY|Application [Pp]rocedure|Selection|Duration|Budget|Financial [Ss]upport|"
+    r"Funding [Pp]attern|Submission|Important [Dd]ates|Contact|Documents|Terms and [Cc]onditions|Procedure|Evaluation|Timelines?)\b"
+)
+_SECTION_NUMBER = re.compile(r"(\d{1,2})\s*[.:]?\s*$")
+_DEADLINE_CUE = DEADLINE_CUE
+_STRONG_CUE = re.compile(r"last\s+date|deadline|closing\s+date|end\s+date|due\s+date|submission\s+(?:date|deadline)|cut-?\s?off", re.I)
+_EXTENSION = re.compile(r"\b(extend\w*|extension|revised|postpone\w*|rescheduled)\b", re.I)
+_OPENING_CUE = re.compile(r"\b(?:opening(?:\s+date)?\s*:|opens\s+on|(?:portal|call|submissions?|applications?)\s+(?:will\s+)?(?:open|start)s?\s+(?:on|from))", re.I)
+MAX_DEADLINES = 3
 _BUDGET = re.compile(
     r"(?:(?:\bRs\.?|\bINR|₹)\s*\d[\d,]*(?:\.\d+)?(?:\s*(?:lakhs?|lacs?|crores?|cr\b))?"
     r"|\b\d[\d,]*(?:\.\d+)?\s*(?:lakhs?|lacs?|crores?)\b)",
@@ -47,13 +63,21 @@ def pdf_text(content: bytes, max_pages: int = MAX_PAGES) -> str:
     return " ".join(" ".join(parts).split())
 
 
-def _excerpt_after(pattern: re.Pattern[str], text: str, length: int) -> str | None:
-    match = pattern.search(text)
-    if not match:
+def _eligibility(text: str, length: int) -> str | None:
+    """The eligibility section: the first capitalised heading ("Eligibility:", "Who Can Apply?"), else
+    the first other mention; up to the next section."""
+    found = [m for m in _ELIGIBILITY_HEADING.finditer(text) if not _NOT_A_HEADING.match(text, m.end())]
+    if not found:
         return None
+    match = next((m for m in found if m.group(0)[0].isupper()), found[0])
     chunk = text[match.start():match.start() + length]
-    end = _NEXT_HEADING.search(chunk, 40)
-    return (chunk[:end.start()] if end else chunk).strip()
+    stops = [s.start() for s in [_NEXT_SECTION.search(chunk, 40)] if s]
+    number = _SECTION_NUMBER.search(text[max(0, match.start() - 12):match.start()])
+    if number:  # "4. Eligibility" ends at "5."
+        following = re.compile(rf"\s(?:Section\s*)?{int(number.group(1)) + 1}[.:]?\s+[A-Z]").search(chunk, 40)
+        if following:
+            stops.append(following.start())
+    return chunk[:min(stops)].strip() if stops else chunk.strip()
 
 
 def _budget(text: str) -> str | None:
@@ -73,6 +97,35 @@ def _deadline_text(text: str) -> str | None:
     return None
 
 
+def _deadline_dates(text: str) -> list[date]:
+    """Every date the document states as a deadline: some calls have several (call 1 and call 2,
+    online and hard copy). When it says a deadline was extended, only the latest date stands."""
+    found = []  # (strong cue?, date, extended?)
+    for cue in _DEADLINE_CUE.finditer(text):
+        window = text[cue.start():cue.start() + 140]
+        parsed, _ = parse_deadline(window)
+        if parsed:
+            found.append((bool(_STRONG_CUE.match(cue.group(0))), parsed, bool(_EXTENSION.search(window[:70]))))
+    # "Deadline: ..." beats "start no later than ... and end by 31 December 2027"
+    strong = [f for f in found if f[0]]
+    if not strong:
+        # Weaker phrases also time travel and project dates ("depart no later than 30 October"):
+        # only the first, which is normally the submission date, is trusted
+        return [found[0][1]] if found else []
+    dates, extended = [f[1] for f in strong], any(f[2] for f in strong)
+    if extended:
+        return [max(dates)]
+    upcoming = sorted({d for d in dates if d >= deadline_engine.today_ist()})
+    return upcoming[:MAX_DEADLINES] or [max(dates)]
+
+
+def _opens_on(text: str) -> date | None:
+    """The earliest date the document says submissions open, if it states one."""
+    found = [parse_deadline(text[c.end():c.end() + 40])[0] for c in _OPENING_CUE.finditer(text)]
+    found = [d for d in found if d]
+    return min(found) if found else None
+
+
 def extract_call_details(text: str) -> dict[str, Any]:
     """Summary, eligibility, budget and deadline text found in a call document."""
     details: dict[str, Any] = {}
@@ -80,7 +133,7 @@ def extract_call_details(text: str) -> dict[str, Any]:
         return details
     details["summary"] = text[:SUMMARY_CHARS].rsplit(" ", 1)[0] + ("…" if len(text) > SUMMARY_CHARS else "")
     details["solicitation_guidelines"] = text[:GUIDELINES_CHARS]
-    eligibility = _excerpt_after(_ELIGIBILITY_HEADING, text, EXCERPT_CHARS)
+    eligibility = _eligibility(text, EXCERPT_CHARS)
     if eligibility:
         details["eligibility_clause"] = eligibility
     budget = _budget(text)
@@ -89,6 +142,12 @@ def extract_call_details(text: str) -> dict[str, Any]:
     deadline = _deadline_text(text)
     if deadline:
         details["deadline_text"] = deadline
+        details["deadline_dates"] = _deadline_dates(text)
+    opens = _opens_on(text)
+    if opens:
+        details["opens_on"] = opens
+    if says_closed(text):
+        details["closed"] = True
     return details
 
 
@@ -123,16 +182,24 @@ def enrich_with_pdf_details(opps: list[Opportunity], max_docs: int = MAX_DOCS_PE
         if details.get("summary") and (not opp.summary or opp.summary.startswith("Call for proposals from")):
             opp.summary = details["summary"]
 
-        # Only when the listing gave no date: take the one the document states
-        if not any(d.deadline_date for d in opp.deadlines) and details.get("deadline_text"):
-            dl_date, _ = parse_deadline(details["deadline_text"])
-            if dl_date:
+        # Only when the listing gave no date: take the ones the document states
+        dates = details.get("deadline_dates") or []
+        if not any(d.deadline_date for d in opp.deadlines) and dates:
+            for dl_date in dates:
                 opp.deadlines.append(OpportunityDeadline(
                     deadline_type="full_proposal",
                     deadline_date=dl_date,
                     confidence="probable",
                     raw_text=details["deadline_text"][:200],
                 ))
-                status = lifecycle_status(opp.title, [dl_date])
-                opp.status = "open" if status == "open" else "closed"
+            status = lifecycle_status(opp.title, dates)
+            opp.status = "open" if status == "open" else "closed"
+            opens = details.get("opens_on")
+            if opp.status == "open" and opens and opens > deadline_engine.today_ist():
+                opp.status = "forecasted"
+                opp.metadata["opens_on"] = opens.isoformat()
+        # "Applications have now concluded", unless it names a deadline still ahead (an older round, say)
+        today = deadline_engine.today_ist()
+        if details.get("closed") and not any(d.deadline_date and d.deadline_date >= today for d in opp.deadlines):
+            opp.status = "closed"
     return read

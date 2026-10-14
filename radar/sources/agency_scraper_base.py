@@ -66,7 +66,15 @@ def is_scraping_allowed(url: str, user_agent: str = "ResearchOpportunityRadar") 
         return True
 
 
-_DEADLINE_CUE = re.compile(r"(last\s+date|deadline|closing\s+date|cut-?\s?off\s+date|due\s+date|on\s+or\s+before|submission\s+date)", re.I)
+# Phrases that introduce a submission deadline in Indian call notices ("latest by 31st December, 2025",
+# "not later than 15.11.2026"). Shared with the PDF reader (radar.sources.pdf_details).
+DEADLINE_CUE = re.compile(
+    r"(last\s+date|deadline|closing\s+date|end\s+date|cut-?\s?off\s+date|due\s+date|on\s+or\s+before|submission\s+(?:date|deadline)|"
+    r"latest\s+by|not\s+later\s+than|no\s+later\s+than|(?:submitted|received|reach\w*|apply)\s+(?:on\s+or\s+)?(?:by|before)|"
+    r"(?:applications?|portal|call)\s+(?:will\s+)?close[sd]?\s+(?:on|by))",
+    re.I,
+)
+_DEADLINE_CUE = DEADLINE_CUE
 
 
 def latest_cued_deadline(text: str) -> str | None:
@@ -79,6 +87,18 @@ def latest_cued_deadline(text: str) -> str | None:
         if parsed:
             found.append(parsed)
     return max(found).isoformat() if found else None
+
+
+_ELIGIBILITY_HEADING = re.compile(r"\b(eligibility(?:\s+criteria)?|who\s+can\s+apply|who\s+is\s+eligible)\b\s*:?", re.I)
+
+
+def eligibility_excerpt(text: str, chars: int = 1500) -> str | None:
+    """The text after a call page's "Eligibility" / "Who can apply" heading, for the eligibility check."""
+    match = _ELIGIBILITY_HEADING.search(text)
+    if not match:
+        return None
+    excerpt = text[match.start():match.start() + chars].strip()
+    return excerpt or None
 
 
 def page_text(html: str) -> str:

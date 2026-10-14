@@ -1,9 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { safeExternalUrl } from '@/lib/safeUrl';
 import Link from 'next/link';
+import { safeExternalUrl } from '@/lib/safeUrl';
 import { formatDeadline, formatIstDateTime } from '@/lib/dates';
+import { bandLabel, bandTextClass, isGoodMatch } from '@/lib/match';
+import { SendToTelegram } from '@/components/SendToTelegram';
+import { digestShareText } from '@/lib/share';
+import { Button, EmptyState, LoadingRows, Notice, Page, PageHeader, Panel, buttonClass } from '@/components/ui';
 
 interface DigestItem {
   id: string;
@@ -41,109 +45,160 @@ export default function DigestsPage() {
         if (!res.ok) throw new Error(body?.error?.message || `HTTP ${res.status}`);
         setDigest(body ?? null);
       })
-      .catch((err) => setError(`Could not load your digest: ${err.message}`))
+      .catch((err) => setError(`Your digest did not load (${err.message}). Refresh the page to try again.`))
       .finally(() => setLoading(false));
   }, []);
 
-  const copyMarkdown = async () => {
+  const copyText = async () => {
     if (!digest?.markdown) return;
     try {
       await navigator.clipboard.writeText(digest.markdown);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      setError('Copy failed: your browser blocked clipboard access.');
+      setError('Copy failed because the browser blocked clipboard access. Select the text and copy it instead.');
     }
   };
 
   const items = (digest?.items || []).filter((i) => showAll || i.in_digest);
+  const hidden = (digest?.items || []).filter((i) => !i.in_digest).length;
+  const ready = !loading && !error && digest?.run && !digest.needs_profile;
 
   return (
-    <div className="w-full max-w-4xl mx-auto px-space-md sm:px-space-xl py-space-md sm:py-space-xl space-y-space-lg">
-      <div className="flex flex-col gap-space-xs border-b border-surface-container pb-space-md">
-        <span className="font-label-caps text-label-caps text-on-surface-variant tracking-widest uppercase">Digest</span>
-        <h1 className="font-headline-lg text-headline-lg text-on-surface tracking-tight">Your latest digest</h1>
-        <p className="font-body-md text-body-md text-on-surface-variant">
-          Scans run on Monday and Thursday mornings (IST). After each scan, new calls that match your profile are sent to the
-          channels chosen in <Link href="/settings" className="text-primary underline">Settings</Link>.
-          {digest?.min_band && (
+    <Page narrow>
+      <PageHeader
+        title="Latest digest"
+        description={
+          ready && digest?.run?.finished_at
+            ? `From the scan on ${formatIstDateTime(digest.run.finished_at)}: ${digest.run.opportunities_found} calls checked, ${digest.run.opportunities_new} new.`
+            : 'After each scan (Monday and Thursday mornings, IST) the new calls that match you are sent to you.'
+        }
+        actions={
+          ready ? (
             <>
-              {' '}
-              Your filters: band <strong>{digest.min_band}</strong> or above, score at least <strong>{digest.min_score}</strong>{' '}
-              (<Link href="/profile" className="text-primary underline">change</Link>).
+              {(digest?.items || []).some((i) => i.in_digest) && (
+                <SendToTelegram
+                  text={digestShareText(
+                    (digest?.items || [])
+                      .filter((i) => i.in_digest)
+                      .map((i) => ({
+                        id: i.id,
+                        title: i.title,
+                        publisher: i.agency,
+                        officialUrl: i.url,
+                        deadline: i.deadline ? { date: i.deadline.date, daysLeft: i.deadline.days_left } : null
+                      }))
+                  )}
+                />
+              )}
+              <Button icon={copied ? 'check' : 'content_copy'} onClick={copyText} aria-live="polite">
+                {copied ? 'Copied' : 'Copy as text'}
+              </Button>
             </>
-          )}
-        </p>
-      </div>
+          ) : undefined
+        }
+      />
+
+      {error && <Notice tone="danger">{error}</Notice>}
+      {ready && digest?.run?.status === 'partial_failure' && (
+        <Notice tone="warning">Some sources could not be reached during this scan, so a few calls may be missing.</Notice>
+      )}
 
       {loading ? (
-        <p className="font-data-mono-sm text-data-mono-sm text-on-surface-variant">Loading...</p>
-      ) : error ? (
-        <div className="p-space-md border border-error text-error bg-error/10 font-data-mono-sm text-data-mono-sm">{error}</div>
-      ) : !digest?.run ? (
-        <p className="font-body-md text-body-md text-on-surface-variant">No scan has finished yet. Your first digest arrives after the next scheduled scan.</p>
+        <Panel>
+          <LoadingRows rows={4} label="Loading digest" />
+        </Panel>
+      ) : error ? null : !digest?.run ? (
+        <Panel>
+          <EmptyState icon="schedule" title="No digest yet">
+            Your first digest arrives after the next scheduled scan.
+          </EmptyState>
+        </Panel>
       ) : digest.needs_profile ? (
-        <p className="font-body-md text-body-md text-on-surface-variant">
-          <Link href="/profile" className="text-primary underline">Set up your profile</Link> so calls can be matched to your research.
-        </p>
+        <Panel>
+          <EmptyState
+            icon="person"
+            title="Set up your profile first"
+            action={
+              <Link href="/profile" className={buttonClass('primary')}>
+                Set up profile
+              </Link>
+            }
+          >
+            Your digest is built from your research interests.
+          </EmptyState>
+        </Panel>
       ) : (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-space-sm font-data-mono-sm text-data-mono-sm text-on-surface-variant">
-            <span>
-              Scan of {digest.run.finished_at ? formatIstDateTime(digest.run.finished_at) : 'unknown time'}: {digest.run.opportunities_found} calls
-              checked, {digest.run.opportunities_new} new
-              {digest.run.status === 'partial_failure' && ' (some sources were unavailable)'}
-            </span>
-            <div className="flex items-center gap-space-md">
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} className="accent-primary" />
-                Show calls below my filters
+          <div className="flex flex-wrap items-center justify-between gap-3 text-body-sm text-on-surface-variant">
+            <p>
+              {digest.min_band ? (
+                <>
+                  Showing {bandLabel(digest.min_band).toLowerCase()} or better
+                  {digest.min_score ? `, score ${digest.min_score}+` : ''}.{' '}
+                  <Link href="/settings" className="text-primary underline underline-offset-4">
+                    Change
+                  </Link>
+                </>
+              ) : (
+                'New calls that match your profile.'
+              )}
+            </p>
+            {hidden > 0 && (
+              <label className="flex items-center gap-2 cursor-pointer min-h-11 sm:min-h-0">
+                <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} className="w-4 h-4 accent-primary" />
+                Include {hidden} below your threshold
               </label>
-              <button type="button" onClick={copyMarkdown} className="text-primary hover:underline">
-                {copied ? 'Copied' : 'Copy as text'}
-              </button>
-            </div>
+            )}
           </div>
 
           {items.length === 0 ? (
-            <p className="font-body-md text-body-md text-on-surface-variant bg-surface-container-low border border-surface-container p-space-md">
-              No new calls passed your filters in this scan.
-            </p>
+            <Panel>
+              <EmptyState icon="inbox" title="Nothing new passed your threshold">
+                No new calls in this scan scored high enough. Lower the threshold in Settings to see more.
+              </EmptyState>
+            </Panel>
           ) : (
-            <ol className="space-y-space-sm">
-              {items.map((item) => (
-                <li
-                  key={item.id}
-                  className={`bg-surface-container-low border border-surface-container p-space-md flex flex-col gap-space-2xs ${item.in_digest ? '' : 'opacity-70'}`}
-                >
-                  <div className="flex flex-wrap items-center gap-space-sm font-data-mono-sm text-data-mono-sm text-on-surface-variant">
-                    <span className="text-secondary font-bold">Score {item.score}</span>
-                    <span className="uppercase">{item.band}</span>
-                    <span>{item.agency}</span>
-                    {!item.in_digest && <span>(below your filters)</span>}
-                  </div>
-                  <Link href={`/opportunities/${item.id}`} className="font-body-lg text-body-lg text-on-surface font-semibold hover:text-primary">
-                    {item.title}
-                  </Link>
-                  <div className="flex flex-wrap items-center justify-between gap-2 font-data-mono-sm text-data-mono-sm text-on-surface-variant">
-                    <span>
-                      {item.deadline
-                        ? `Due ${formatDeadline(item.deadline.date)} (${item.deadline.days_left} days)`
-                        : 'Deadline not published'}
-                      {item.matched_terms.length > 0 && ` · matches ${item.matched_terms.slice(0, 3).join(', ')}`}
-                    </span>
-                    {safeExternalUrl(item.url) && (
-                      <a href={safeExternalUrl(item.url)} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                        Official page
-                      </a>
-                    )}
-                  </div>
-                </li>
-              ))}
+            <ol className="rounded-2xl surface-card bg-surface divide-y divide-outline-variant overflow-hidden">
+              {items.map((item) => {
+                const href = safeExternalUrl(item.url);
+                return (
+                  <li key={item.id} className={`px-5 sm:px-6 py-5 flex gap-5 ${item.in_digest ? '' : 'bg-surface-container-low'}`}>
+                    <div className="flex flex-col gap-1.5 min-w-0 flex-1">
+                      <span className="text-body-sm text-on-surface-variant">
+                        {item.agency}
+                        {!item.in_digest && ' · below your threshold'}
+                      </span>
+                      <Link href={`/opportunities/${item.id}`} className="text-headline-sm font-semibold text-on-surface hover:text-primary leading-snug">
+                        {item.title}
+                      </Link>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-body-sm text-on-surface-variant">
+                        <span>
+                          {item.deadline
+                            ? `Due ${formatDeadline(item.deadline.date)}, in ${item.deadline.days_left} days`
+                            : 'Deadline not published'}
+                        </span>
+                        {item.matched_terms.length > 0 && <span>Matches: {item.matched_terms.slice(0, 3).join(', ')}</span>}
+                        {href && (
+                          <a href={href} target="_blank" rel="noreferrer" className="text-primary hover:underline underline-offset-4">
+                            Official call page
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end shrink-0">
+                      <span className={`font-data-mono-lg text-data-mono-lg ${isGoodMatch(item.band) ? 'text-primary' : 'text-on-surface-variant'}`}>
+                        {Math.round(item.score)}
+                      </span>
+                      <span className={`mt-1 text-[12px] font-medium ${bandTextClass(item.band)}`}>{bandLabel(item.band)}</span>
+                    </div>
+                  </li>
+                );
+              })}
             </ol>
           )}
         </>
       )}
-    </div>
+    </Page>
   );
 }

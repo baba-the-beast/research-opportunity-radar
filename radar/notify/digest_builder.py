@@ -1,68 +1,94 @@
-"""Weekly digest builder module."""
-from datetime import UTC, datetime
+"""The digest each user gets after a scan: the new calls that match them, soonest deadline first.
 
+Kept short on purpose (a phone screen on Telegram): at most MAX_CALLS calls, each with when it is
+due, why it matches, and anything to check about eligibility. Calls the user is not eligible for
+never reach here (their band is "not_eligible", which should_alert() rejects).
+"""
+from datetime import date
+
+from radar.deadlines.deadline_engine import today_ist
 from radar.models import Opportunity
+
+MAX_CALLS = 10
+
+
+def _when(due: date | None, today: date) -> str:
+    if not due:
+        return "No deadline published yet"
+    days = (due - today).days
+    when = "today" if days == 0 else "tomorrow" if days == 1 else f"in {days} days"
+    return f"Due {due.strftime('%d %b %Y').lstrip('0')} ({when})"
+
+
+def _eligibility_note(report: dict | None) -> str | None:
+    """A line only when there is something to check; eligible calls stay quiet."""
+    if not report or report.get("status") == "ELIGIBLE":
+        return None
+    summary = str(report.get("summary") or "").strip()
+    return summary or None
 
 
 def build(
     opportunities: list[Opportunity],
     failed_sources: list[dict[str, str]] | None = None,
     faculty_id: str | None = None,
+    institution_notes: dict[str, dict] | None = None,
 ) -> str:
     """Render a digest. Pass faculty_id so each recipient sees their own score and matched terms
-    (opp.score_result is the best score across all faculty and would expose other users' terms)."""
-    today_str = datetime.now(UTC).strftime("%Y-%m-%d")
-    lines = [
-        "# Weekly Research Opportunity Digest",
-        f"Generated: {today_str} | Research Opportunity Radar",
-        ""
-    ]
+    (opp.score_result is the best score across all faculty and would expose other users' terms).
+    institution_notes: the recipient's research office notes by opportunity id (recommended calls
+    go first and say so, with the office's internal deadline)."""
+    today = today_ist()
 
-    # Prominently surface failed sources if any occurred during cycle
-    if failed_sources:
-        lines.extend([
-            "> [!WARNING]",
-            "> **Observatory Source Ingestion Warnings:**",
-            "> Some external intelligence feeds encountered errors during this cycle:"
-        ])
-        for fs in failed_sources:
-            src_name = fs.get("source", "Unknown Source")
-            err_reason = fs.get("error", "Request failed")
-            lines.append(f"> - **{src_name}**: {err_reason}")
-        lines.extend([
-            "> Unreached feeds will be automatically retried in the subsequent radar cycle.",
-            ""
-        ])
+    def score_of(opp: Opportunity):
+        return opp.profile_scores.get(faculty_id) if faculty_id else opp.score_result
 
-    lines.extend([
-        "---",
-        ""
-    ])
+    notes = institution_notes or {}
+    ranked = sorted(
+        opportunities,
+        key=lambda o: (
+            not notes.get(o.id or "", {}).get("recommended"),
+            o.earliest_confirmed_deadline() or date.max,
+            -(score_of(o).final_score if score_of(o) else 0),
+        ),
+    )
+    shown = ranked[:MAX_CALLS]
 
+    count = len(opportunities)
+    lines = [f"# {count} new call{'s' if count != 1 else ''} that match your research", ""]
     if not opportunities:
-        lines.extend([
-            "No new high-priority opportunities matching active faculty criteria were discovered in this cycle.",
-            ""
-        ])
-        return "\n".join(lines)
+        lines = ["# No new matching calls this scan", "", "Your feed and deadlines are unchanged.", ""]
 
-    for idx, opp in enumerate(opportunities, start=1):
-        score = opp.profile_scores.get(faculty_id) if faculty_id else opp.score_result
-        score_info = f"Score: {score.final_score:.1f}/100 ({score.band.capitalize()})" if score else "Score: N/A"
-        matched_str = ", ".join(score.matched_terms) if score and score.matched_terms else "Topic match"
+    for idx, opp in enumerate(shown, start=1):
+        score = score_of(opp)
+        funder = opp.agency_or_publisher or opp.venue_name or opp.primary_source_name or ""
+        lines.append(f"### {idx}. {opp.title}")
+        lines.append(f"- {_when(opp.earliest_confirmed_deadline(), today)}" + (f" · {funder}" if funder else ""))
+        if score:
+            matched = ", ".join(score.matched_terms[:3]) if score.matched_terms else "your research summary"
+            lines.append(f"- Match {score.final_score:.1f}/100: {matched}")
+        office = notes.get(opp.id or "")
+        if office and (office.get("recommended") or office.get("internal_deadline")):
+            parts = ["Recommended by your research office"] if office.get("recommended") else ["Your research office"]
+            if office.get("internal_deadline"):
+                internal = date.fromisoformat(str(office["internal_deadline"])[:10])
+                parts.append(f"internal deadline {internal.strftime('%d %b %Y').lstrip('0')}")
+            text = ", ".join(parts)
+            if office.get("note"):
+                text += f": {office['note']}"
+            lines.append(f"- 🏛️ {text}")
+        note = _eligibility_note(score.eligibility_report if score else None)
+        if note:
+            lines.append(f"- ⚠️ {note}")
+        if opp.primary_source_url:
+            lines.append(f"- [Official call page]({opp.primary_source_url})")
+        lines.append("")
 
-        conf_dl = opp.earliest_confirmed_deadline()
-        dl_str = conf_dl.strftime("%Y-%m-%d") if conf_dl else "Rolling"
+    if count > len(shown):
+        lines.extend([f"…and {count - len(shown)} more in your feed.", ""])
 
-        lines.extend([
-            f"### {idx}. {opp.title}",
-            f"- **Source:** {opp.primary_source_name or 'Unknown'} · [{opp.primary_source_url}]({opp.primary_source_url})",
-            f"- **Relevance:** {score_info} — Overlaps: *{matched_str}*",
-            f"- **Deadline:** {dl_str}",
-            f"- **Publisher/Venue:** {opp.agency_or_publisher or opp.venue_name or 'N/A'}",
-            "",
-            "---",
-            ""
-        ])
+    if failed_sources:
+        names = ", ".join(dict.fromkeys(fs.get("source", "a source") for fs in failed_sources))
+        lines.extend([f"*Not checked this time: {names}. They are tried again on the next scan.*", ""])
 
-    return "\n".join(lines)
+    return "\n".join(lines).rstrip() + "\n"

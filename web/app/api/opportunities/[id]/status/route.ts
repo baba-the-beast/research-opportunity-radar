@@ -4,9 +4,13 @@ import { authenticateRequest, authorizeRole } from '@/lib/auth';
 import { consumeRateLimit, rateLimitKey } from '@/lib/rateLimit';
 import { createErrorResponse, createSuccessResponse } from '@/lib/apiResponse';
 import { z } from 'zod';
+import { TRACK_STATUSES } from '@/lib/applications';
+import { DISMISSAL_MARKER, DISMISS_REASON_VALUES, LEGACY_DISMISSAL_TEXT, PENALISING_REASON, suggestTopicTerms } from '@/lib/feedback';
 
 const statusSchema = z.object({
-  status: z.enum(['new', 'pursuing', 'dismissed']),
+  status: z.enum(TRACK_STATUSES),
+  // Why a call was dismissed; omitted by older clients, which keeps the old topic penalty
+  reason: z.enum(DISMISS_REASON_VALUES).optional(),
   feedback_text: z.string().max(2000).optional(),
   negative_terms: z.array(z.string().trim().min(1).max(100)).max(25).optional()
 });
@@ -56,6 +60,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const supabase = getRequestSupabase(auth.user);
 
+    // Dismissal feedback only changes when a call is dismissed or un-dismissed, so other moves
+    // (e.g. pursuing -> applied) skip the feedback round trips below
+    const { data: prev } = await supabase
+      .from('user_opportunity_state')
+      .select('status')
+      .eq('user_id', auth.user!.id)
+      .eq('opportunity_id', id)
+      .maybeSingle();
+    const touchesDismissal = parsed.data.status === 'dismissed' || prev?.status === 'dismissed';
+
     // Per-user tracking state. (The legacy opportunity_status table is keyed by opportunity_id
     // alone, so writing it let one user's status overwrite another's; it is no longer used.)
     const { error: stateErr } = await supabase
@@ -73,37 +87,62 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const { error: activityErr } = await supabase.from('user_activity').insert({
       user_id: auth.user!.id,
       event_type: 'status_change',
-      title: `Marked Opportunity as ${parsed.data.status.toUpperCase()}`,
-      description: `Investigator transitioned opportunity ${id} to ${parsed.data.status}.`,
+      title: `Call marked as ${parsed.data.status.replace('_', ' ')}`,
+      description: `Status of opportunity ${id} changed to ${parsed.data.status}.`,
       metadata: { opportunity_id: id, new_status: parsed.data.status }
     });
     if (activityErr) {
       console.error('user_activity insert failed:', activityErr.message);
     }
 
-    // Feedback loop: a dismissal becomes a not_relevant signal for this faculty's own scoring
-    if (parsed.data.status === 'dismissed') {
-      const profileId = await getOwnProfileId(supabase, auth.user);
-      if (profileId) {
-        let negativeTerms = parsed.data.negative_terms || [];
-        if (negativeTerms.length === 0) {
-          const { data: oppData } = await supabase
-            .from('opportunities')
-            .select('title')
-            .eq('id', id)
-            .single();
-          if (oppData?.title) {
-            const words = oppData.title.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w: string) => w.length > 3);
-            const stopWords = new Set(['with', 'from', 'this', 'that', 'call', 'proposals', 'special', 'issue', 'journal', 'research']);
-            negativeTerms = Array.from(new Set(words.filter((w: string) => !stopWords.has(w)))).slice(0, 5) as string[];
-          }
+    // Feedback loop. Only "not my research area" lowers similar calls; other reasons are kept as
+    // neutral feedback. Any dismissal feedback for this call is replaced on re-dismiss and removed
+    // when the call is un-dismissed, so the penalty never outlives the decision.
+    const profileId = touchesDismissal ? await getOwnProfileId(supabase, auth.user) : null;
+    let feedbackCleared = true;
+    if (profileId) {
+      // PostgREST: values with ':' or spaces must be double-quoted inside or()
+      const dismissalFilter = `feedback_text.like."${DISMISSAL_MARKER}*",feedback_text.eq."${LEGACY_DISMISSAL_TEXT}"`;
+      const { data: existing } = await supabase
+        .from('feedback')
+        .select('id')
+        .eq('opportunity_id', id)
+        .eq('faculty_id', profileId)
+        .in('rating', ['not_relevant', 'neutral'])
+        .or(dismissalFilter);
+      if (existing && existing.length > 0) {
+        const { data: deleted, error: clearErr } = await supabase
+          .from('feedback')
+          .delete()
+          .in('id', existing.map((r) => r.id))
+          .select('id');
+        // Without a delete policy (migration 20261008000200 not applied) RLS deletes nothing and
+        // still reports success, so compare counts instead of relying on an error
+        if (clearErr || (deleted?.length ?? 0) < existing.length) {
+          feedbackCleared = false;
+          console.error(
+            'feedback clear failed; apply migration 20261008000200_feedback_undo.sql:',
+            clearErr?.message ?? `deleted ${deleted?.length ?? 0} of ${existing.length} rows`
+          );
         }
+      }
 
+      // If the old dismissal could not be removed it still applies; adding another would double the penalty
+      if (parsed.data.status === 'dismissed' && feedbackCleared) {
+        const reason = parsed.data.reason ?? PENALISING_REASON;
+        const penalise = reason === PENALISING_REASON;
+        let negativeTerms = penalise ? parsed.data.negative_terms || [] : [];
+        // Old clients send no terms: fall back to the call's distinctive title words
+        if (penalise && negativeTerms.length === 0 && parsed.data.negative_terms === undefined) {
+          const { data: oppData } = await supabase.from('opportunities').select('title').eq('id', id).single();
+          negativeTerms = oppData?.title ? suggestTopicTerms(oppData.title) : [];
+        }
+        const note = parsed.data.feedback_text?.trim();
         const { error: fbErr } = await supabase.from('feedback').insert({
           opportunity_id: id,
           faculty_id: profileId,
-          rating: 'not_relevant',
-          feedback_text: parsed.data.feedback_text || 'Dismissed by faculty',
+          rating: penalise && negativeTerms.length > 0 ? 'not_relevant' : 'neutral',
+          feedback_text: `${DISMISSAL_MARKER}${reason}]${note ? ` ${note}` : ''}`,
           negative_terms: negativeTerms
         });
         if (fbErr) {
@@ -112,7 +151,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     }
 
-    return createSuccessResponse({ status: parsed.data.status }, req);
+    return createSuccessResponse({ status: parsed.data.status, feedback_cleared: feedbackCleared }, req);
   } catch (err: any) {
     return createErrorResponse('INTERNAL_SERVER_ERROR', err.message, 500, req);
   }

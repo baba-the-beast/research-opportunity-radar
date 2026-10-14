@@ -156,3 +156,26 @@ def test_non_http_pdf_links_are_dropped():
         {"title": "Call for proposals", "url": "https://dbt.gov.in/c", "pdf_url": "javascript:alert(1)", "deadline": "31-12-2099"}, "DBT"
     )
     assert "pdf_url" not in opp.metadata
+
+
+def test_end_date_is_a_deadline_cue():
+    # DRDO DFTM call page, 2026-10-14
+    assert latest_cued_deadline("Call for Proposals - DFTM invites research proposals. Start Date 01-10-2026 End Date 31-12-2026") == "2026-12-31"
+
+
+def test_rolling_dbt_call_has_no_fixed_deadline():
+    from radar.sources.agencies.dbt_adapter import parse_dbt_calls
+    [call] = parse_dbt_calls([{"title": "Rolling Advertisement: Letter of Intent (LoI) invited for Translational Biotechnology "
+                               "Research Networks", "start_date": "08-09-2025", "end_date": "07-09-2027",
+                               "file_url": "https://dbt.gov.in/storage/media/tbrn.pdf"}])
+    assert call["rolling"] is True and call["deadline"] is None
+
+
+def test_call_page_saying_it_has_ended_is_skipped_as_closed():
+    opp, reason = scan._call_to_opportunity({
+        "title": "Applications are invited from students of AICTE approved Institutions for Mitacs Globalink Research Internship",
+        "url": "https://www.aicte.gov.in/mitacs",
+        "eligibility_clause": "The Globalink Research Internship (GRI) call for Summer 2027 student applications has now concluded, "
+                              "and we are no longer accepting applications.",
+    }, "AICTE")
+    assert opp is None and reason == "closed"

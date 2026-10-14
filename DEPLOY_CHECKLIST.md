@@ -40,7 +40,7 @@ Per-user settings (relevance band, minimum score, sources, channels) live in the
 
 ## 2. Docker Build & Container Specifications
 
-- Container Structure (`Dockerfile`): Multi-stage image on `python:3.11-slim` with Node.js 22 LTS installed.
+- Container Structure (`Dockerfile`): Multi-stage image on `python:3.11-slim` with Node.js 22 copied from the pinned builder stage.
 - Pre-cached ML Weights: Downloads and caches `sentence-transformers/all-MiniLM-L6-v2` during image build.
 - Port: Exposes port `3000` (Next.js Observatory console + background orchestrator).
 - Resource Sizing:
@@ -67,6 +67,19 @@ Per-user settings (relevance band, minimum score, sources, channels) live in the
    where email = 'you@example.com';
   ```
   (sign out and in again afterwards).
+- Research office (R&D cell) accounts:
+  `python scripts/set_role.py dean.rnd@university.ac.in research_office --institution "COEP Technological University"`.
+  Name the institution exactly as its faculty write it (case and spacing do not matter); the call page
+  shows how many faculty profiles match. The office cannot change it from its own profile
+  (migration `20261015000000_office_institution_from_role.sql`); existing office accounts must be re-run
+  with `--institution`.
+- October 2026 migrations, all safe to re-run: `20261013000000_source_health.sql` (source checks),
+  `20261013000100_eligibility_corrections.sql` ("Is this wrong?" on eligibility checks),
+  `20261013000200_research_office.sql` (institution notes and internal deadlines),
+  `20261013000300_pilot_metrics.sql` (the Pilot results page), `20261015000000_office_institution_from_role.sql`
+  (a research office's institution comes from its role),
+  `20261014000000_institution_suggestions.sql` (institution names in the profile picker). Until they are applied those features
+  are hidden or say a database update is needed; nothing else breaks.
 
 ---
 
@@ -76,7 +89,9 @@ Per-user settings (relevance band, minimum score, sources, channels) live in the
    (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CROSSREF_MAILTO`).
 2. Migrations applied; run the Supabase security advisor afterwards.
 3. Web host: `SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (build and runtime).
-4. Operator role set (above); `GITHUB_PAT` + `GITHUB_REPO` on the web host for **Scan now**.
+4. Operator role set (above); `GITHUB_PAT` + `GITHUB_REPO` on the web host for **Scan now** and for
+   scoring a profile right after it is saved (`.github/workflows/rescore.yml`; without them scores
+   update on the next scheduled scan).
 5. Run the workflow once from the Actions tab (or **Scan now**) and check `python scripts/probe_sources.py`
    passes for every source.
 6. Optional: Brevo (email), Telegram (see README → Telegram Alerts), Gemini/OpenAI (Copilot),
