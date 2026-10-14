@@ -322,8 +322,8 @@ def test_anrf_inclusivity_grant_real_text():
     assert verdicts["REGULAR_POSITION"] == "PASS"
     assert verdicts["PHD_REQUIRED"] == "PASS"
     assert verdicts["RESERVED_CATEGORY"] == "NEEDS_MANUAL_REVIEW"
-    assert verdicts["ONGOING_PROJECT"] == "WARNING"
-    assert report.summary == "Check before applying: only for SC/ST researchers."
+    assert verdicts["ONGOING_PROJECT"] == "NEEDS_MANUAL_REVIEW"
+    assert report.summary == "Check before applying: only for SC/ST researchers; whether you hold an ongoing project under this scheme."
 
 
 def test_women_only_scheme_is_flagged_but_encouragement_is_not():
@@ -346,3 +346,68 @@ def test_service_left_reads_number_words():
     text = "Applicants should have at least three years of service left before superannuation."
     report = EligibilityAgent().evaluate_opportunity(_call(text), _indian(superannuation_year=today_ist().year + 2))
     assert _verdicts(report)["SERVICE_BEFORE_SUPERANNUATION"] == "FAIL"
+
+
+# Who a call is for: real wording from calls found on 2026-10-14
+
+def _real(title: str, eligibility: str = "", summary: str = "") -> Opportunity:
+    return Opportunity(kind="funding", title=title, summary=summary, agency_or_publisher="X",
+                       metadata={"eligibility_clause": eligibility})
+
+
+_SENIOR_FACULTY = dict(designation="Professor", employment_type="regular", superannuation_year=2039, phd_year=2001)
+
+
+def test_retired_scientists_scheme_is_not_for_serving_faculty():
+    opp = _real("Prime Minister Professorship", "Eligibility Criteria for Prime Minister Professorship: Superannuated or retired "
+                "faculty or scientists from reputed Indian institutions, research laboratories or from private institutions.")
+    agent = EligibilityAgent()
+    assert _verdicts(agent.evaluate_opportunity(opp, _indian(**_SENIOR_FACULTY)))["APPLICANT_TYPE"] == "FAIL"
+    assert _verdicts(agent.evaluate_opportunity(opp, _indian(superannuation_year=2020)))["APPLICANT_TYPE"] == "PASS"
+    assert _verdicts(agent.evaluate_opportunity(opp, _indian()))["APPLICANT_TYPE"] == "NEEDS_MANUAL_REVIEW"
+
+
+def test_fellowship_for_scientists_abroad_is_not_for_faculty_in_india():
+    opp = _real("Ramanujan Fellowship", "Eligibility The Fellowship is open to brilliant Indian/Indian Origin scientists and engineers "
+                "from abroad who are below the age of 40 years.",
+                "Ramanujan Fellowship is meant for brilliant Indian/Indian Origin scientists and engineers from outside India.")
+    report = EligibilityAgent().evaluate_opportunity(opp, _indian(**_SENIOR_FACULTY))
+    assert _verdicts(report)["APPLICANT_TYPE"] == "FAIL"
+    assert report.status == "DISQUALIFIED"
+
+
+def test_intramural_call_is_only_for_the_agencys_own_institutes():
+    summary = ("Indian Council of Medical Research (ICMR) under its Intramural Research Program invites biomedical research "
+               "proposals from ICMR institutes intended to conduct high risk, high reward research.")
+    opp = _real("Call for proposals under- ICMR-Intramural Research Program - 2026", summary=summary)
+    agent = EligibilityAgent()
+    assert _verdicts(agent.evaluate_opportunity(opp, _indian(**_SENIOR_FACULTY)))["APPLICANT_TYPE"] == "FAIL"
+    icmr = FacultyProfile(full_name="A", institution="ICMR-National Institute of Virology", citizenship_status="Indian citizen")
+    assert _verdicts(agent.evaluate_opportunity(opp, icmr))["APPLICANT_TYPE"] == "PASS"
+
+
+def test_student_and_postdoc_schemes_are_not_for_faculty():
+    agent = EligibilityAgent()
+    for title in ("Schedule for Inviting of applications under AICTE POST DOCTORAL FELLOWSHIP (APDF) SCHEME FOR A/Y 2025-26",
+                  "Applications are invited from students of AICTE approved Institutions for Mitacs Globalink Research Internship"):
+        assert _verdicts(agent.evaluate_opportunity(_real(title), _indian(**_SENIOR_FACULTY)))["APPLICANT_TYPE"] == "FAIL", title
+
+
+def test_calls_open_to_teachers_or_researchers_stay_open_to_faculty():
+    agent = EligibilityAgent()
+    srfp = _real("Science Academies Summer Research Fellowship Program for Students and Teachers - 2026",
+                 "Applications are invited from motivated students and teachers from all universities and colleges.")
+    its = _real("International Travel Support (ITS)", "Eligibility : Applicant should be an active Indian researcher engaged in R&D "
+                "work in recognized academic institutions. Similar invitation is required in the case of young scientists attending "
+                "training programmes such as short term courses.")
+    crg = _real("Core Research Grant", "Overseas collaborators may join. Postdoctoral fellows can be hired on the project.")
+    for opp in (srfp, its, crg):
+        assert "APPLICANT_TYPE" not in _verdicts(agent.evaluate_opportunity(opp, _indian(**_SENIOR_FACULTY))), opp.title
+
+
+def test_ongoing_project_bar_asks_the_researcher_to_check():
+    opp = _call("PIs with ongoing projects under the scheme are not eligible to apply.")
+    report = EligibilityAgent().evaluate_opportunity(opp, _indian())
+    assert _verdicts(report)["ONGOING_PROJECT"] == "NEEDS_MANUAL_REVIEW"
+    assert report.status == "NEEDS_MANUAL_REVIEW"
+    assert "ongoing project" in report.summary

@@ -154,6 +154,21 @@ _PHD_REQUIRED = re.compile(r"\b(?:should|must|shall)\s+(?:hold|possess|have)\s+(
 _ONGOING_PROJECT_BAR = re.compile(
     r"\b(?:ongoing|running|active)\s+(?:projects?|grants?)\s+under\s+(?:the\s+)?[^.]{0,140}?(?:are|is|will\s+be)\s+not\s+eligible", re.I,
 )
+# Who a call is for. A faculty member in India cannot apply to schemes for retired scientists, for
+# scientists working abroad, for students or postdocs, or to an agency's intramural (own-staff) calls.
+_RETIRED_ONLY = re.compile(r"\b(?:superannuated|retired)\s+(?:or\s+(?:superannuated|retired)\s+)?(?:faculty|scientists?|professors?|teachers?)\b", re.I)
+_NEGATED_AFTER = re.compile(r"^[^.]{0,60}\b(?:not eligible|cannot apply|are excluded|need not apply)\b", re.I)
+_ABROAD_ONLY = re.compile(
+    r"\b(?:meant for|open to|only for|intended for|exclusively for)\b[^.]{0,90}?"
+    r"\b(?:from outside india|from abroad|working abroad|based abroad|working outside india)\b", re.I,
+)
+_STUDENT_SCHEME = re.compile(
+    r"\b(?:post[\s-]?doctoral\s+fellowships?|internships?|scholarships?|"
+    r"(?:from|for)\s+(?:(?:ug|pg|undergraduate|postgraduate|ph\.?\s?d|doctoral)\s+)?students)\b", re.I,
+)
+_STAFF_OR_RESEARCHER = re.compile(r"\b(?:teachers?|faculty|researchers?|scientists?|investigators?)\b", re.I)
+_OWN_INSTITUTES = re.compile(r"\bproposals?\s+from\s+(ICMR|CSIR|ICAR|DRDO)\s+(?:institutes|laboratories|labs)\b", re.I)
+_AGENCY_NAME = re.compile(r"\b(ICMR|CSIR|ICAR|DRDO)\b", re.I)
 _COST_SHARING = re.compile(r"(cost[\s-]sharing is (?:required|mandatory)|mandatory cost match|matching (?:contribution|share) (?:is )?(?:required|mandatory))", re.I)
 
 
@@ -209,6 +224,8 @@ CHECK_LABELS = {
     "RESERVED_CATEGORY": "only for SC/ST researchers",
     "INSTITUTION_TYPE": "the institution-type condition",
     "PHD_REQUIRED": "the PhD requirement",
+    "APPLICANT_TYPE": "who can apply",
+    "ONGOING_PROJECT": "whether you hold an ongoing project under this scheme",
 }
 
 
@@ -291,13 +308,18 @@ class EligibilityAgent:
         # The scheme's own identity: its title and the first sentence of its summary
         identity = opp.title + " " + (opp.summary or "").split(".")[0]
         self._check_career_stage(text, identity, profile, checks, actions)
+        # Only the call's own statement of who applies: passing mentions elsewhere ("postdocs can be hired") don't count
+        self._check_applicant_type(opp.title, identity + " " + str(meta.get("eligibility_clause") or ""), opp, profile, checks)
         has_limited = self._check_limited_submission(text, checks, actions)
         self._check_cost_sharing(text, checks, actions)
 
         verdicts = {c.verdict for c in checks}
         if "FAIL" in verdicts:
-            failed = [c.rule_name.replace("_", " ").lower() for c in checks if c.verdict == "FAIL"]
-            report = EligibilityReport("DISQUALIFIED", 0.9, f"Not eligible: the call's {', '.join(failed)} requirement is not met.", checks, actions)
+            failed = [c for c in checks if c.verdict == "FAIL"]
+            # Who-can-apply reasons read as a sentence ("This scheme is for students..."); others name the rule
+            why = failed[0].reason if failed[0].rule_name == "APPLICANT_TYPE" else (
+                f"the call's {', '.join(c.rule_name.replace('_', ' ').lower() for c in failed)} requirement is not met.")
+            report = EligibilityReport("DISQUALIFIED", 0.9, f"Not eligible: {why}", checks, actions)
         elif "NEEDS_MANUAL_REVIEW" in verdicts:
             to_check = [CHECK_LABELS.get(c.rule_name, c.rule_name.replace("_", " ").lower()) for c in checks if c.verdict == "NEEDS_MANUAL_REVIEW"]
             report = EligibilityReport(
@@ -468,7 +490,8 @@ class EligibilityAgent:
     def _check_ongoing_project(self, text, checks, actions) -> None:
         match = _ONGOING_PROJECT_BAR.search(text)
         if match:
-            checks.append(ComplianceCheckResult("ONGOING_PROJECT", "WARNING",
+            # A check, not a warning: holding such a project rules you out, and the profile can't tell
+            checks.append(ComplianceCheckResult("ONGOING_PROJECT", "NEEDS_MANUAL_REVIEW",
                 "You cannot apply while you hold an ongoing project under this scheme.", _excerpt(text, match)))
             actions.append("Check that you have no ongoing project under this scheme.")
 
@@ -514,6 +537,40 @@ class EligibilityAgent:
             senior = _is_senior(stage)
             checks.append(ComplianceCheckResult("CAREER_STAGE_ELIGIBILITY", "PASS" if senior else "FAIL",
                 "The call is restricted to senior researchers." + ("" if senior else f" The profile says '{stage}'."), excerpt))
+
+    def _check_applicant_type(self, title, scope, opp, profile, checks) -> None:
+        retired = next((m for m in _RETIRED_ONLY.finditer(scope) if not _NEGATED_AFTER.search(scope[m.end():])), None)
+        if retired:
+            excerpt = _excerpt(scope, retired)
+            year = profile.superannuation_year
+            if year and year <= today_ist().year:
+                checks.append(ComplianceCheckResult("APPLICANT_TYPE", "PASS", "The scheme is for retired scientists; the profile says you have retired.", excerpt))
+            elif year:
+                checks.append(ComplianceCheckResult("APPLICANT_TYPE", "FAIL",
+                    f"The scheme is for retired scientists, overseas scientists or industry experts; you retire in {year}.", excerpt))
+            else:
+                checks.append(ComplianceCheckResult("APPLICANT_TYPE", "NEEDS_MANUAL_REVIEW",
+                    "The scheme is for retired scientists, overseas scientists or industry experts, not serving faculty.", excerpt))
+            return
+        abroad = _ABROAD_ONLY.search(scope)
+        if abroad:
+            checks.append(ComplianceCheckResult("APPLICANT_TYPE", "FAIL",
+                "The scheme is for Indian-origin scientists working abroad who want to move to India.", _excerpt(scope, abroad)))
+            return
+        own = _OWN_INSTITUTES.search(scope)
+        agency = own or (_AGENCY_NAME.search(title + " " + scope) if re.search(r"intramural", title, re.I) else None)
+        if agency:
+            name = agency.group(1).upper()
+            if name.lower() in (profile.institution or "").lower():
+                checks.append(ComplianceCheckResult("APPLICANT_TYPE", "PASS", f"An intramural call for {name} institutes; you are at one.", None))
+            else:
+                checks.append(ComplianceCheckResult("APPLICANT_TYPE", "FAIL",
+                    f"An intramural call: only scientists at {name}'s own institutes can apply.", _excerpt(scope, own) if own else title))
+            return
+        student = _STUDENT_SCHEME.search(title)
+        if student and not _STAFF_OR_RESEARCHER.search(title + " " + str((opp.metadata or {}).get("eligibility_clause") or "")):
+            checks.append(ComplianceCheckResult("APPLICANT_TYPE", "FAIL",
+                "This scheme is for students or postdoctoral fellows, not faculty. You may want to share it with your students.", title))
 
     def _check_limited_submission(self, text, checks, actions) -> bool:
         match = _LIMITED_SUBMISSION.search(text)

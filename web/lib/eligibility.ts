@@ -22,6 +22,29 @@ export function eligibilityLine(verdict?: EligibilityVerdict | null): string | n
   return verdict.summary.replace(/\s*Confirm with the official call document\.?$/, '');
 }
 
+/** Plain names for the checks in radar/agents/eligibility_agent.py; unknown ones fall back to the rule name. */
+const RULE_LABELS: Record<string, string> = {
+  CITIZENSHIP_SECURITY_CLEARANCE: 'Nationality',
+  AGE_LIMIT: 'Age limit',
+  SERVICE_BEFORE_SUPERANNUATION: 'Years of service left before retirement',
+  REGULAR_POSITION: 'Regular post',
+  REGION: 'North-East only',
+  CAREER_STAGE_ELIGIBILITY: 'Career stage',
+  WOMEN_ONLY: 'Only for women researchers',
+  RESERVED_CATEGORY: 'Only for SC/ST researchers',
+  INSTITUTION_TYPE: 'Institution type',
+  PHD_REQUIRED: 'PhD required',
+  APPLICANT_TYPE: 'Who can apply',
+  ONGOING_PROJECT: 'No ongoing project under this scheme',
+  LIMITED_SUBMISSION_QUOTA: 'Limited proposals per institution',
+  COST_SHARING_REQUIREMENT: 'Institutional contribution'
+};
+
+export function ruleLabel(rule: string): string {
+  const t = rule.replace(/_/g, ' ').trim().toLowerCase();
+  return RULE_LABELS[rule] ?? t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 /** What a user can say about one eligibility check (eligibility_corrections.correction). */
 export const CORRECTIONS = [
   { value: 'i_meet_it', label: 'I do meet this' },

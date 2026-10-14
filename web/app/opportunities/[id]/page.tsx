@@ -6,7 +6,7 @@ import { safeExternalUrl } from '@/lib/safeUrl';
 import { formatDeadline, formatIstDateTime, daysUntil } from '@/lib/dates';
 import { bandLabel, bandTextClass, isGoodMatch, kindName } from '@/lib/match';
 import { SendToTelegram } from '@/components/SendToTelegram';
-import { eligibilityLabel } from '@/lib/eligibility';
+import { eligibilityLabel, ruleLabel } from '@/lib/eligibility';
 import { EligibilityCorrection } from '@/components/EligibilityCorrection';
 import { InstitutionNotePanel } from '@/components/InstitutionNotePanel';
 import { ApplicationPanel } from '@/components/ApplicationPanel';
@@ -481,7 +481,7 @@ export default function OpportunityDetailPage({ params }: { params: Promise<{ id
                     return (
                       <li key={i} className="py-3 flex flex-col gap-1">
                         <div className="flex items-center justify-between gap-3">
-                          <span className="text-body-sm font-semibold text-on-surface">{sentence(chk.rule_name)}</span>
+                          <span className="text-body-sm font-semibold text-on-surface">{ruleLabel(chk.rule_name)}</span>
                           <Badge tone={v.tone}>{v.text}</Badge>
                         </div>
                         <p className="text-body-sm text-on-surface-variant">{chk.reason}</p>
