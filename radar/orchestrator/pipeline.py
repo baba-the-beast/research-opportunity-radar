@@ -79,6 +79,22 @@ def _union_keywords(profiles: list[FacultyProfile], rotation: int = 0) -> list[s
     return [merged[(start + i) % len(merged)] for i in range(MAX_SCAN_KEYWORDS)]
 
 
+def _external_error(summary: Any, message: str) -> None:
+    """A problem outside the app (a funder site down or blocking us, a dropped call): reported in the
+    run like any error, but it does not by itself make the scheduled job fail."""
+    summary.errors.append(message)
+    summary.external_errors.append(message)
+
+
+def exit_code(summary: Any) -> int:
+    """2 when the run failed or hit an internal error; 0 when everything that went wrong was outside
+    the app (those are reported through source health instead of failing the scheduled job)."""
+    if summary.status == "success":
+        return 0
+    internal = [e for e in summary.errors if e not in summary.external_errors]
+    return 2 if summary.status == "failed" or internal else 0
+
+
 def _check_source_health(run_id: str, stats: list[SourceStat], summary: Any, notify: bool) -> None:
     """Record what each source listed, and alert the operator when one failed or suddenly went empty.
     Never fails the run."""
@@ -88,7 +104,7 @@ def _check_source_health(run_id: str, stats: list[SourceStat], summary: Any, not
         issues = source_health.find_issues(stats, history)
         for issue in issues:
             if issue.kind == "suddenly_empty":  # errors are already in summary.errors
-                summary.errors.append(issue.message)
+                _external_error(summary, issue.message)
         if issues and notify:
             telegram.send(source_health.alert_text(issues))  # operator chat (TELEGRAM_CHAT_ID)
     except Exception as e:
@@ -268,7 +284,7 @@ def run_pipeline(
             failed_sources.extend(agency_errors)
             for err in agency_errors:
                 logger.error(f"Agency source failed: {err['error']}", run_id=run_id, source_name=err["source"], error_category="source_error")
-                summary.errors.append(f"{err['source']} unavailable: {err['error']}")
+                _external_error(summary, f"{err['source']} unavailable: {err['error']}")
             db.finish_source_run(
                 sr_id, status="partial_failure" if agency_errors else "success", request_count=len(agencies),
                 inserted_count=len(funding_items), error_count=len(agency_errors), latency_ms=lat,
@@ -291,7 +307,8 @@ def run_pipeline(
             # One entry per failing source, not per failed keyword request
             discovery_errors = list({e["source"]: e for e in discovery_agent.errors}.values())
             failed_sources.extend(discovery_errors)
-            summary.errors.extend(f"{e['source']} unavailable: {e['error']}" for e in discovery_errors)
+            for e in discovery_errors:
+                _external_error(summary, f"{e['source']} unavailable: {e['error']}")
             db.finish_source_run(
                 sr_id, status="partial_failure" if discovery_errors else "success", request_count=1,
                 inserted_count=len(discovered), error_count=len(discovery_errors), latency_ms=lat,
@@ -369,7 +386,7 @@ def run_pipeline(
                 accepted.append((opp, "accepted"))
             else:
                 rejected.append((opp, reason or "rejected"))
-                summary.errors.append(reason or "rejected")
+                _external_error(summary, reason or "rejected")
 
         if telemetry_callback:
             telemetry_callback({
@@ -595,7 +612,11 @@ if __name__ == "__main__":
             # Non-zero so the scheduled workflow's failure alert fires for partial failures too
             for err in res.errors[:10]:
                 print(f"  - {err}", file=sys.stderr, flush=True)
-            sys.exit(2)
+            if exit_code(res):
+                sys.exit(2)
+            # Only outside problems (e.g. one agency blocking the runner): the operator already got a
+            # source-health alert; a red job and a "pipeline failed" alert on every scan would hide real failures
+            print(f"::warning::{len(res.external_errors)} source problem(s); see the run log and source health", flush=True)
     except config.ConfigurationError as ce:
         print(f"\n{ce}\n", file=sys.stderr, flush=True)
         sys.exit(1)

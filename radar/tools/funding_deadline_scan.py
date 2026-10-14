@@ -51,6 +51,8 @@ def _only_past_years(title: str) -> bool:
 def _call_to_opportunity(call: dict, agency_name: str) -> tuple[Opportunity | None, str]:
     """Build an Opportunity from an adapter's call dict. Returns (None, reason) for calls to skip."""
     title = " ".join(str(call.get("title") or "").split())
+    # Agency pages put stray spaces in hrefs (ICMR: ".pdf "); kept, they become 404 links
+    call = {**call, **{k: str(call[k]).strip() for k in ("url", "pdf_url") if call.get(k)}}
     url = call.get("url")
     if not title or not is_http_url(url):
         # No usable http(s) link: can't be acted on, would collide in dedup, and a scraped

@@ -149,3 +149,15 @@ def test_empty_robots_and_dbt_style_allow_scraping(monkeypatch):
 
 
 
+
+
+def test_compressed_robots_txt_is_not_mistaken_for_truncation():
+    """DST serves its 23-byte robots.txt gzip-compressed (43 bytes on the wire). The declared length
+    counts the compressed bytes, so it must not be compared with the unpacked text."""
+    from types import SimpleNamespace
+
+    from scripts.verify_live_robots_compliance import declared_length
+
+    assert declared_length(SimpleNamespace(headers={"Content-Encoding": "gzip", "Content-Length": "43"})) is None
+    assert declared_length(SimpleNamespace(headers={"Content-Length": "43"})) == 43
+    assert declared_length(SimpleNamespace(headers={"Content-Encoding": "identity", "Content-Length": "43"})) == 43

@@ -161,3 +161,6 @@ class RunSummary:
     opportunities_found: int = 0
     opportunities_new: int = 0
     errors: list[str] = field(default_factory=list)
+    # The subset of errors caused outside the app (a funder site down or blocking us, a source that
+    # suddenly lists nothing, a call the governance gate dropped). Reported, but not a failed run.
+    external_errors: list[str] = field(default_factory=list)
