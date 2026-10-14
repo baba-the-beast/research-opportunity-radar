@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable
 from functools import partial
 
-from radar.deadlines.deadline_engine import lifecycle_status, parse_deadline, today_ist
+from radar.deadlines.deadline_engine import lifecycle_status, parse_deadline, says_closed, today_ist
 from radar.dedup import fingerprint
 from radar.models import Opportunity, OpportunityDeadline, OpportunitySource
 from radar.monitoring.source_health import SourceStat
@@ -65,6 +65,8 @@ def _call_to_opportunity(call: dict, agency_name: str) -> tuple[Opportunity | No
     lifecycle = lifecycle_status(title, [dl_date])
     if lifecycle == "unknown" and not call.get("rolling") and _only_past_years(title):
         lifecycle = "closed"  # "Call for Nomination ... Fellowship 2025" with no readable date: an old round
+    if lifecycle in ("unknown", "open") and not (dl_date and dl_date >= today_ist()) and says_closed(" ".join(str(call.get(k) or "") for k in ("summary", "eligibility_clause"))):
+        lifecycle = "closed"  # the call page itself says applications have ended
     if lifecycle in ("result_notice", "closed"):
         return None, lifecycle
 
