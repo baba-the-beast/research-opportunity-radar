@@ -1,9 +1,8 @@
 """Brevo transactional email notification provider."""
-import html
-
 import requests
 
 from radar import config
+from radar.notify.email_html import markdown_to_email_html, markdown_to_text
 
 
 def send(subject: str, markdown_text: str, recipient: str | None = None) -> None:
@@ -18,14 +17,13 @@ def send(subject: str, markdown_text: str, recipient: str | None = None) -> None
         "Content-Type": "application/json"
     }
 
-    # Escape: digest text includes scraped titles/summaries
-    html_content = f"<html><body><pre style='font-family: sans-serif;'>{html.escape(markdown_text)}</pre></body></html>"
-
     payload = {
         "sender": {"email": config.BREVO_SENDER_EMAIL, "name": "Research Radar"},
         "to": [{"email": to_email}],
         "subject": subject,
-        "htmlContent": html_content
+        # Formatted email, with a plain-text copy for clients (and spam filters) that want one
+        "htmlContent": markdown_to_email_html(markdown_text, title=subject),
+        "textContent": markdown_to_text(markdown_text)
     }
 
     res = requests.post(url, json=payload, headers=headers, timeout=10)
