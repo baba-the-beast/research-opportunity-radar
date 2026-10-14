@@ -179,3 +179,15 @@ def test_call_page_saying_it_has_ended_is_skipped_as_closed():
                               "and we are no longer accepting applications.",
     }, "AICTE")
     assert opp is None and reason == "closed"
+
+
+def test_stray_spaces_in_scraped_links_are_trimmed():
+    # ICMR listing, Oct 2026: the DHR call's href ended in ".pdf " and the stored link was a 404
+    opp, _ = scan._call_to_opportunity({
+        "title": "Call for Research Proposals (Only for the Northeastern States)",
+        "url": "https://www.dhr.gov.in/static/uploads/2026/09/d91d1e166a69046f76f715a50554ee3b.pdf ",
+        "pdf_url": " https://www.dhr.gov.in/static/uploads/2026/09/d91d1e166a69046f76f715a50554ee3b.pdf ",
+        "deadline": "30.11.2099",
+    }, "ICMR")
+    assert opp.primary_source_url == "https://www.dhr.gov.in/static/uploads/2026/09/d91d1e166a69046f76f715a50554ee3b.pdf"
+    assert opp.metadata["pdf_url"].endswith(".pdf") and not opp.metadata["pdf_url"].startswith(" ")

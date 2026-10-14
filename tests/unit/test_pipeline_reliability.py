@@ -130,3 +130,26 @@ def test_preferred_sources_are_attached_and_mapped():
     assert default.preferred_sources is None
     assert pipeline._source_names_for(us) == {"ANRF", "Grants.gov", "NSF Solicitations Feed"}
     assert "WikiCFP" in pipeline._source_names_for(default) and "Grants.gov" not in pipeline._source_names_for(default)
+
+
+def test_a_blocked_agency_alone_does_not_fail_the_scheduled_job():
+    # 14 Oct 2026: AICTE answered 403 to the GitHub runner while every other source worked
+    from datetime import UTC, datetime
+
+    from radar.models import RunSummary
+    from radar.orchestrator.pipeline import _external_error, exit_code
+
+    def summary(status):
+        return RunSummary(run_id="r", started_at=datetime.now(UTC), status=status)
+
+    blocked = summary("partial_failure")
+    _external_error(blocked, "AICTE unavailable: https://www.aicte.gov.in/ returned HTTP 403")
+    assert exit_code(blocked) == 0
+
+    broken = summary("partial_failure")
+    _external_error(broken, "AICTE unavailable: HTTP 403")
+    broken.errors.append("Alert error for profile p1: timeout")
+    assert exit_code(broken) == 2
+
+    assert exit_code(summary("failed")) == 2
+    assert exit_code(summary("success")) == 0

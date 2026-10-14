@@ -98,18 +98,14 @@ def fetch_robots_with_retry(url: str, max_retries: int = 3, timeout: float = 20.
     for attempt in range(1, max_retries + 1):
         try:
             resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
-            cl_hdr = resp.headers.get("Content-Length")
-            cl_int = int(cl_hdr) if cl_hdr and cl_hdr.isdigit() else None
-            return resp.status_code, resp.text, resp.content, "", cl_int
+            return resp.status_code, resp.text, resp.content, "", declared_length(resp)
         except requests.exceptions.SSLError:
             # Indian government portals often omit intermediate CAs: retry with the bundled ones
             # (radar/sources/certs) instead of turning verification off
             try:
                 from radar.sources.http import ca_bundle
                 resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True, verify=ca_bundle())
-                cl_hdr = resp.headers.get("Content-Length")
-                cl_int = int(cl_hdr) if cl_hdr and cl_hdr.isdigit() else None
-                return resp.status_code, resp.text, resp.content, "(verified with bundled intermediate CAs)", cl_int
+                return resp.status_code, resp.text, resp.content, "(verified with bundled intermediate CAs)", declared_length(resp)
             except Exception as e:
                 last_err = f"SSLError fallback failed: {e}"
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
@@ -121,6 +117,16 @@ def fetch_robots_with_retry(url: str, max_retries: int = 3, timeout: float = 20.
             break
 
     return 0, "", b"", last_err, None
+
+
+def declared_length(resp) -> int | None:
+    """The body length the server declared, comparable with len(resp.content). None for a compressed
+    response: its Content-Length counts the gzip/br bytes, while requests hands back the unpacked
+    text (DST's 23-byte robots.txt arrives as 43 gzip bytes, which is not truncation)."""
+    if resp.headers.get("Content-Encoding", "identity").strip().lower() not in ("", "identity"):
+        return None
+    cl_hdr = resp.headers.get("Content-Length")
+    return int(cl_hdr) if cl_hdr and cl_hdr.isdigit() else None
 
 
 def validate_robots_sanity(source: dict, text: str, raw_bytes: bytes, status_code: int, content_length_header: int | None = None) -> tuple[bool, str]:
