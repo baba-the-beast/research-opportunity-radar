@@ -1,6 +1,16 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { Markdown } from './Markdown';
+
+// What each tool did, in plain words, for the badges above an answer
+const TOOL_LABELS: Record<string, string> = {
+  searchOpportunities: 'Searched your calls',
+  getOpportunityDetails: 'Read call details',
+  getWhyRecommended: 'Checked why it matches',
+  getUserProfile: 'Read your profile',
+  saveOpportunity: 'Saved a call'
+};
 
 interface ChatEntry {
   id: string;
@@ -13,7 +23,7 @@ interface ChatEntry {
 const INITIAL_MESSAGE: ChatEntry = {
   id: 'welcome',
   role: 'assistant',
-  content: `### Ask about your calls\n\nI can help you find, compare and track calls:\n\n- **Search**: *"Find recent Edge AI grants"*\n- **Analyze**: *"Why was this opportunity recommended?"*\n- **Track**: *"Save opportunity <id>"*\n\nWhat would you like to know?`,
+  content: `**Hi! Ask me about your funding calls.** For example:\n\n- *Which open calls fit my research?*\n- *What closes before December?*\n- *Why was this call recommended to me?*`,
   timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 };
 
@@ -82,7 +92,7 @@ export function AiCopilot() {
           {
             id: Math.random().toString(36).slice(2),
             role: 'assistant',
-            content: `⚠️ **Error**: ${errorMsg}`,
+            content: `**Something went wrong.** ${errorMsg}`,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           }
         ]);
@@ -93,7 +103,7 @@ export function AiCopilot() {
         {
           id: Math.random().toString(36).slice(2),
           role: 'assistant',
-          content: `⚠️ **Network Error**: Unable to contact Copilot service. ${err.message}`,
+          content: '**Could not reach the Copilot.** Check your connection and try again.',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]);
@@ -140,7 +150,7 @@ export function AiCopilot() {
                 </h3>
                 <span className="font-data-mono-sm text-[11px] text-on-surface-variant flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-secondary inline-block animate-pulse"></span>
-                  Academic Intelligence Active
+                  Answers from your calls and profile
                 </span>
               </div>
             </div>
@@ -149,22 +159,24 @@ export function AiCopilot() {
               <button
                 onClick={() => setMessages([INITIAL_MESSAGE])}
                 className="p-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
-                title="Clear Conversation"
+                title="Start a new conversation"
+                aria-label="Start a new conversation"
               >
-                <span className="material-symbols-outlined text-[18px]">restart_alt</span>
+                <span className="material-symbols-outlined text-[18px]" aria-hidden="true">restart_alt</span>
               </button>
               <button
                 onClick={() => setOpen(false)}
                 className="p-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors"
-                title="Minimize Copilot"
+                title="Close"
+                aria-label="Close Copilot"
               >
-                <span className="material-symbols-outlined text-[18px]">close</span>
+                <span className="material-symbols-outlined text-[18px]" aria-hidden="true">close</span>
               </button>
             </div>
           </div>
 
           {/* Messages Area */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 font-body-sm text-body-sm">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 font-body-sm text-body-sm" aria-live="polite">
             {messages.map((m) => (
               <div
                 key={m.id}
@@ -185,17 +197,15 @@ export function AiCopilot() {
                           key={idx}
                           className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary-container/40 border border-secondary/30 text-secondary text-[11px] font-data-mono-sm"
                         >
-                          <span className="material-symbols-outlined text-[12px]">build</span>
-                          {t.name}
+                          <span className="material-symbols-outlined text-[12px]" aria-hidden="true">check</span>
+                          {TOOL_LABELS[t.name] ?? t.name}
                         </span>
                       ))}
                     </div>
                   )}
 
                   {/* Message Content */}
-                  <div className="whitespace-pre-wrap leading-relaxed">
-                    {m.content}
-                  </div>
+                  {m.role === 'assistant' ? <Markdown text={m.content} /> : <div className="whitespace-pre-wrap leading-relaxed">{m.content}</div>}
                 </div>
                 <span className="text-[10px] text-on-surface-variant/60 font-data-mono-sm mt-1 px-1">
                   {m.timestamp}
@@ -208,7 +218,7 @@ export function AiCopilot() {
                 <div className="p-3.5 rounded-xl bg-surface-container-lowest border border-outline-variant/30 text-on-surface flex items-center gap-2">
                   <span className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin"></span>
                   <span className="font-data-mono-sm text-[12px] text-on-surface-variant">
-                    Analyzing opportunity vectors...
+                    Looking through your calls…
                   </span>
                 </div>
               </div>
@@ -219,22 +229,22 @@ export function AiCopilot() {
           {/* Quick Prompt Chips */}
           <div className="px-3 py-2 bg-surface-container-lowest border-t border-outline-variant/20 flex items-center gap-1.5 overflow-x-auto text-[11px] whitespace-nowrap">
             <button
-              onClick={() => handleSend('Find AI and Robotics grant funding')}
+              onClick={() => handleSend('Which open calls fit my research?')}
               className="px-2.5 py-1 rounded-full bg-surface-container border border-outline-variant/40 hover:bg-surface-container-high transition-colors text-on-surface-variant"
             >
-              🔍 Find AI Funding
+              🔍 Calls for me
             </button>
             <button
-              onClick={() => handleSend('Show my active profile keywords')}
+              onClick={() => handleSend('Show my profile keywords')}
               className="px-2.5 py-1 rounded-full bg-surface-container border border-outline-variant/40 hover:bg-surface-container-high transition-colors text-on-surface-variant"
             >
-              👤 Profile Keywords
+              👤 My keywords
             </button>
             <button
-              onClick={() => handleSend('Search upcoming journal special issues')}
+              onClick={() => handleSend('Find journal special issues')}
               className="px-2.5 py-1 rounded-full bg-surface-container border border-outline-variant/40 hover:bg-surface-container-high transition-colors text-on-surface-variant"
             >
-              📚 Journal Issues
+              📚 Journal issues
             </button>
           </div>
 
@@ -244,7 +254,8 @@ export function AiCopilot() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask Copilot about calls, deadlines, or strategy..."
+              placeholder="Ask about calls, deadlines or eligibility…"
+              aria-label="Message to the Copilot"
               rows={1}
               className="flex-1 resize-none px-3.5 py-2 rounded-xl bg-surface-container-lowest border border-outline-variant/40 text-on-surface placeholder:text-on-surface-variant/40 text-body-sm focus:border-primary focus:outline-none max-h-24"
             />
@@ -252,9 +263,10 @@ export function AiCopilot() {
               onClick={() => handleSend()}
               disabled={loading || !input.trim()}
               className="p-2.5 rounded-xl bg-primary text-on-primary hover:bg-primary-fixed-dim transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-              title="Send Query"
+              title="Send"
+              aria-label="Send message"
             >
-              <span className="material-symbols-outlined text-[18px]">send</span>
+              <span className="material-symbols-outlined text-[18px]" aria-hidden="true">send</span>
             </button>
           </div>
         </div>

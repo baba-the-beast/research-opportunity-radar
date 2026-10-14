@@ -93,19 +93,21 @@ describe('AI Research Copilot Tests', () => {
       ctx
     );
 
-    expect(result.text).toContain('Academic Opportunities Discovered');
+    expect(result.text).toMatch(/open calls? for/);
     expect(result.text).toContain('NSF AI Institute');
+    // Calls link to their page in the app, never show a raw id on its own
+    expect(result.text).toContain('](/opportunities/opp-1)');
     expect(result.executedTools.length).toBeGreaterThan(0);
     expect(result.executedTools[0].name).toBe('searchOpportunities');
   });
 
-  it('handles profile queries and returns investigator node parameters', async () => {
+  it('handles profile queries and shows the profile in plain words', async () => {
     const result = await runCopilotTurn(
       [{ role: 'user', content: 'Show my active research profile keywords' }],
       ctx
     );
 
-    expect(result.text).toContain('Investigator Node Configuration');
+    expect(result.text).toContain('Your profile');
     expect(result.text).toContain('Dr. Alan Turing');
     expect(result.executedTools.some((t) => t.name === 'getUserProfile')).toBe(true);
   });
@@ -116,8 +118,8 @@ describe('AI Research Copilot Tests', () => {
       ctx
     );
 
-    expect(result.text).toContain('Recommendation Rationale Analysis');
-    expect(result.text).toContain('Thematic Fit');
+    expect(result.text).toContain('fits you');
+    expect(result.text).toContain('Words it shares with your profile');
     expect(result.executedTools.some((t) => t.name === 'getWhyRecommended')).toBe(true);
     // The rationale comes from the pipeline's real score, with not-applicable components left out
     const why = result.executedTools.find((t) => t.name === 'getWhyRecommended')!.result;
